@@ -1,0 +1,25 @@
+services:
+  udp-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile-udp  # 为 udp_agent.py 创建的 Dockerfile
+    container_name: udp-agent-container
+    ports:
+      - "38315:38315/udp"  # 映射容器的 UDP 端口到主机
+    environment:
+      - REDIS_HOST=localhost
+    volumes:
+      - .:/app  # 挂载当前目录到 `/app`
+    network_mode: host  # 使用 host 网络模式
+    restart: unless-stopped
+
+  simulated-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile-simulated  # 为 simulated_agent.py 创建的 Dockerfile
+    container_name: simulated-agent-container
+    environment:
+      - REDIS_HOST=localhost
+    volumes:
+      - .:/app  # 挂载当前目录到 `/app`
+    network_mode: host  # 使用 host 网络模式

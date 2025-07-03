@@ -1,0 +1,19 @@
+# 使用官方Python基础镜像
+FROM python:3.10-slim
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制当前目录下的所有文件到容器中的工作目录
+COPY . /app
+
+RUN pip install --upgrade pip
+
+# 安装所需的Python包
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 开放UDP端口（与应用程序监听的端口匹配）
+EXPOSE 38315/udp
+
+# 设置容器启动命令
+CMD ["python", "simulated_agent.py"]

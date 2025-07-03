@@ -1,0 +1,47 @@
+services:
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: kafka
+    ports:
+      - "19092:19092"  # 映射 EXTERNAL 端口
+      #- "9092:9092"    # 可选：容器内访问（调试用）
+    environment:
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_LISTENERS=INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://localhost:19092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_LOG_DIRS=/bitnami/kafka/data
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    volumes:
+      #- kafka-data:/bitnami/kafka
+      - type: tmpfs # 使用 tmpfs 存储，避免数据使用硬盘
+        target: /bitnami/kafka/data
+    networks:
+      - kafka-net
+      - bt_nms_bt_nms_network
+
+
+
+  kafka-proxy:
+    image: nginx:latest
+    container_name: kafka-proxy
+    depends_on:
+      - kafka
+    ports:
+      - "29092:19092"  # 可选，对外暴露代理端口
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - kafka-net
+
+#volumes:
+  #kafka-data:
+
+networks:
+  kafka-net:
+  bt_nms_bt_nms_network:
+    external: true

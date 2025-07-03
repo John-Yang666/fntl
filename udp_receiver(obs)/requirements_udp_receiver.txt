@@ -1,0 +1,5 @@
+redis==5.2.0          # 用于与 Redis 交互
+celery==5.4.0         # 用于分布式任务队列
+django==5.0.6         # Django 框架
+django-redis==5.4.0   # 用于将 Django 的缓存系统集成到 Redis
+requests==2.31.0      # 用于 HTTP 请求（如果 `udp_receiver` 需要通过 API 获取设备信息）

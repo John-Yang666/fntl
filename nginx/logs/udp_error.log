@@ -1,0 +1,1157 @@
+2024/11/19 02:20:19 [info] 29#29: *1 udp client 127.0.0.1:59186 connected to 0.0.0.0:38315
+2024/11/19 02:20:19 [info] 29#29: *1 udp proxy 127.0.0.1:62883 connected to 127.0.0.1:38316
+2024/11/19 02:21:49 [info] 29#29: *3 udp client 127.0.0.1:64058 connected to 0.0.0.0:38315
+2024/11/19 02:21:49 [info] 29#29: *3 udp proxy 127.0.0.1:57278 connected to 127.0.0.1:38316
+2024/11/19 02:23:20 [info] 29#29: *5 udp client 127.0.0.1:57224 connected to 0.0.0.0:38315
+2024/11/19 02:23:20 [info] 29#29: *5 udp proxy 127.0.0.1:61942 connected to 127.0.0.1:38316
+2024/11/19 02:24:50 [info] 29#29: *7 udp client 127.0.0.1:63258 connected to 0.0.0.0:38315
+2024/11/19 02:24:50 [info] 29#29: *7 udp proxy 127.0.0.1:63208 connected to 127.0.0.1:38316
+2024/11/19 02:26:20 [info] 29#29: *9 udp client 127.0.0.1:61558 connected to 0.0.0.0:38315
+2024/11/19 02:26:20 [info] 29#29: *9 udp proxy 127.0.0.1:65086 connected to 127.0.0.1:38316
+2024/11/19 02:27:51 [info] 29#29: *11 udp client 127.0.0.1:63036 connected to 0.0.0.0:38315
+2024/11/19 02:27:51 [info] 29#29: *11 udp proxy 127.0.0.1:60953 connected to 127.0.0.1:38316
+2024/11/19 02:29:21 [info] 29#29: *13 udp client 127.0.0.1:63425 connected to 0.0.0.0:38315
+2024/11/19 02:29:21 [info] 29#29: *13 udp proxy 127.0.0.1:62780 connected to 127.0.0.1:38316
+2024/11/19 02:30:51 [info] 29#29: *15 udp client 127.0.0.1:60566 connected to 0.0.0.0:38315
+2024/11/19 02:30:51 [info] 29#29: *15 udp proxy 127.0.0.1:59693 connected to 127.0.0.1:38316
+2024/11/19 02:31:47 [info] 29#29: *1 udp timed out, packets from/to client:75/0, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 02:32:22 [info] 29#29: *17 udp client 127.0.0.1:59285 connected to 0.0.0.0:38315
+2024/11/19 02:32:22 [info] 29#29: *17 udp proxy 127.0.0.1:64807 connected to 127.0.0.1:38316
+2024/11/19 02:33:18 [info] 29#29: *3 udp timed out, packets from/to client:75/0, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 02:33:52 [info] 29#29: *19 udp client 127.0.0.1:57288 connected to 0.0.0.0:38315
+2024/11/19 02:33:52 [info] 29#29: *19 udp proxy 127.0.0.1:60643 connected to 127.0.0.1:38316
+2024/11/19 02:34:48 [info] 29#29: *5 udp timed out, packets from/to client:75/0, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 02:35:22 [info] 29#29: *21 udp client 127.0.0.1:62676 connected to 0.0.0.0:38315
+2024/11/19 02:35:22 [info] 29#29: *21 udp proxy 127.0.0.1:58730 connected to 127.0.0.1:38316
+2024/11/19 02:36:18 [info] 29#29: *7 udp timed out, packets from/to client:75/0, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 02:36:44 [info] 23#23: *1 udp client 127.0.0.1:55635 connected to 0.0.0.0:38315
+2024/11/19 02:36:44 [info] 23#23: *1 udp proxy 127.0.0.1:60127 connected to 127.0.0.1:38316
+2024/11/19 02:36:44 [error] 23#23: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 02:38:15 [info] 23#23: *3 udp client 127.0.0.1:61627 connected to 0.0.0.0:38315
+2024/11/19 02:38:15 [info] 23#23: *3 udp proxy 127.0.0.1:59715 connected to 127.0.0.1:38316
+2024/11/19 02:39:35 [info] 23#23: *1 udp client 127.0.0.1:57214 connected to 0.0.0.0:38315
+2024/11/19 02:39:35 [info] 23#23: *1 udp proxy 127.0.0.1:61347 connected to 127.0.0.1:38316
+2024/11/19 02:39:35 [error] 23#23: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 02:41:05 [info] 23#23: *3 udp client 127.0.0.1:59578 connected to 0.0.0.0:38315
+2024/11/19 02:41:05 [info] 23#23: *3 udp proxy 127.0.0.1:65134 connected to 127.0.0.1:38316
+2024/11/19 02:42:36 [info] 23#23: *5 udp client 127.0.0.1:55144 connected to 0.0.0.0:38315
+2024/11/19 02:42:36 [info] 23#23: *5 udp proxy 127.0.0.1:63722 connected to 127.0.0.1:38316
+2024/11/19 02:44:06 [info] 23#23: *7 udp client 127.0.0.1:58248 connected to 0.0.0.0:38315
+2024/11/19 02:44:06 [info] 23#23: *7 udp proxy 127.0.0.1:64030 connected to 127.0.0.1:38316
+2024/11/19 02:45:36 [info] 23#23: *9 udp client 127.0.0.1:55105 connected to 0.0.0.0:38315
+2024/11/19 02:45:36 [info] 23#23: *9 udp proxy 127.0.0.1:57228 connected to 127.0.0.1:38316
+2024/11/19 02:47:16 [info] 27#27: *1 udp client 127.0.0.1:57844 connected to 0.0.0.0:38315
+2024/11/19 02:47:16 [info] 27#27: *1 udp proxy 127.0.0.1:61982 connected to 127.0.0.1:38316
+2024/11/19 02:47:16 [error] 27#27: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 02:47:17 [error] 27#27: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:108/0, bytes from/to upstream:0/152
+2024/11/19 02:48:46 [info] 27#27: *3 udp client 127.0.0.1:58614 connected to 0.0.0.0:38315
+2024/11/19 02:48:46 [info] 27#27: *3 udp proxy 127.0.0.1:55064 connected to 127.0.0.1:38316
+2024/11/19 02:49:14 [info] 22#22: *1 udp client 127.0.0.1:62446 connected to 0.0.0.0:38315
+2024/11/19 02:49:14 [info] 22#22: *1 udp proxy 127.0.0.1:58460 connected to 127.0.0.1:38316
+2024/11/19 02:50:44 [info] 22#22: *3 udp client 127.0.0.1:63796 connected to 0.0.0.0:38315
+2024/11/19 02:50:44 [info] 22#22: *3 udp proxy 127.0.0.1:61691 connected to 127.0.0.1:38316
+2024/11/19 02:52:15 [info] 22#22: *5 udp client 127.0.0.1:65443 connected to 0.0.0.0:38315
+2024/11/19 02:52:15 [info] 22#22: *5 udp proxy 127.0.0.1:63921 connected to 127.0.0.1:38316
+2024/11/19 02:52:21 [error] 22#22: *5 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:324/0, bytes from/to upstream:0/368
+2024/11/19 02:53:45 [info] 22#22: *7 udp client 127.0.0.1:57315 connected to 0.0.0.0:38315
+2024/11/19 02:53:45 [info] 22#22: *7 udp proxy 127.0.0.1:65074 connected to 127.0.0.1:38316
+2024/11/19 02:54:22 [error] 22#22: *7 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1728/0, bytes from/to upstream:0/1772
+2024/11/19 02:54:23 [error] 22#22: *7 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1782/0, bytes from/to upstream:0/1826
+2024/11/19 02:54:24 [error] 22#22: *7 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1836/0, bytes from/to upstream:0/1880
+2024/11/19 02:54:25 [error] 22#22: *7 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1890/0, bytes from/to upstream:0/1934
+2024/11/19 02:54:27 [error] 22#22: *7 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1944/0, bytes from/to upstream:0/1988
+2024/11/19 02:54:28 [error] 22#22: *7 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 02:55:21 [info] 22#22: *1 udp client 127.0.0.1:61161 connected to 0.0.0.0:38315
+2024/11/19 02:55:21 [info] 22#22: *1 udp proxy 127.0.0.1:55351 connected to 127.0.0.1:38316
+2024/11/19 02:55:21 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 02:55:22 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:108/0, bytes from/to upstream:0/152
+2024/11/19 02:55:24 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:216/0, bytes from/to upstream:0/260
+2024/11/19 02:55:25 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:270/0, bytes from/to upstream:0/314
+2024/11/19 02:55:27 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:324/0, bytes from/to upstream:0/368
+2024/11/19 02:55:28 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:378/0, bytes from/to upstream:0/422
+2024/11/19 02:55:29 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:432/0, bytes from/to upstream:0/476
+2024/11/19 02:55:30 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:486/0, bytes from/to upstream:0/530
+2024/11/19 02:55:31 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:540/0, bytes from/to upstream:0/584
+2024/11/19 02:55:33 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:594/0, bytes from/to upstream:0/638
+2024/11/19 02:55:34 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:648/0, bytes from/to upstream:0/692
+2024/11/19 02:55:35 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:702/0, bytes from/to upstream:0/746
+2024/11/19 02:55:36 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:756/0, bytes from/to upstream:0/800
+2024/11/19 02:55:37 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:810/0, bytes from/to upstream:0/854
+2024/11/19 02:55:39 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:864/0, bytes from/to upstream:0/908
+2024/11/19 02:55:40 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:918/0, bytes from/to upstream:0/962
+2024/11/19 02:55:41 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:972/0, bytes from/to upstream:0/1016
+2024/11/19 02:55:42 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1026/0, bytes from/to upstream:0/1070
+2024/11/19 02:55:43 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1080/0, bytes from/to upstream:0/1124
+2024/11/19 02:55:45 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1134/0, bytes from/to upstream:0/1178
+2024/11/19 02:55:46 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1188/0, bytes from/to upstream:0/1232
+2024/11/19 02:55:47 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1242/0, bytes from/to upstream:0/1286
+2024/11/19 02:55:48 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1296/0, bytes from/to upstream:0/1340
+2024/11/19 02:55:49 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1350/0, bytes from/to upstream:0/1394
+2024/11/19 02:55:51 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1404/0, bytes from/to upstream:0/1448
+2024/11/19 02:55:52 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1458/0, bytes from/to upstream:0/1502
+2024/11/19 02:55:53 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1512/0, bytes from/to upstream:0/1556
+2024/11/19 02:55:54 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1566/0, bytes from/to upstream:0/1610
+2024/11/19 02:55:55 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1620/0, bytes from/to upstream:0/1664
+2024/11/19 02:55:57 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1674/0, bytes from/to upstream:0/1718
+2024/11/19 02:55:58 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1728/0, bytes from/to upstream:0/1772
+2024/11/19 02:55:59 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1782/0, bytes from/to upstream:0/1826
+2024/11/19 02:56:00 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1836/0, bytes from/to upstream:0/1880
+2024/11/19 02:56:01 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1890/0, bytes from/to upstream:0/1934
+2024/11/19 02:56:03 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1944/0, bytes from/to upstream:0/1988
+2024/11/19 02:56:04 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 02:56:05 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 02:56:06 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2106/0, bytes from/to upstream:0/2150
+2024/11/19 02:56:07 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2160/0, bytes from/to upstream:0/2204
+2024/11/19 02:56:09 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2214/0, bytes from/to upstream:0/2258
+2024/11/19 02:56:10 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2268/0, bytes from/to upstream:0/2312
+2024/11/19 02:56:11 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2322/0, bytes from/to upstream:0/2366
+2024/11/19 02:56:12 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2376/0, bytes from/to upstream:0/2420
+2024/11/19 02:56:13 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2430/0, bytes from/to upstream:0/2474
+2024/11/19 02:56:15 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2484/0, bytes from/to upstream:0/2528
+2024/11/19 02:56:16 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2538/0, bytes from/to upstream:0/2582
+2024/11/19 02:56:17 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2592/0, bytes from/to upstream:0/2636
+2024/11/19 02:56:18 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2646/0, bytes from/to upstream:0/2690
+2024/11/19 02:56:19 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2700/0, bytes from/to upstream:0/2744
+2024/11/19 02:56:21 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2754/0, bytes from/to upstream:0/2798
+2024/11/19 02:56:22 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2808/0, bytes from/to upstream:0/2852
+2024/11/19 02:56:23 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2862/0, bytes from/to upstream:0/2906
+2024/11/19 02:56:24 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2916/0, bytes from/to upstream:0/2960
+2024/11/19 02:56:25 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2970/0, bytes from/to upstream:0/3014
+2024/11/19 02:56:27 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:3024/0, bytes from/to upstream:0/3068
+2024/11/19 02:56:28 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:3078/0, bytes from/to upstream:0/3122
+2024/11/19 02:56:29 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:3132/0, bytes from/to upstream:0/3176
+2024/11/19 02:56:30 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:3186/0, bytes from/to upstream:0/3230
+2024/11/19 02:56:31 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:3240/0, bytes from/to upstream:0/3284
+2024/11/19 02:56:33 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:3294/0, bytes from/to upstream:0/3338
+2024/11/19 02:56:49 [error] 22#22: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:3996/0, bytes from/to upstream:0/4040
+2024/11/19 02:56:52 [info] 22#22: *3 udp client 127.0.0.1:58902 connected to 0.0.0.0:38315
+2024/11/19 02:56:52 [info] 22#22: *3 udp proxy 127.0.0.1:65035 connected to 127.0.0.1:38316
+2024/11/19 02:58:22 [info] 22#22: *5 udp client 127.0.0.1:60768 connected to 0.0.0.0:38315
+2024/11/19 02:58:22 [info] 22#22: *5 udp proxy 127.0.0.1:62772 connected to 127.0.0.1:38316
+2024/11/19 02:59:52 [info] 22#22: *7 udp client 127.0.0.1:56842 connected to 0.0.0.0:38315
+2024/11/19 02:59:52 [info] 22#22: *7 udp proxy 127.0.0.1:60661 connected to 127.0.0.1:38316
+2024/11/19 03:01:22 [info] 22#22: *9 udp client 127.0.0.1:56138 connected to 0.0.0.0:38315
+2024/11/19 03:01:22 [info] 22#22: *9 udp proxy 127.0.0.1:58033 connected to 127.0.0.1:38316
+2024/11/19 03:02:53 [info] 22#22: *11 udp client 127.0.0.1:55030 connected to 0.0.0.0:38315
+2024/11/19 03:02:53 [info] 22#22: *11 udp proxy 127.0.0.1:58208 connected to 127.0.0.1:38316
+2024/11/19 03:04:23 [info] 22#22: *13 udp client 127.0.0.1:58545 connected to 0.0.0.0:38315
+2024/11/19 03:04:23 [info] 22#22: *13 udp proxy 127.0.0.1:60118 connected to 127.0.0.1:38316
+2024/11/19 03:05:54 [info] 22#22: *15 udp client 127.0.0.1:65481 connected to 0.0.0.0:38315
+2024/11/19 03:05:54 [info] 22#22: *15 udp proxy 127.0.0.1:59279 connected to 127.0.0.1:38316
+2024/11/19 03:06:49 [info] 22#22: *1 udp timed out, packets from/to client:75/61, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 03:07:27 [info] 22#22: *17 udp client 127.0.0.1:57939 connected to 0.0.0.0:38315
+2024/11/19 03:07:27 [info] 22#22: *17 udp proxy 127.0.0.1:59642 connected to 127.0.0.1:38316
+2024/11/19 03:08:20 [info] 22#22: *3 udp timed out, packets from/to client:75/0, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 03:08:57 [info] 22#22: *19 udp client 127.0.0.1:59403 connected to 0.0.0.0:38315
+2024/11/19 03:08:57 [info] 22#22: *19 udp proxy 127.0.0.1:64280 connected to 127.0.0.1:38316
+2024/11/19 03:09:50 [info] 22#22: *5 udp timed out, packets from/to client:75/0, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 03:10:27 [info] 22#22: *21 udp client 127.0.0.1:60984 connected to 0.0.0.0:38315
+2024/11/19 03:10:27 [info] 22#22: *21 udp proxy 127.0.0.1:55992 connected to 127.0.0.1:38316
+2024/11/19 03:11:20 [info] 22#22: *7 udp timed out, packets from/to client:75/0, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 03:11:57 [info] 22#22: *23 udp client 127.0.0.1:58795 connected to 0.0.0.0:38315
+2024/11/19 03:11:57 [info] 22#22: *23 udp proxy 127.0.0.1:64373 connected to 127.0.0.1:38316
+2024/11/19 03:12:51 [info] 22#22: *9 udp timed out, packets from/to client:75/0, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 03:13:27 [info] 22#22: *25 udp client 127.0.0.1:59170 connected to 0.0.0.0:38315
+2024/11/19 03:13:27 [info] 22#22: *25 udp proxy 127.0.0.1:55048 connected to 127.0.0.1:38316
+2024/11/19 03:14:21 [info] 22#22: *11 udp timed out, packets from/to client:75/0, bytes from/to client:4050/0, bytes from/to upstream:0/4094
+2024/11/19 03:14:57 [info] 22#22: *27 udp client 127.0.0.1:62930 connected to 0.0.0.0:38315
+2024/11/19 03:14:57 [info] 22#22: *27 udp proxy 127.0.0.1:63091 connected to 127.0.0.1:38316
+2024/11/19 03:15:52 [info] 22#22: *13 udp timed out, packets from/to client:43/0, bytes from/to client:2322/0, bytes from/to upstream:0/2366
+2024/11/19 03:16:28 [info] 22#22: *29 udp client 127.0.0.1:59708 connected to 0.0.0.0:38315
+2024/11/19 03:16:28 [info] 22#22: *29 udp proxy 127.0.0.1:64400 connected to 127.0.0.1:38316
+2024/11/19 03:17:23 [info] 22#22: *15 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:17:58 [info] 22#22: *31 udp client 127.0.0.1:65350 connected to 0.0.0.0:38315
+2024/11/19 03:17:58 [info] 22#22: *31 udp proxy 127.0.0.1:56630 connected to 127.0.0.1:38316
+2024/11/19 03:18:55 [info] 22#22: *17 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:19:28 [info] 22#22: *33 udp client 127.0.0.1:58596 connected to 0.0.0.0:38315
+2024/11/19 03:19:28 [info] 22#22: *33 udp proxy 127.0.0.1:64371 connected to 127.0.0.1:38316
+2024/11/19 03:20:28 [info] 22#22: *1 udp client 127.0.0.1:57637 connected to 0.0.0.0:38315
+2024/11/19 03:20:28 [info] 22#22: *1 udp proxy 127.0.0.1:56628 connected to 127.0.0.1:38316
+2024/11/19 03:21:58 [info] 22#22: *3 udp client 127.0.0.1:64710 connected to 0.0.0.0:38315
+2024/11/19 03:21:58 [info] 22#22: *3 udp proxy 127.0.0.1:61322 connected to 127.0.0.1:38316
+2024/11/19 03:23:28 [info] 22#22: *5 udp client 127.0.0.1:56013 connected to 0.0.0.0:38315
+2024/11/19 03:23:28 [info] 22#22: *5 udp proxy 127.0.0.1:64959 connected to 127.0.0.1:38316
+2024/11/19 03:24:58 [info] 22#22: *7 udp client 127.0.0.1:57160 connected to 0.0.0.0:38315
+2024/11/19 03:24:58 [info] 22#22: *7 udp proxy 127.0.0.1:58177 connected to 127.0.0.1:38316
+2024/11/19 03:26:29 [info] 22#22: *9 udp client 127.0.0.1:61719 connected to 0.0.0.0:38315
+2024/11/19 03:26:29 [info] 22#22: *9 udp proxy 127.0.0.1:65245 connected to 127.0.0.1:38316
+2024/11/19 03:27:59 [info] 22#22: *11 udp client 127.0.0.1:55511 connected to 0.0.0.0:38315
+2024/11/19 03:27:59 [info] 22#22: *11 udp proxy 127.0.0.1:63201 connected to 127.0.0.1:38316
+2024/11/19 03:29:29 [info] 22#22: *13 udp client 127.0.0.1:62694 connected to 0.0.0.0:38315
+2024/11/19 03:29:29 [info] 22#22: *13 udp proxy 127.0.0.1:60767 connected to 127.0.0.1:38316
+2024/11/19 03:30:59 [info] 22#22: *15 udp client 127.0.0.1:58245 connected to 0.0.0.0:38315
+2024/11/19 03:30:59 [info] 22#22: *15 udp proxy 127.0.0.1:59776 connected to 127.0.0.1:38316
+2024/11/19 03:31:56 [info] 22#22: *1 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:32:29 [info] 22#22: *17 udp client 127.0.0.1:63753 connected to 0.0.0.0:38315
+2024/11/19 03:32:29 [info] 22#22: *17 udp proxy 127.0.0.1:61936 connected to 127.0.0.1:38316
+2024/11/19 03:33:24 [info] 22#22: *3 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 03:34:00 [info] 22#22: *19 udp client 127.0.0.1:64681 connected to 0.0.0.0:38315
+2024/11/19 03:34:00 [info] 22#22: *19 udp proxy 127.0.0.1:58101 connected to 127.0.0.1:38316
+2024/11/19 03:34:56 [info] 22#22: *5 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:35:30 [info] 22#22: *21 udp client 127.0.0.1:56170 connected to 0.0.0.0:38315
+2024/11/19 03:35:30 [info] 22#22: *21 udp proxy 127.0.0.1:57201 connected to 127.0.0.1:38316
+2024/11/19 03:36:25 [info] 22#22: *7 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 03:37:00 [info] 22#22: *23 udp client 127.0.0.1:64012 connected to 0.0.0.0:38315
+2024/11/19 03:37:00 [info] 22#22: *23 udp proxy 127.0.0.1:60956 connected to 127.0.0.1:38316
+2024/11/19 03:37:57 [info] 22#22: *9 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:38:31 [info] 22#22: *25 udp client 127.0.0.1:59943 connected to 0.0.0.0:38315
+2024/11/19 03:38:31 [info] 22#22: *25 udp proxy 127.0.0.1:63256 connected to 127.0.0.1:38316
+2024/11/19 03:39:25 [info] 22#22: *11 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 03:40:01 [info] 22#22: *27 udp client 127.0.0.1:59829 connected to 0.0.0.0:38315
+2024/11/19 03:40:01 [info] 22#22: *27 udp proxy 127.0.0.1:60064 connected to 127.0.0.1:38316
+2024/11/19 03:40:57 [info] 22#22: *13 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:41:31 [info] 22#22: *29 udp client 127.0.0.1:61549 connected to 0.0.0.0:38315
+2024/11/19 03:41:31 [info] 22#22: *29 udp proxy 127.0.0.1:59996 connected to 127.0.0.1:38316
+2024/11/19 03:42:25 [info] 22#22: *15 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 03:43:01 [info] 22#22: *31 udp client 127.0.0.1:65240 connected to 0.0.0.0:38315
+2024/11/19 03:43:01 [info] 22#22: *31 udp proxy 127.0.0.1:62222 connected to 127.0.0.1:38316
+2024/11/19 03:43:58 [info] 22#22: *17 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:44:32 [info] 22#22: *33 udp client 127.0.0.1:56788 connected to 0.0.0.0:38315
+2024/11/19 03:44:32 [info] 22#22: *33 udp proxy 127.0.0.1:65279 connected to 127.0.0.1:38316
+2024/11/19 03:45:26 [info] 22#22: *19 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 03:46:02 [info] 22#22: *35 udp client 127.0.0.1:59019 connected to 0.0.0.0:38315
+2024/11/19 03:46:02 [info] 22#22: *35 udp proxy 127.0.0.1:56372 connected to 127.0.0.1:38316
+2024/11/19 03:46:58 [info] 22#22: *21 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:47:32 [info] 22#22: *37 udp client 127.0.0.1:56996 connected to 0.0.0.0:38315
+2024/11/19 03:47:32 [info] 22#22: *37 udp proxy 127.0.0.1:56679 connected to 127.0.0.1:38316
+2024/11/19 03:48:26 [info] 22#22: *23 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 03:49:03 [info] 22#22: *39 udp client 127.0.0.1:57173 connected to 0.0.0.0:38315
+2024/11/19 03:49:03 [info] 22#22: *39 udp proxy 127.0.0.1:56564 connected to 127.0.0.1:38316
+2024/11/19 03:49:59 [info] 22#22: *25 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:50:33 [info] 22#22: *41 udp client 127.0.0.1:60749 connected to 0.0.0.0:38315
+2024/11/19 03:50:33 [info] 22#22: *41 udp proxy 127.0.0.1:59680 connected to 127.0.0.1:38316
+2024/11/19 03:51:27 [info] 22#22: *27 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 03:52:03 [info] 22#22: *43 udp client 127.0.0.1:55387 connected to 0.0.0.0:38315
+2024/11/19 03:52:03 [info] 22#22: *43 udp proxy 127.0.0.1:55268 connected to 127.0.0.1:38316
+2024/11/19 03:52:59 [info] 22#22: *29 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:53:33 [info] 22#22: *45 udp client 127.0.0.1:59944 connected to 0.0.0.0:38315
+2024/11/19 03:53:33 [info] 22#22: *45 udp proxy 127.0.0.1:55985 connected to 127.0.0.1:38316
+2024/11/19 03:54:28 [info] 22#22: *31 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 03:55:04 [info] 22#22: *47 udp client 127.0.0.1:62275 connected to 0.0.0.0:38315
+2024/11/19 03:55:04 [info] 22#22: *47 udp proxy 127.0.0.1:61946 connected to 127.0.0.1:38316
+2024/11/19 03:56:00 [info] 22#22: *33 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:56:34 [info] 22#22: *49 udp client 127.0.0.1:57338 connected to 0.0.0.0:38315
+2024/11/19 03:56:34 [info] 22#22: *49 udp proxy 127.0.0.1:57923 connected to 127.0.0.1:38316
+2024/11/19 03:57:28 [info] 22#22: *35 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 03:58:04 [info] 22#22: *51 udp client 127.0.0.1:57009 connected to 0.0.0.0:38315
+2024/11/19 03:58:04 [info] 22#22: *51 udp proxy 127.0.0.1:63294 connected to 127.0.0.1:38316
+2024/11/19 03:59:00 [info] 22#22: *37 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 03:59:35 [info] 22#22: *53 udp client 127.0.0.1:56141 connected to 0.0.0.0:38315
+2024/11/19 03:59:35 [info] 22#22: *53 udp proxy 127.0.0.1:55285 connected to 127.0.0.1:38316
+2024/11/19 04:00:29 [info] 22#22: *39 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:01:05 [info] 22#22: *55 udp client 127.0.0.1:59906 connected to 0.0.0.0:38315
+2024/11/19 04:01:05 [info] 22#22: *55 udp proxy 127.0.0.1:61855 connected to 127.0.0.1:38316
+2024/11/19 04:02:01 [info] 22#22: *41 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:02:35 [info] 22#22: *57 udp client 127.0.0.1:58868 connected to 0.0.0.0:38315
+2024/11/19 04:02:35 [info] 22#22: *57 udp proxy 127.0.0.1:61661 connected to 127.0.0.1:38316
+2024/11/19 04:03:29 [info] 22#22: *43 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:04:05 [info] 22#22: *59 udp client 127.0.0.1:59019 connected to 0.0.0.0:38315
+2024/11/19 04:04:05 [info] 22#22: *59 udp proxy 127.0.0.1:60236 connected to 127.0.0.1:38316
+2024/11/19 04:05:02 [info] 22#22: *45 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:05:36 [info] 22#22: *61 udp client 127.0.0.1:65527 connected to 0.0.0.0:38315
+2024/11/19 04:05:36 [info] 22#22: *61 udp proxy 127.0.0.1:58246 connected to 127.0.0.1:38316
+2024/11/19 04:06:30 [info] 22#22: *47 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:07:06 [info] 22#22: *63 udp client 127.0.0.1:62525 connected to 0.0.0.0:38315
+2024/11/19 04:07:06 [info] 22#22: *63 udp proxy 127.0.0.1:62426 connected to 127.0.0.1:38316
+2024/11/19 04:08:02 [info] 22#22: *49 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:08:36 [info] 22#22: *65 udp client 127.0.0.1:62802 connected to 0.0.0.0:38315
+2024/11/19 04:08:36 [info] 22#22: *65 udp proxy 127.0.0.1:59460 connected to 127.0.0.1:38316
+2024/11/19 04:09:31 [info] 22#22: *51 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:10:07 [info] 22#22: *67 udp client 127.0.0.1:57778 connected to 0.0.0.0:38315
+2024/11/19 04:10:07 [info] 22#22: *67 udp proxy 127.0.0.1:60601 connected to 127.0.0.1:38316
+2024/11/19 04:11:03 [info] 22#22: *53 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:11:37 [info] 22#22: *69 udp client 127.0.0.1:55084 connected to 0.0.0.0:38315
+2024/11/19 04:11:37 [info] 22#22: *69 udp proxy 127.0.0.1:56239 connected to 127.0.0.1:38316
+2024/11/19 04:12:31 [info] 22#22: *55 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:13:07 [info] 22#22: *71 udp client 127.0.0.1:58240 connected to 0.0.0.0:38315
+2024/11/19 04:13:07 [info] 22#22: *71 udp proxy 127.0.0.1:59463 connected to 127.0.0.1:38316
+2024/11/19 04:14:03 [info] 22#22: *57 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:14:37 [info] 22#22: *73 udp client 127.0.0.1:55382 connected to 0.0.0.0:38315
+2024/11/19 04:14:37 [info] 22#22: *73 udp proxy 127.0.0.1:63737 connected to 127.0.0.1:38316
+2024/11/19 04:15:32 [info] 22#22: *59 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:16:08 [info] 22#22: *75 udp client 127.0.0.1:59995 connected to 0.0.0.0:38315
+2024/11/19 04:16:08 [info] 22#22: *75 udp proxy 127.0.0.1:59631 connected to 127.0.0.1:38316
+2024/11/19 04:17:04 [info] 22#22: *61 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:17:38 [info] 22#22: *77 udp client 127.0.0.1:65049 connected to 0.0.0.0:38315
+2024/11/19 04:17:38 [info] 22#22: *77 udp proxy 127.0.0.1:62053 connected to 127.0.0.1:38316
+2024/11/19 04:18:32 [info] 22#22: *63 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:19:08 [info] 22#22: *79 udp client 127.0.0.1:57670 connected to 0.0.0.0:38315
+2024/11/19 04:19:08 [info] 22#22: *79 udp proxy 127.0.0.1:62114 connected to 127.0.0.1:38316
+2024/11/19 04:20:05 [info] 22#22: *65 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:20:39 [info] 22#22: *81 udp client 127.0.0.1:58336 connected to 0.0.0.0:38315
+2024/11/19 04:20:39 [info] 22#22: *81 udp proxy 127.0.0.1:62399 connected to 127.0.0.1:38316
+2024/11/19 04:21:33 [info] 22#22: *67 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:22:09 [info] 22#22: *83 udp client 127.0.0.1:61766 connected to 0.0.0.0:38315
+2024/11/19 04:22:09 [info] 22#22: *83 udp proxy 127.0.0.1:58405 connected to 127.0.0.1:38316
+2024/11/19 04:23:05 [info] 22#22: *69 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:23:39 [info] 22#22: *85 udp client 127.0.0.1:62334 connected to 0.0.0.0:38315
+2024/11/19 04:23:39 [info] 22#22: *85 udp proxy 127.0.0.1:63395 connected to 127.0.0.1:38316
+2024/11/19 04:24:33 [info] 22#22: *71 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:25:10 [info] 22#22: *87 udp client 127.0.0.1:56693 connected to 0.0.0.0:38315
+2024/11/19 04:25:10 [info] 22#22: *87 udp proxy 127.0.0.1:64942 connected to 127.0.0.1:38316
+2024/11/19 04:26:06 [info] 22#22: *73 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:26:40 [info] 22#22: *89 udp client 127.0.0.1:56626 connected to 0.0.0.0:38315
+2024/11/19 04:26:40 [info] 22#22: *89 udp proxy 127.0.0.1:60749 connected to 127.0.0.1:38316
+2024/11/19 04:27:34 [info] 22#22: *75 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:28:10 [info] 22#22: *91 udp client 127.0.0.1:55375 connected to 0.0.0.0:38315
+2024/11/19 04:28:10 [info] 22#22: *91 udp proxy 127.0.0.1:55440 connected to 127.0.0.1:38316
+2024/11/19 04:29:06 [info] 22#22: *77 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:29:40 [info] 22#22: *93 udp client 127.0.0.1:58713 connected to 0.0.0.0:38315
+2024/11/19 04:29:40 [info] 22#22: *93 udp proxy 127.0.0.1:61770 connected to 127.0.0.1:38316
+2024/11/19 04:30:35 [info] 22#22: *79 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:31:11 [info] 22#22: *95 udp client 127.0.0.1:58252 connected to 0.0.0.0:38315
+2024/11/19 04:31:11 [info] 22#22: *95 udp proxy 127.0.0.1:60156 connected to 127.0.0.1:38316
+2024/11/19 04:32:07 [info] 22#22: *81 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:32:41 [info] 22#22: *97 udp client 127.0.0.1:55904 connected to 0.0.0.0:38315
+2024/11/19 04:32:41 [info] 22#22: *97 udp proxy 127.0.0.1:56254 connected to 127.0.0.1:38316
+2024/11/19 04:33:35 [info] 22#22: *83 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:34:11 [info] 22#22: *99 udp client 127.0.0.1:57300 connected to 0.0.0.0:38315
+2024/11/19 04:34:11 [info] 22#22: *99 udp proxy 127.0.0.1:57920 connected to 127.0.0.1:38316
+2024/11/19 04:35:08 [info] 22#22: *85 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:35:42 [info] 22#22: *101 udp client 127.0.0.1:63423 connected to 0.0.0.0:38315
+2024/11/19 04:35:42 [info] 22#22: *101 udp proxy 127.0.0.1:62612 connected to 127.0.0.1:38316
+2024/11/19 04:36:36 [info] 22#22: *87 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:37:12 [info] 22#22: *103 udp client 127.0.0.1:55330 connected to 0.0.0.0:38315
+2024/11/19 04:37:12 [info] 22#22: *103 udp proxy 127.0.0.1:60061 connected to 127.0.0.1:38316
+2024/11/19 04:38:08 [info] 22#22: *89 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:38:42 [info] 22#22: *105 udp client 127.0.0.1:62895 connected to 0.0.0.0:38315
+2024/11/19 04:38:42 [info] 22#22: *105 udp proxy 127.0.0.1:64164 connected to 127.0.0.1:38316
+2024/11/19 04:39:36 [info] 22#22: *91 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:40:12 [info] 22#22: *107 udp client 127.0.0.1:58310 connected to 0.0.0.0:38315
+2024/11/19 04:40:12 [info] 22#22: *107 udp proxy 127.0.0.1:60925 connected to 127.0.0.1:38316
+2024/11/19 04:41:09 [info] 22#22: *93 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:41:43 [info] 22#22: *109 udp client 127.0.0.1:63940 connected to 0.0.0.0:38315
+2024/11/19 04:41:43 [info] 22#22: *109 udp proxy 127.0.0.1:63943 connected to 127.0.0.1:38316
+2024/11/19 04:42:37 [info] 22#22: *95 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:43:13 [info] 22#22: *111 udp client 127.0.0.1:65103 connected to 0.0.0.0:38315
+2024/11/19 04:43:13 [info] 22#22: *111 udp proxy 127.0.0.1:62537 connected to 127.0.0.1:38316
+2024/11/19 04:44:09 [info] 22#22: *97 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:44:43 [info] 22#22: *113 udp client 127.0.0.1:55410 connected to 0.0.0.0:38315
+2024/11/19 04:44:43 [info] 22#22: *113 udp proxy 127.0.0.1:55452 connected to 127.0.0.1:38316
+2024/11/19 04:45:38 [info] 22#22: *99 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:46:14 [info] 22#22: *115 udp client 127.0.0.1:60404 connected to 0.0.0.0:38315
+2024/11/19 04:46:14 [info] 22#22: *115 udp proxy 127.0.0.1:62448 connected to 127.0.0.1:38316
+2024/11/19 04:47:10 [info] 22#22: *101 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:47:44 [info] 22#22: *117 udp client 127.0.0.1:63687 connected to 0.0.0.0:38315
+2024/11/19 04:47:44 [info] 22#22: *117 udp proxy 127.0.0.1:62521 connected to 127.0.0.1:38316
+2024/11/19 04:48:38 [info] 22#22: *103 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:49:14 [info] 22#22: *119 udp client 127.0.0.1:55575 connected to 0.0.0.0:38315
+2024/11/19 04:49:14 [info] 22#22: *119 udp proxy 127.0.0.1:58002 connected to 127.0.0.1:38316
+2024/11/19 04:50:10 [info] 22#22: *105 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:50:45 [info] 22#22: *121 udp client 127.0.0.1:63529 connected to 0.0.0.0:38315
+2024/11/19 04:50:45 [info] 22#22: *121 udp proxy 127.0.0.1:56064 connected to 127.0.0.1:38316
+2024/11/19 04:51:39 [info] 22#22: *107 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:52:15 [info] 22#22: *123 udp client 127.0.0.1:56080 connected to 0.0.0.0:38315
+2024/11/19 04:52:15 [info] 22#22: *123 udp proxy 127.0.0.1:60568 connected to 127.0.0.1:38316
+2024/11/19 04:53:11 [info] 22#22: *109 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:53:45 [info] 22#22: *125 udp client 127.0.0.1:56207 connected to 0.0.0.0:38315
+2024/11/19 04:53:45 [info] 22#22: *125 udp proxy 127.0.0.1:55658 connected to 127.0.0.1:38316
+2024/11/19 04:54:39 [info] 22#22: *111 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:55:15 [info] 22#22: *127 udp client 127.0.0.1:58335 connected to 0.0.0.0:38315
+2024/11/19 04:55:15 [info] 22#22: *127 udp proxy 127.0.0.1:63957 connected to 127.0.0.1:38316
+2024/11/19 04:56:12 [info] 22#22: *113 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:56:46 [info] 22#22: *129 udp client 127.0.0.1:60333 connected to 0.0.0.0:38315
+2024/11/19 04:56:46 [info] 22#22: *129 udp proxy 127.0.0.1:65251 connected to 127.0.0.1:38316
+2024/11/19 04:57:40 [info] 22#22: *115 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 04:58:16 [info] 22#22: *131 udp client 127.0.0.1:57531 connected to 0.0.0.0:38315
+2024/11/19 04:58:16 [info] 22#22: *131 udp proxy 127.0.0.1:60570 connected to 127.0.0.1:38316
+2024/11/19 04:59:12 [info] 22#22: *117 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 04:59:46 [info] 22#22: *133 udp client 127.0.0.1:56418 connected to 0.0.0.0:38315
+2024/11/19 04:59:46 [info] 22#22: *133 udp proxy 127.0.0.1:63678 connected to 127.0.0.1:38316
+2024/11/19 05:00:41 [info] 22#22: *119 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:01:17 [info] 22#22: *135 udp client 127.0.0.1:56051 connected to 0.0.0.0:38315
+2024/11/19 05:01:17 [info] 22#22: *135 udp proxy 127.0.0.1:57126 connected to 127.0.0.1:38316
+2024/11/19 05:02:13 [info] 22#22: *121 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:02:47 [info] 22#22: *137 udp client 127.0.0.1:64920 connected to 0.0.0.0:38315
+2024/11/19 05:02:47 [info] 22#22: *137 udp proxy 127.0.0.1:63874 connected to 127.0.0.1:38316
+2024/11/19 05:03:41 [info] 22#22: *123 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:04:17 [info] 22#22: *139 udp client 127.0.0.1:61962 connected to 0.0.0.0:38315
+2024/11/19 05:04:17 [info] 22#22: *139 udp proxy 127.0.0.1:57887 connected to 127.0.0.1:38316
+2024/11/19 05:05:13 [info] 22#22: *125 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:05:47 [info] 22#22: *141 udp client 127.0.0.1:64300 connected to 0.0.0.0:38315
+2024/11/19 05:05:47 [info] 22#22: *141 udp proxy 127.0.0.1:60306 connected to 127.0.0.1:38316
+2024/11/19 05:06:42 [info] 22#22: *127 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:07:18 [info] 22#22: *143 udp client 127.0.0.1:60147 connected to 0.0.0.0:38315
+2024/11/19 05:07:18 [info] 22#22: *143 udp proxy 127.0.0.1:56890 connected to 127.0.0.1:38316
+2024/11/19 05:08:14 [info] 22#22: *129 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:08:48 [info] 22#22: *145 udp client 127.0.0.1:58039 connected to 0.0.0.0:38315
+2024/11/19 05:08:48 [info] 22#22: *145 udp proxy 127.0.0.1:60352 connected to 127.0.0.1:38316
+2024/11/19 05:09:42 [info] 22#22: *131 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:10:18 [info] 22#22: *147 udp client 127.0.0.1:61157 connected to 0.0.0.0:38315
+2024/11/19 05:10:18 [info] 22#22: *147 udp proxy 127.0.0.1:58141 connected to 127.0.0.1:38316
+2024/11/19 05:11:15 [info] 22#22: *133 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:11:49 [info] 22#22: *149 udp client 127.0.0.1:55643 connected to 0.0.0.0:38315
+2024/11/19 05:11:49 [info] 22#22: *149 udp proxy 127.0.0.1:65140 connected to 127.0.0.1:38316
+2024/11/19 05:12:43 [info] 22#22: *135 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:13:19 [info] 22#22: *151 udp client 127.0.0.1:65001 connected to 0.0.0.0:38315
+2024/11/19 05:13:19 [info] 22#22: *151 udp proxy 127.0.0.1:61657 connected to 127.0.0.1:38316
+2024/11/19 05:14:15 [info] 22#22: *137 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:14:49 [info] 22#22: *153 udp client 127.0.0.1:60014 connected to 0.0.0.0:38315
+2024/11/19 05:14:49 [info] 22#22: *153 udp proxy 127.0.0.1:55051 connected to 127.0.0.1:38316
+2024/11/19 05:15:43 [info] 22#22: *139 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:16:20 [info] 22#22: *155 udp client 127.0.0.1:63891 connected to 0.0.0.0:38315
+2024/11/19 05:16:20 [info] 22#22: *155 udp proxy 127.0.0.1:60321 connected to 127.0.0.1:38316
+2024/11/19 05:17:16 [info] 22#22: *141 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:17:50 [info] 22#22: *157 udp client 127.0.0.1:55336 connected to 0.0.0.0:38315
+2024/11/19 05:17:50 [info] 22#22: *157 udp proxy 127.0.0.1:65461 connected to 127.0.0.1:38316
+2024/11/19 05:18:44 [info] 22#22: *143 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:19:20 [info] 22#22: *159 udp client 127.0.0.1:55063 connected to 0.0.0.0:38315
+2024/11/19 05:19:20 [info] 22#22: *159 udp proxy 127.0.0.1:60793 connected to 127.0.0.1:38316
+2024/11/19 05:20:16 [info] 22#22: *145 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:20:51 [info] 22#22: *161 udp client 127.0.0.1:62692 connected to 0.0.0.0:38315
+2024/11/19 05:20:51 [info] 22#22: *161 udp proxy 127.0.0.1:59498 connected to 127.0.0.1:38316
+2024/11/19 05:21:45 [info] 22#22: *147 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:22:21 [info] 22#22: *163 udp client 127.0.0.1:55496 connected to 0.0.0.0:38315
+2024/11/19 05:22:21 [info] 22#22: *163 udp proxy 127.0.0.1:58425 connected to 127.0.0.1:38316
+2024/11/19 05:23:17 [info] 22#22: *149 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:23:51 [info] 22#22: *165 udp client 127.0.0.1:56446 connected to 0.0.0.0:38315
+2024/11/19 05:23:51 [info] 22#22: *165 udp proxy 127.0.0.1:62730 connected to 127.0.0.1:38316
+2024/11/19 05:24:45 [info] 22#22: *151 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:25:21 [info] 22#22: *167 udp client 127.0.0.1:62409 connected to 0.0.0.0:38315
+2024/11/19 05:25:21 [info] 22#22: *167 udp proxy 127.0.0.1:57054 connected to 127.0.0.1:38316
+2024/11/19 05:26:18 [info] 22#22: *153 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:26:52 [info] 22#22: *169 udp client 127.0.0.1:60422 connected to 0.0.0.0:38315
+2024/11/19 05:26:52 [info] 22#22: *169 udp proxy 127.0.0.1:56394 connected to 127.0.0.1:38316
+2024/11/19 05:27:46 [info] 22#22: *155 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:28:22 [info] 22#22: *171 udp client 127.0.0.1:56837 connected to 0.0.0.0:38315
+2024/11/19 05:28:22 [info] 22#22: *171 udp proxy 127.0.0.1:60150 connected to 127.0.0.1:38316
+2024/11/19 05:29:18 [info] 22#22: *157 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:29:52 [info] 22#22: *173 udp client 127.0.0.1:63714 connected to 0.0.0.0:38315
+2024/11/19 05:29:52 [info] 22#22: *173 udp proxy 127.0.0.1:60687 connected to 127.0.0.1:38316
+2024/11/19 05:30:47 [info] 22#22: *159 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:31:23 [info] 22#22: *175 udp client 127.0.0.1:62328 connected to 0.0.0.0:38315
+2024/11/19 05:31:23 [info] 22#22: *175 udp proxy 127.0.0.1:58089 connected to 127.0.0.1:38316
+2024/11/19 05:32:19 [info] 22#22: *161 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:32:53 [info] 22#22: *177 udp client 127.0.0.1:64441 connected to 0.0.0.0:38315
+2024/11/19 05:32:53 [info] 22#22: *177 udp proxy 127.0.0.1:57809 connected to 127.0.0.1:38316
+2024/11/19 05:33:47 [info] 22#22: *163 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:34:23 [info] 22#22: *179 udp client 127.0.0.1:57671 connected to 0.0.0.0:38315
+2024/11/19 05:34:23 [info] 22#22: *179 udp proxy 127.0.0.1:56363 connected to 127.0.0.1:38316
+2024/11/19 05:35:20 [info] 22#22: *165 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:35:54 [info] 22#22: *181 udp client 127.0.0.1:59399 connected to 0.0.0.0:38315
+2024/11/19 05:35:54 [info] 22#22: *181 udp proxy 127.0.0.1:55657 connected to 127.0.0.1:38316
+2024/11/19 05:36:48 [info] 22#22: *167 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:37:24 [info] 22#22: *183 udp client 127.0.0.1:57072 connected to 0.0.0.0:38315
+2024/11/19 05:37:24 [info] 22#22: *183 udp proxy 127.0.0.1:57324 connected to 127.0.0.1:38316
+2024/11/19 05:38:20 [info] 22#22: *169 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:38:54 [info] 22#22: *185 udp client 127.0.0.1:59247 connected to 0.0.0.0:38315
+2024/11/19 05:38:54 [info] 22#22: *185 udp proxy 127.0.0.1:59099 connected to 127.0.0.1:38316
+2024/11/19 05:39:48 [info] 22#22: *171 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:40:24 [info] 22#22: *187 udp client 127.0.0.1:58214 connected to 0.0.0.0:38315
+2024/11/19 05:40:24 [info] 22#22: *187 udp proxy 127.0.0.1:57869 connected to 127.0.0.1:38316
+2024/11/19 05:41:21 [info] 22#22: *173 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:41:55 [info] 22#22: *189 udp client 127.0.0.1:60289 connected to 0.0.0.0:38315
+2024/11/19 05:41:55 [info] 22#22: *189 udp proxy 127.0.0.1:62580 connected to 127.0.0.1:38316
+2024/11/19 05:42:49 [info] 22#22: *175 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:43:25 [info] 22#22: *191 udp client 127.0.0.1:55391 connected to 0.0.0.0:38315
+2024/11/19 05:43:25 [info] 22#22: *191 udp proxy 127.0.0.1:58377 connected to 127.0.0.1:38316
+2024/11/19 05:44:21 [info] 22#22: *177 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:44:55 [info] 22#22: *193 udp client 127.0.0.1:59163 connected to 0.0.0.0:38315
+2024/11/19 05:44:55 [info] 22#22: *193 udp proxy 127.0.0.1:56513 connected to 127.0.0.1:38316
+2024/11/19 05:45:50 [info] 22#22: *179 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:46:26 [info] 22#22: *195 udp client 127.0.0.1:64237 connected to 0.0.0.0:38315
+2024/11/19 05:46:26 [info] 22#22: *195 udp proxy 127.0.0.1:59280 connected to 127.0.0.1:38316
+2024/11/19 05:47:22 [info] 22#22: *181 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:47:56 [info] 22#22: *197 udp client 127.0.0.1:64127 connected to 0.0.0.0:38315
+2024/11/19 05:47:56 [info] 22#22: *197 udp proxy 127.0.0.1:55920 connected to 127.0.0.1:38316
+2024/11/19 05:48:50 [info] 22#22: *183 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:49:26 [info] 22#22: *199 udp client 127.0.0.1:58019 connected to 0.0.0.0:38315
+2024/11/19 05:49:26 [info] 22#22: *199 udp proxy 127.0.0.1:57025 connected to 127.0.0.1:38316
+2024/11/19 05:50:23 [info] 22#22: *185 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:50:57 [info] 22#22: *201 udp client 127.0.0.1:64973 connected to 0.0.0.0:38315
+2024/11/19 05:50:57 [info] 22#22: *201 udp proxy 127.0.0.1:63734 connected to 127.0.0.1:38316
+2024/11/19 05:51:51 [info] 22#22: *187 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:52:27 [info] 22#22: *203 udp client 127.0.0.1:58410 connected to 0.0.0.0:38315
+2024/11/19 05:52:27 [info] 22#22: *203 udp proxy 127.0.0.1:55150 connected to 127.0.0.1:38316
+2024/11/19 05:53:23 [info] 22#22: *189 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:53:57 [info] 22#22: *205 udp client 127.0.0.1:59434 connected to 0.0.0.0:38315
+2024/11/19 05:53:57 [info] 22#22: *205 udp proxy 127.0.0.1:55549 connected to 127.0.0.1:38316
+2024/11/19 05:54:51 [info] 22#22: *191 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:55:27 [info] 22#22: *207 udp client 127.0.0.1:55591 connected to 0.0.0.0:38315
+2024/11/19 05:55:27 [info] 22#22: *207 udp proxy 127.0.0.1:55662 connected to 127.0.0.1:38316
+2024/11/19 05:56:24 [info] 22#22: *193 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:56:57 [info] 22#22: *209 udp client 127.0.0.1:61041 connected to 0.0.0.0:38315
+2024/11/19 05:56:57 [info] 22#22: *209 udp proxy 127.0.0.1:63786 connected to 127.0.0.1:38316
+2024/11/19 05:57:52 [info] 22#22: *195 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 05:58:27 [info] 22#22: *211 udp client 127.0.0.1:55677 connected to 0.0.0.0:38315
+2024/11/19 05:58:27 [info] 22#22: *211 udp proxy 127.0.0.1:59531 connected to 127.0.0.1:38316
+2024/11/19 05:59:24 [info] 22#22: *197 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 05:59:58 [info] 22#22: *213 udp client 127.0.0.1:58112 connected to 0.0.0.0:38315
+2024/11/19 05:59:58 [info] 22#22: *213 udp proxy 127.0.0.1:62594 connected to 127.0.0.1:38316
+2024/11/19 06:00:53 [info] 22#22: *199 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:01:28 [info] 22#22: *215 udp client 127.0.0.1:64048 connected to 0.0.0.0:38315
+2024/11/19 06:01:28 [info] 22#22: *215 udp proxy 127.0.0.1:59615 connected to 127.0.0.1:38316
+2024/11/19 06:02:25 [info] 22#22: *201 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:02:58 [info] 22#22: *217 udp client 127.0.0.1:63457 connected to 0.0.0.0:38315
+2024/11/19 06:02:58 [info] 22#22: *217 udp proxy 127.0.0.1:65506 connected to 127.0.0.1:38316
+2024/11/19 06:03:53 [info] 22#22: *203 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:04:28 [info] 22#22: *219 udp client 127.0.0.1:57536 connected to 0.0.0.0:38315
+2024/11/19 06:04:28 [info] 22#22: *219 udp proxy 127.0.0.1:56387 connected to 127.0.0.1:38316
+2024/11/19 06:05:25 [info] 22#22: *205 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:05:59 [info] 22#22: *221 udp client 127.0.0.1:63706 connected to 0.0.0.0:38315
+2024/11/19 06:05:59 [info] 22#22: *221 udp proxy 127.0.0.1:60901 connected to 127.0.0.1:38316
+2024/11/19 06:06:53 [info] 22#22: *207 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:07:29 [info] 22#22: *223 udp client 127.0.0.1:59274 connected to 0.0.0.0:38315
+2024/11/19 06:07:29 [info] 22#22: *223 udp proxy 127.0.0.1:55230 connected to 127.0.0.1:38316
+2024/11/19 06:08:25 [info] 22#22: *209 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:08:59 [info] 22#22: *225 udp client 127.0.0.1:62923 connected to 0.0.0.0:38315
+2024/11/19 06:08:59 [info] 22#22: *225 udp proxy 127.0.0.1:63907 connected to 127.0.0.1:38316
+2024/11/19 06:09:54 [info] 22#22: *211 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:10:30 [info] 22#22: *227 udp client 127.0.0.1:60600 connected to 0.0.0.0:38315
+2024/11/19 06:10:30 [info] 22#22: *227 udp proxy 127.0.0.1:62684 connected to 127.0.0.1:38316
+2024/11/19 06:11:26 [info] 22#22: *213 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:12:00 [info] 22#22: *229 udp client 127.0.0.1:57687 connected to 0.0.0.0:38315
+2024/11/19 06:12:00 [info] 22#22: *229 udp proxy 127.0.0.1:57105 connected to 127.0.0.1:38316
+2024/11/19 06:12:54 [info] 22#22: *215 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:13:30 [info] 22#22: *231 udp client 127.0.0.1:61727 connected to 0.0.0.0:38315
+2024/11/19 06:13:30 [info] 22#22: *231 udp proxy 127.0.0.1:64084 connected to 127.0.0.1:38316
+2024/11/19 06:14:26 [info] 22#22: *217 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:15:00 [info] 22#22: *233 udp client 127.0.0.1:58198 connected to 0.0.0.0:38315
+2024/11/19 06:15:00 [info] 22#22: *233 udp proxy 127.0.0.1:64283 connected to 127.0.0.1:38316
+2024/11/19 06:15:55 [info] 22#22: *219 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:16:31 [info] 22#22: *235 udp client 127.0.0.1:58878 connected to 0.0.0.0:38315
+2024/11/19 06:16:31 [info] 22#22: *235 udp proxy 127.0.0.1:59939 connected to 127.0.0.1:38316
+2024/11/19 06:17:27 [info] 22#22: *221 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:18:01 [info] 22#22: *237 udp client 127.0.0.1:57805 connected to 0.0.0.0:38315
+2024/11/19 06:18:01 [info] 22#22: *237 udp proxy 127.0.0.1:61507 connected to 127.0.0.1:38316
+2024/11/19 06:18:55 [info] 22#22: *223 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:19:31 [info] 22#22: *239 udp client 127.0.0.1:58042 connected to 0.0.0.0:38315
+2024/11/19 06:19:31 [info] 22#22: *239 udp proxy 127.0.0.1:62629 connected to 127.0.0.1:38316
+2024/11/19 06:20:27 [info] 22#22: *225 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:21:02 [info] 22#22: *241 udp client 127.0.0.1:57187 connected to 0.0.0.0:38315
+2024/11/19 06:21:02 [info] 22#22: *241 udp proxy 127.0.0.1:63457 connected to 127.0.0.1:38316
+2024/11/19 06:21:56 [info] 22#22: *227 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:22:32 [info] 22#22: *243 udp client 127.0.0.1:60481 connected to 0.0.0.0:38315
+2024/11/19 06:22:32 [info] 22#22: *243 udp proxy 127.0.0.1:56843 connected to 127.0.0.1:38316
+2024/11/19 06:23:28 [info] 22#22: *229 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:24:02 [info] 22#22: *245 udp client 127.0.0.1:63155 connected to 0.0.0.0:38315
+2024/11/19 06:24:02 [info] 22#22: *245 udp proxy 127.0.0.1:55664 connected to 127.0.0.1:38316
+2024/11/19 06:24:56 [info] 22#22: *231 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:25:33 [info] 22#22: *247 udp client 127.0.0.1:61437 connected to 0.0.0.0:38315
+2024/11/19 06:25:33 [info] 22#22: *247 udp proxy 127.0.0.1:57758 connected to 127.0.0.1:38316
+2024/11/19 06:26:29 [info] 22#22: *233 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:26:29 [info] 23#23: *249 udp client 127.0.0.1:61437 connected to 0.0.0.0:38315
+2024/11/19 06:26:29 [info] 23#23: *249 udp proxy 127.0.0.1:56841 connected to 127.0.0.1:38316
+2024/11/19 06:27:03 [info] 22#22: *251 udp client 127.0.0.1:62677 connected to 0.0.0.0:38315
+2024/11/19 06:27:03 [info] 22#22: *251 udp proxy 127.0.0.1:58421 connected to 127.0.0.1:38316
+2024/11/19 06:27:57 [info] 22#22: *235 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:28:33 [info] 22#22: *253 udp client 127.0.0.1:62116 connected to 0.0.0.0:38315
+2024/11/19 06:28:33 [info] 22#22: *253 udp proxy 127.0.0.1:60089 connected to 127.0.0.1:38316
+2024/11/19 06:29:29 [info] 22#22: *237 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:30:03 [info] 22#22: *255 udp client 127.0.0.1:59235 connected to 0.0.0.0:38315
+2024/11/19 06:30:03 [info] 22#22: *255 udp proxy 127.0.0.1:60971 connected to 127.0.0.1:38316
+2024/11/19 06:30:58 [info] 22#22: *239 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:31:34 [info] 22#22: *257 udp client 127.0.0.1:61389 connected to 0.0.0.0:38315
+2024/11/19 06:31:34 [info] 22#22: *257 udp proxy 127.0.0.1:61490 connected to 127.0.0.1:38316
+2024/11/19 06:32:30 [info] 22#22: *241 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:33:04 [info] 22#22: *259 udp client 127.0.0.1:62763 connected to 0.0.0.0:38315
+2024/11/19 06:33:04 [info] 22#22: *259 udp proxy 127.0.0.1:64781 connected to 127.0.0.1:38316
+2024/11/19 06:33:58 [info] 22#22: *243 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:34:34 [info] 22#22: *261 udp client 127.0.0.1:63577 connected to 0.0.0.0:38315
+2024/11/19 06:34:34 [info] 22#22: *261 udp proxy 127.0.0.1:64350 connected to 127.0.0.1:38316
+2024/11/19 06:35:30 [info] 22#22: *245 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:36:06 [info] 22#22: *263 udp client 127.0.0.1:61859 connected to 0.0.0.0:38315
+2024/11/19 06:36:06 [info] 22#22: *263 udp proxy 127.0.0.1:62499 connected to 127.0.0.1:38316
+2024/11/19 06:36:29 [info] 23#23: *249 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 06:36:59 [info] 22#22: *247 udp timed out, packets from/to client:36/0, bytes from/to client:1944/0, bytes from/to upstream:0/1988
+2024/11/19 06:37:36 [info] 22#22: *265 udp client 127.0.0.1:57059 connected to 0.0.0.0:38315
+2024/11/19 06:37:36 [info] 22#22: *265 udp proxy 127.0.0.1:62992 connected to 127.0.0.1:38316
+2024/11/19 06:38:31 [info] 22#22: *251 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:39:06 [info] 22#22: *267 udp client 127.0.0.1:63110 connected to 0.0.0.0:38315
+2024/11/19 06:39:06 [info] 22#22: *267 udp proxy 127.0.0.1:60990 connected to 127.0.0.1:38316
+2024/11/19 06:39:59 [info] 22#22: *253 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:40:36 [info] 22#22: *269 udp client 127.0.0.1:60322 connected to 0.0.0.0:38315
+2024/11/19 06:40:36 [info] 22#22: *269 udp proxy 127.0.0.1:59952 connected to 127.0.0.1:38316
+2024/11/19 06:41:32 [info] 22#22: *255 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:42:08 [info] 22#22: *271 udp client 127.0.0.1:59251 connected to 0.0.0.0:38315
+2024/11/19 06:42:08 [info] 22#22: *271 udp proxy 127.0.0.1:62793 connected to 127.0.0.1:38316
+2024/11/19 06:43:00 [info] 22#22: *257 udp timed out, packets from/to client:37/0, bytes from/to client:1998/0, bytes from/to upstream:0/2042
+2024/11/19 06:43:39 [info] 22#22: *273 udp client 127.0.0.1:55454 connected to 0.0.0.0:38315
+2024/11/19 06:43:39 [info] 22#22: *273 udp proxy 127.0.0.1:58697 connected to 127.0.0.1:38316
+2024/11/19 06:44:32 [info] 22#22: *259 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 06:45:09 [info] 22#22: *275 udp client 127.0.0.1:56154 connected to 0.0.0.0:38315
+2024/11/19 06:45:09 [info] 22#22: *275 udp proxy 127.0.0.1:56058 connected to 127.0.0.1:38316
+2024/11/19 06:46:04 [info] 22#22: *261 udp timed out, packets from/to client:40/0, bytes from/to client:2160/0, bytes from/to upstream:0/2204
+2024/11/19 06:46:21 [error] 22#22: *275 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:1836/0, bytes from/to upstream:0/1880
+2024/11/19 06:46:39 [info] 22#22: *277 udp client 127.0.0.1:57176 connected to 0.0.0.0:38315
+2024/11/19 06:46:39 [info] 22#22: *277 udp proxy 127.0.0.1:60044 connected to 127.0.0.1:38316
+2024/11/19 06:47:34 [info] 22#22: *263 udp timed out, packets from/to client:41/0, bytes from/to client:2214/0, bytes from/to upstream:0/2258
+2024/11/19 06:48:09 [info] 22#22: *279 udp client 127.0.0.1:61326 connected to 0.0.0.0:38315
+2024/11/19 06:48:09 [info] 22#22: *279 udp proxy 127.0.0.1:60907 connected to 127.0.0.1:38316
+2024/11/19 06:49:04 [info] 22#22: *265 udp timed out, packets from/to client:41/0, bytes from/to client:2214/0, bytes from/to upstream:0/2258
+2024/11/19 06:49:35 [error] 22#22: *279 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:2160/0, bytes from/to upstream:0/2204
+2024/11/19 06:49:39 [info] 22#22: *281 udp client 127.0.0.1:63647 connected to 0.0.0.0:38315
+2024/11/19 06:49:39 [info] 22#22: *281 udp proxy 127.0.0.1:55368 connected to 127.0.0.1:38316
+2024/11/19 06:50:34 [info] 22#22: *267 udp timed out, packets from/to client:41/0, bytes from/to client:2214/0, bytes from/to upstream:0/2258
+2024/11/19 06:50:39 [info] 24#24: *1 udp client 127.0.0.1:55649 connected to 0.0.0.0:38315
+2024/11/19 06:50:39 [info] 24#24: *1 udp proxy 127.0.0.1:59114 connected to 127.0.0.1:38316
+2024/11/19 06:52:10 [info] 24#24: *3 udp client 127.0.0.1:63274 connected to 0.0.0.0:38315
+2024/11/19 06:52:10 [info] 24#24: *3 udp proxy 127.0.0.1:64388 connected to 127.0.0.1:38316
+2024/11/19 06:53:40 [info] 24#24: *5 udp client 127.0.0.1:58933 connected to 0.0.0.0:38315
+2024/11/19 06:53:40 [info] 24#24: *5 udp proxy 127.0.0.1:57373 connected to 127.0.0.1:38316
+2024/11/19 06:55:10 [info] 24#24: *7 udp client 127.0.0.1:56330 connected to 0.0.0.0:38315
+2024/11/19 06:55:10 [info] 24#24: *7 udp proxy 127.0.0.1:56550 connected to 127.0.0.1:38316
+2024/11/19 06:56:40 [info] 24#24: *9 udp client 127.0.0.1:58770 connected to 0.0.0.0:38315
+2024/11/19 06:56:40 [info] 24#24: *9 udp proxy 127.0.0.1:65035 connected to 127.0.0.1:38316
+2024/11/19 06:58:10 [info] 24#24: *11 udp client 127.0.0.1:56124 connected to 0.0.0.0:38315
+2024/11/19 06:58:10 [info] 24#24: *11 udp proxy 127.0.0.1:56516 connected to 127.0.0.1:38316
+2024/11/19 06:59:42 [info] 24#24: *13 udp client 127.0.0.1:63825 connected to 0.0.0.0:38315
+2024/11/19 06:59:42 [info] 24#24: *13 udp proxy 127.0.0.1:58158 connected to 127.0.0.1:38316
+2024/11/19 07:01:12 [info] 24#24: *15 udp client 127.0.0.1:59303 connected to 0.0.0.0:38315
+2024/11/19 07:01:12 [info] 24#24: *15 udp proxy 127.0.0.1:55048 connected to 127.0.0.1:38316
+2024/11/19 07:02:08 [info] 24#24: *1 udp timed out, packets from/to client:41/0, bytes from/to client:2214/0, bytes from/to upstream:0/2258
+2024/11/19 07:02:28 [info] 26#26: *17 udp client 127.0.0.1:59303 connected to 0.0.0.0:38315
+2024/11/19 07:02:28 [info] 26#26: *17 udp proxy 127.0.0.1:65442 connected to 127.0.0.1:38316
+2024/11/19 07:02:28 [info] 28#28: *19 udp client 127.0.0.1:59303 connected to 0.0.0.0:38315
+2024/11/19 07:02:28 [info] 28#28: *19 udp proxy 127.0.0.1:65086 connected to 127.0.0.1:38316
+2024/11/19 07:02:34 [info] 25#25: *21 udp client 127.0.0.1:59303 connected to 0.0.0.0:38315
+2024/11/19 07:02:34 [info] 25#25: *21 udp proxy 127.0.0.1:63094 connected to 127.0.0.1:38316
+2024/11/19 07:02:40 [info] 27#27: *23 udp client 127.0.0.1:59303 connected to 0.0.0.0:38315
+2024/11/19 07:02:40 [info] 27#27: *23 udp proxy 127.0.0.1:56031 connected to 127.0.0.1:38316
+2024/11/19 07:02:42 [info] 24#24: *25 udp client 127.0.0.1:56683 connected to 0.0.0.0:38315
+2024/11/19 07:02:42 [info] 24#24: *25 udp proxy 127.0.0.1:63784 connected to 127.0.0.1:38316
+2024/11/19 07:02:42 [info] 26#26: *27 udp client 127.0.0.1:56683 connected to 0.0.0.0:38315
+2024/11/19 07:02:42 [info] 26#26: *27 udp proxy 127.0.0.1:55904 connected to 127.0.0.1:38316
+2024/11/19 07:02:43 [info] 28#28: *29 udp client 127.0.0.1:56683 connected to 0.0.0.0:38315
+2024/11/19 07:02:43 [info] 28#28: *29 udp proxy 127.0.0.1:58044 connected to 127.0.0.1:38316
+2024/11/19 07:02:43 [info] 27#27: *31 udp client 127.0.0.1:56683 connected to 0.0.0.0:38315
+2024/11/19 07:02:43 [info] 27#27: *31 udp proxy 127.0.0.1:55251 connected to 127.0.0.1:38316
+2024/11/19 07:02:43 [info] 25#25: *32 udp client 127.0.0.1:56683 connected to 0.0.0.0:38315
+2024/11/19 07:02:43 [info] 25#25: *32 udp proxy 127.0.0.1:59539 connected to 127.0.0.1:38316
+2024/11/19 07:03:38 [info] 24#24: *3 udp timed out, packets from/to client:41/0, bytes from/to client:2214/0, bytes from/to upstream:0/2258
+2024/11/19 07:04:53 [info] 24#24: *35 udp client 127.0.0.1:62139 connected to 0.0.0.0:38315
+2024/11/19 07:04:53 [info] 24#24: *35 udp proxy 127.0.0.1:65455 connected to 127.0.0.1:38316
+2024/11/19 07:05:08 [info] 24#24: *5 udp timed out, packets from/to client:41/0, bytes from/to client:2214/0, bytes from/to upstream:0/2258
+2024/11/19 07:06:38 [info] 24#24: *7 udp timed out, packets from/to client:41/0, bytes from/to client:2214/0, bytes from/to upstream:0/2258
+2024/11/19 07:06:39 [info] 24#24: *37 udp client 127.0.0.1:56049 connected to 0.0.0.0:38315
+2024/11/19 07:06:39 [info] 24#24: *37 udp proxy 127.0.0.1:60737 connected to 127.0.0.1:38316
+2024/11/19 07:06:39 [info] 26#26: *38 udp client 127.0.0.1:56049 connected to 0.0.0.0:38315
+2024/11/19 07:06:39 [info] 26#26: *38 udp proxy 127.0.0.1:59167 connected to 127.0.0.1:38316
+2024/11/19 07:06:39 [info] 28#28: *41 udp client 127.0.0.1:56049 connected to 0.0.0.0:38315
+2024/11/19 07:06:39 [info] 28#28: *41 udp proxy 127.0.0.1:55237 connected to 127.0.0.1:38316
+2024/11/19 07:06:39 [info] 27#27: *43 udp client 127.0.0.1:56049 connected to 0.0.0.0:38315
+2024/11/19 07:06:39 [info] 27#27: *43 udp proxy 127.0.0.1:62203 connected to 127.0.0.1:38316
+2024/11/19 07:06:39 [info] 25#25: *45 udp client 127.0.0.1:56049 connected to 0.0.0.0:38315
+2024/11/19 07:06:39 [info] 25#25: *45 udp proxy 127.0.0.1:60865 connected to 127.0.0.1:38316
+2024/11/19 07:06:39 [info] 30#30: *44 udp client 127.0.0.1:56049 connected to 0.0.0.0:38315
+2024/11/19 07:06:39 [info] 30#30: *44 udp proxy 127.0.0.1:60769 connected to 127.0.0.1:38316
+2024/11/19 07:08:08 [info] 24#24: *9 udp timed out, packets from/to client:41/0, bytes from/to client:2214/0, bytes from/to upstream:0/2258
+2024/11/19 07:08:30 [info] 24#24: *49 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:30 [info] 24#24: *49 udp proxy 127.0.0.1:65093 connected to 127.0.0.1:38316
+2024/11/19 07:08:30 [info] 26#26: *51 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:30 [info] 26#26: *51 udp proxy 127.0.0.1:64119 connected to 127.0.0.1:38316
+2024/11/19 07:08:30 [info] 28#28: *53 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:30 [info] 28#28: *53 udp proxy 127.0.0.1:62411 connected to 127.0.0.1:38316
+2024/11/19 07:08:31 [info] 27#27: *55 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:31 [info] 27#27: *55 udp proxy 127.0.0.1:57659 connected to 127.0.0.1:38316
+2024/11/19 07:08:31 [info] 25#25: *57 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:31 [info] 25#25: *57 udp proxy 127.0.0.1:59400 connected to 127.0.0.1:38316
+2024/11/19 07:08:31 [info] 30#30: *59 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:31 [info] 30#30: *59 udp proxy 127.0.0.1:61212 connected to 127.0.0.1:38316
+2024/11/19 07:08:31 [info] 31#31: *61 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:31 [info] 31#31: *61 udp proxy 127.0.0.1:59652 connected to 127.0.0.1:38316
+2024/11/19 07:08:31 [info] 23#23: *63 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:31 [info] 23#23: *63 udp proxy 127.0.0.1:64524 connected to 127.0.0.1:38316
+2024/11/19 07:08:32 [info] 29#29: *65 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:32 [info] 29#29: *65 udp proxy 127.0.0.1:62158 connected to 127.0.0.1:38316
+2024/11/19 07:08:32 [info] 22#22: *67 udp client 127.0.0.1:57590 connected to 0.0.0.0:38315
+2024/11/19 07:08:32 [info] 22#22: *67 udp proxy 127.0.0.1:56672 connected to 127.0.0.1:38316
+2024/11/19 07:09:40 [info] 24#24: *11 udp timed out, packets from/to client:42/0, bytes from/to client:2268/0, bytes from/to upstream:0/2312
+2024/11/19 07:11:00 [info] 24#24: *69 udp client 127.0.0.1:57840 connected to 0.0.0.0:38315
+2024/11/19 07:11:00 [info] 26#26: *70 udp client 127.0.0.1:57840 connected to 0.0.0.0:38315
+2024/11/19 07:11:00 [info] 26#26: *70 udp proxy 127.0.0.1:61080 connected to 127.0.0.1:38316
+2024/11/19 07:11:00 [info] 24#24: *69 udp proxy 127.0.0.1:58619 connected to 127.0.0.1:38316
+2024/11/19 07:11:00 [info] 28#28: *73 udp client 127.0.0.1:57840 connected to 0.0.0.0:38315
+2024/11/19 07:11:00 [info] 28#28: *73 udp proxy 127.0.0.1:64969 connected to 127.0.0.1:38316
+2024/11/19 07:11:00 [info] 25#25: *75 udp client 127.0.0.1:57840 connected to 0.0.0.0:38315
+2024/11/19 07:11:00 [info] 25#25: *75 udp proxy 127.0.0.1:55812 connected to 127.0.0.1:38316
+2024/11/19 07:11:02 [info] 27#27: *77 udp client 127.0.0.1:57840 connected to 0.0.0.0:38315
+2024/11/19 07:11:02 [info] 27#27: *77 udp proxy 127.0.0.1:56684 connected to 127.0.0.1:38316
+2024/11/19 07:11:08 [info] 30#30: *79 udp client 127.0.0.1:57840 connected to 0.0.0.0:38315
+2024/11/19 07:11:08 [info] 30#30: *79 udp proxy 127.0.0.1:57323 connected to 127.0.0.1:38316
+2024/11/19 07:11:08 [info] 31#31: *81 udp client 127.0.0.1:57840 connected to 0.0.0.0:38315
+2024/11/19 07:11:08 [info] 31#31: *81 udp proxy 127.0.0.1:61280 connected to 127.0.0.1:38316
+2024/11/19 07:11:10 [info] 24#24: *13 udp timed out, packets from/to client:45/0, bytes from/to client:2430/0, bytes from/to upstream:0/2474
+2024/11/19 07:12:34 [info] 25#25: *21 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 07:12:40 [info] 27#27: *23 udp timed out, packets from/to client:2/0, bytes from/to client:108/0, bytes from/to upstream:0/152
+2024/11/19 07:12:41 [info] 28#28: *19 udp timed out, packets from/to client:101/0, bytes from/to client:5454/0, bytes from/to upstream:0/5498
+2024/11/19 07:12:42 [info] 24#24: *15 udp timed out, packets from/to client:38785/0, bytes from/to client:2094390/0, bytes from/to upstream:0/2094434
+2024/11/19 07:12:42 [info] 26#26: *17 udp timed out, packets from/to client:2168/0, bytes from/to client:117072/0, bytes from/to upstream:0/117116
+2024/11/19 07:13:03 [info] 24#24: *83 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:03 [info] 26#26: *84 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:03 [info] 26#26: *84 udp proxy 127.0.0.1:61782 connected to 127.0.0.1:38316
+2024/11/19 07:13:03 [info] 24#24: *83 udp proxy 127.0.0.1:64787 connected to 127.0.0.1:38316
+2024/11/19 07:13:03 [info] 28#28: *87 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:03 [info] 28#28: *87 udp proxy 127.0.0.1:58394 connected to 127.0.0.1:38316
+2024/11/19 07:13:03 [info] 27#27: *89 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:03 [info] 27#27: *89 udp proxy 127.0.0.1:60987 connected to 127.0.0.1:38316
+2024/11/19 07:13:03 [info] 25#25: *90 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:03 [info] 25#25: *90 udp proxy 127.0.0.1:59456 connected to 127.0.0.1:38316
+2024/11/19 07:13:04 [info] 30#30: *93 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:04 [info] 30#30: *93 udp proxy 127.0.0.1:57017 connected to 127.0.0.1:38316
+2024/11/19 07:13:04 [info] 23#23: *95 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:04 [info] 23#23: *95 udp proxy 127.0.0.1:55199 connected to 127.0.0.1:38316
+2024/11/19 07:13:04 [info] 31#31: *97 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:04 [info] 31#31: *97 udp proxy 127.0.0.1:57342 connected to 127.0.0.1:38316
+2024/11/19 07:13:04 [info] 29#29: *99 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:04 [info] 22#22: *100 udp client 127.0.0.1:61104 connected to 0.0.0.0:38315
+2024/11/19 07:13:04 [info] 22#22: *100 udp proxy 127.0.0.1:64932 connected to 127.0.0.1:38316
+2024/11/19 07:13:04 [info] 29#29: *99 udp proxy 127.0.0.1:63953 connected to 127.0.0.1:38316
+2024/11/19 07:14:08 [info] 28#28: *29 udp timed out, packets from/to client:255/0, bytes from/to client:13770/0, bytes from/to upstream:0/13814
+2024/11/19 07:14:08 [info] 25#25: *32 udp timed out, packets from/to client:3/0, bytes from/to client:162/0, bytes from/to upstream:0/206
+2024/11/19 07:14:08 [info] 27#27: *31 udp timed out, packets from/to client:10/0, bytes from/to client:540/0, bytes from/to upstream:0/584
+2024/11/19 07:14:09 [info] 26#26: *27 udp timed out, packets from/to client:2893/0, bytes from/to client:156222/0, bytes from/to upstream:0/156266
+2024/11/19 07:14:09 [info] 24#24: *25 udp timed out, packets from/to client:54139/0, bytes from/to client:2923506/0, bytes from/to upstream:0/2923550
+2024/11/19 07:16:14 [info] 24#24: *35 udp timed out, packets from/to client:1217/0, bytes from/to client:65718/0, bytes from/to upstream:0/65762
+2024/11/19 07:16:39 [info] 25#25: *45 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 07:16:41 [info] 30#30: *44 udp timed out, packets from/to client:4/0, bytes from/to client:216/0, bytes from/to upstream:0/260
+2024/11/19 07:16:45 [info] 27#27: *43 udp timed out, packets from/to client:7/0, bytes from/to client:378/0, bytes from/to upstream:0/422
+2024/11/19 07:16:46 [info] 28#28: *41 udp timed out, packets from/to client:69/0, bytes from/to client:3726/0, bytes from/to upstream:0/3770
+2024/11/19 07:16:47 [info] 24#24: *37 udp timed out, packets from/to client:22767/0, bytes from/to client:1229418/0, bytes from/to upstream:0/1229462
+2024/11/19 07:16:47 [info] 26#26: *38 udp timed out, packets from/to client:1331/0, bytes from/to client:71874/0, bytes from/to upstream:0/71918
+2024/11/19 07:18:47 [info] 29#29: *65 udp timed out, packets from/to client:482/0, bytes from/to client:26028/0, bytes from/to upstream:0/26072
+2024/11/19 07:18:49 [info] 23#23: *63 udp timed out, packets from/to client:862/0, bytes from/to client:46548/0, bytes from/to upstream:0/46592
+2024/11/19 07:18:49 [info] 22#22: *67 udp timed out, packets from/to client:1015/0, bytes from/to client:54810/0, bytes from/to upstream:0/54854
+2024/11/19 07:18:50 [info] 31#31: *61 udp timed out, packets from/to client:1092/0, bytes from/to client:58968/0, bytes from/to upstream:0/59012
+2024/11/19 07:18:51 [info] 30#30: *59 udp timed out, packets from/to client:2308/0, bytes from/to client:124632/0, bytes from/to upstream:0/124676
+2024/11/19 07:18:51 [info] 27#27: *55 udp timed out, packets from/to client:7451/0, bytes from/to client:402354/0, bytes from/to upstream:0/402398
+2024/11/19 07:18:51 [info] 28#28: *53 udp timed out, packets from/to client:24430/0, bytes from/to client:1319220/0, bytes from/to upstream:0/1319264
+2024/11/19 07:18:51 [info] 24#24: *49 udp timed out, packets from/to client:238319/0, bytes from/to client:12869226/0, bytes from/to upstream:0/12869270
+2024/11/19 07:18:51 [info] 26#26: *51 udp timed out, packets from/to client:64714/0, bytes from/to client:3494556/0, bytes from/to upstream:0/3494600
+2024/11/19 07:18:51 [info] 25#25: *57 udp timed out, packets from/to client:2500/0, bytes from/to client:135000/0, bytes from/to upstream:0/135044
+2024/11/19 07:21:02 [info] 25#25: *75 udp timed out, packets from/to client:4/0, bytes from/to client:216/0, bytes from/to upstream:0/260
+2024/11/19 07:21:04 [info] 24#24: *103 udp client 127.0.0.1:57266 connected to 0.0.0.0:38315
+2024/11/19 07:21:04 [info] 24#24: *103 udp proxy 127.0.0.1:58147 connected to 127.0.0.1:38316
+2024/11/19 07:21:07 [info] 26#26: *105 udp client 127.0.0.1:57266 connected to 0.0.0.0:38315
+2024/11/19 07:21:07 [info] 26#26: *105 udp proxy 127.0.0.1:58608 connected to 127.0.0.1:38316
+2024/11/19 07:21:08 [info] 30#30: *79 udp timed out, packets from/to client:2/0, bytes from/to client:108/0, bytes from/to upstream:0/152
+2024/11/19 07:21:08 [info] 31#31: *81 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 07:21:20 [info] 28#28: *73 udp timed out, packets from/to client:584/0, bytes from/to client:31536/0, bytes from/to upstream:0/31580
+2024/11/19 07:21:20 [info] 27#27: *77 udp timed out, packets from/to client:68/0, bytes from/to client:3672/0, bytes from/to upstream:0/3716
+2024/11/19 07:21:21 [info] 24#24: *69 udp timed out, packets from/to client:105931/0, bytes from/to client:5720274/0, bytes from/to upstream:0/5720318
+2024/11/19 07:21:21 [info] 26#26: *70 udp timed out, packets from/to client:7101/0, bytes from/to client:383454/0, bytes from/to upstream:0/383498
+2024/11/19 07:22:34 [info] 24#24: *107 udp client 127.0.0.1:61997 connected to 0.0.0.0:38315
+2024/11/19 07:22:34 [info] 24#24: *107 udp proxy 127.0.0.1:58803 connected to 127.0.0.1:38316
+2024/11/19 07:22:34 [info] 26#26: *109 udp client 127.0.0.1:61997 connected to 0.0.0.0:38315
+2024/11/19 07:22:34 [info] 26#26: *109 udp proxy 127.0.0.1:58762 connected to 127.0.0.1:38316
+2024/11/19 07:23:47 [info] 29#29: *99 udp timed out, packets from/to client:4027/0, bytes from/to client:217458/0, bytes from/to upstream:0/217502
+2024/11/19 07:23:47 [info] 23#23: *95 udp timed out, packets from/to client:3026/0, bytes from/to client:163404/0, bytes from/to upstream:0/163448
+2024/11/19 07:23:47 [info] 22#22: *100 udp timed out, packets from/to client:2072/0, bytes from/to client:111888/0, bytes from/to upstream:0/111932
+2024/11/19 07:23:47 [info] 31#31: *97 udp timed out, packets from/to client:3200/0, bytes from/to client:172800/0, bytes from/to upstream:0/172844
+2024/11/19 07:23:48 [info] 28#28: *111 udp client 127.0.0.1:61997 connected to 0.0.0.0:38315
+2024/11/19 07:23:48 [info] 28#28: *111 udp proxy 127.0.0.1:56893 connected to 127.0.0.1:38316
+2024/11/19 07:23:48 [info] 26#26: *84 udp timed out, packets from/to client:91346/0, bytes from/to client:4932684/0, bytes from/to upstream:0/4932728
+2024/11/19 07:23:48 [info] 25#25: *90 udp timed out, packets from/to client:12621/0, bytes from/to client:681534/0, bytes from/to upstream:0/681578
+2024/11/19 07:23:48 [info] 24#24: *83 udp timed out, packets from/to client:266144/0, bytes from/to client:14371776/0, bytes from/to upstream:0/14371820
+2024/11/19 07:23:48 [info] 27#27: *89 udp timed out, packets from/to client:22353/0, bytes from/to client:1207062/0, bytes from/to upstream:0/1207106
+2024/11/19 07:23:48 [info] 28#28: *87 udp timed out, packets from/to client:48412/0, bytes from/to client:2614248/0, bytes from/to upstream:0/2614292
+2024/11/19 07:23:48 [info] 30#30: *93 udp timed out, packets from/to client:5173/0, bytes from/to client:279342/0, bytes from/to upstream:0/279386
+2024/11/19 07:24:04 [info] 24#24: *113 udp client 127.0.0.1:55920 connected to 0.0.0.0:38315
+2024/11/19 07:24:04 [info] 24#24: *113 udp proxy 127.0.0.1:56590 connected to 127.0.0.1:38316
+2024/11/19 07:24:04 [info] 26#26: *114 udp client 127.0.0.1:55920 connected to 0.0.0.0:38315
+2024/11/19 07:24:04 [info] 26#26: *114 udp proxy 127.0.0.1:57964 connected to 127.0.0.1:38316
+2024/11/19 07:24:24 [info] 28#28: *117 udp client 127.0.0.1:55920 connected to 0.0.0.0:38315
+2024/11/19 07:24:24 [info] 28#28: *117 udp proxy 127.0.0.1:64259 connected to 127.0.0.1:38316
+2024/11/19 07:25:34 [info] 24#24: *119 udp client 127.0.0.1:57227 connected to 0.0.0.0:38315
+2024/11/19 07:25:34 [info] 24#24: *119 udp proxy 127.0.0.1:61686 connected to 127.0.0.1:38316
+2024/11/19 07:25:34 [info] 26#26: *120 udp client 127.0.0.1:57227 connected to 0.0.0.0:38315
+2024/11/19 07:25:34 [info] 26#26: *120 udp proxy 127.0.0.1:60519 connected to 127.0.0.1:38316
+2024/11/19 07:27:04 [info] 24#24: *123 udp client 127.0.0.1:58552 connected to 0.0.0.0:38315
+2024/11/19 07:27:04 [info] 24#24: *123 udp proxy 127.0.0.1:61432 connected to 127.0.0.1:38316
+2024/11/19 07:27:09 [info] 26#26: *125 udp client 127.0.0.1:58552 connected to 0.0.0.0:38315
+2024/11/19 07:27:09 [info] 26#26: *125 udp proxy 127.0.0.1:61679 connected to 127.0.0.1:38316
+2024/11/19 07:28:34 [info] 24#24: *127 udp client 127.0.0.1:55641 connected to 0.0.0.0:38315
+2024/11/19 07:28:34 [info] 24#24: *127 udp proxy 127.0.0.1:59746 connected to 127.0.0.1:38316
+2024/11/19 07:28:53 [info] 26#26: *129 udp client 127.0.0.1:55641 connected to 0.0.0.0:38315
+2024/11/19 07:28:53 [info] 26#26: *129 udp proxy 127.0.0.1:57536 connected to 127.0.0.1:38316
+2024/11/19 07:30:04 [info] 24#24: *131 udp client 127.0.0.1:60230 connected to 0.0.0.0:38315
+2024/11/19 07:30:04 [info] 24#24: *131 udp proxy 127.0.0.1:61313 connected to 127.0.0.1:38316
+2024/11/19 07:30:06 [info] 26#26: *133 udp client 127.0.0.1:60230 connected to 0.0.0.0:38315
+2024/11/19 07:30:06 [info] 26#26: *133 udp proxy 127.0.0.1:59218 connected to 127.0.0.1:38316
+2024/11/19 07:31:34 [info] 24#24: *135 udp client 127.0.0.1:58343 connected to 0.0.0.0:38315
+2024/11/19 07:31:34 [info] 24#24: *135 udp proxy 127.0.0.1:62269 connected to 127.0.0.1:38316
+2024/11/19 07:31:36 [info] 26#26: *137 udp client 127.0.0.1:58343 connected to 0.0.0.0:38315
+2024/11/19 07:31:36 [info] 26#26: *137 udp proxy 127.0.0.1:61594 connected to 127.0.0.1:38316
+2024/11/19 07:32:20 [info] 28#28: *139 udp client 127.0.0.1:58343 connected to 0.0.0.0:38315
+2024/11/19 07:32:20 [info] 27#27: *140 udp client 127.0.0.1:58343 connected to 0.0.0.0:38315
+2024/11/19 07:32:20 [info] 28#28: *139 udp proxy 127.0.0.1:63168 connected to 127.0.0.1:38316
+2024/11/19 07:32:20 [info] 27#27: *140 udp proxy 127.0.0.1:58125 connected to 127.0.0.1:38316
+2024/11/19 07:32:32 [info] 26#26: *105 udp timed out, packets from/to client:70/0, bytes from/to client:3780/0, bytes from/to upstream:0/3824
+2024/11/19 07:32:34 [info] 24#24: *103 udp timed out, packets from/to client:67040/0, bytes from/to client:3620160/0, bytes from/to upstream:0/3620204
+2024/11/19 07:33:04 [info] 24#24: *143 udp client 127.0.0.1:62096 connected to 0.0.0.0:38315
+2024/11/19 07:33:04 [info] 24#24: *143 udp proxy 127.0.0.1:55004 connected to 127.0.0.1:38316
+2024/11/19 07:33:04 [info] 26#26: *144 udp client 127.0.0.1:62096 connected to 0.0.0.0:38315
+2024/11/19 07:33:04 [info] 26#26: *144 udp proxy 127.0.0.1:58143 connected to 127.0.0.1:38316
+2024/11/19 07:33:47 [info] 28#28: *111 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 07:34:02 [info] 26#26: *109 udp timed out, packets from/to client:68/0, bytes from/to client:3672/0, bytes from/to upstream:0/3716
+2024/11/19 07:34:04 [info] 24#24: *107 udp timed out, packets from/to client:67065/0, bytes from/to client:3621510/0, bytes from/to upstream:0/3621554
+2024/11/19 07:34:34 [info] 24#24: *147 udp client 127.0.0.1:58790 connected to 0.0.0.0:38315
+2024/11/19 07:34:34 [info] 24#24: *147 udp proxy 127.0.0.1:59180 connected to 127.0.0.1:38316
+2024/11/19 07:34:34 [info] 26#26: *149 udp client 127.0.0.1:58790 connected to 0.0.0.0:38315
+2024/11/19 07:34:34 [info] 26#26: *149 udp proxy 127.0.0.1:58574 connected to 127.0.0.1:38316
+2024/11/19 07:35:22 [info] 28#28: *117 udp timed out, packets from/to client:6/0, bytes from/to client:324/0, bytes from/to upstream:0/368
+2024/11/19 07:35:33 [info] 26#26: *114 udp timed out, packets from/to client:83/0, bytes from/to client:4482/0, bytes from/to upstream:0/4526
+2024/11/19 07:35:33 [info] 24#24: *113 udp timed out, packets from/to client:68532/0, bytes from/to client:3700728/0, bytes from/to upstream:0/3700772
+2024/11/19 07:36:04 [info] 24#24: *151 udp client 127.0.0.1:64168 connected to 0.0.0.0:38315
+2024/11/19 07:36:04 [info] 24#24: *151 udp proxy 127.0.0.1:63973 connected to 127.0.0.1:38316
+2024/11/19 07:36:04 [info] 26#26: *152 udp client 127.0.0.1:64168 connected to 0.0.0.0:38315
+2024/11/19 07:36:04 [info] 26#26: *152 udp proxy 127.0.0.1:63320 connected to 127.0.0.1:38316
+2024/11/19 07:37:03 [info] 26#26: *120 udp timed out, packets from/to client:35/0, bytes from/to client:1890/0, bytes from/to upstream:0/1934
+2024/11/19 07:37:04 [info] 24#24: *119 udp timed out, packets from/to client:68379/0, bytes from/to client:3692466/0, bytes from/to upstream:0/3692510
+2024/11/19 07:37:34 [info] 24#24: *155 udp client 127.0.0.1:62112 connected to 0.0.0.0:38315
+2024/11/19 07:37:34 [info] 24#24: *155 udp proxy 127.0.0.1:57594 connected to 127.0.0.1:38316
+2024/11/19 07:37:36 [info] 26#26: *157 udp client 127.0.0.1:62112 connected to 0.0.0.0:38315
+2024/11/19 07:37:36 [info] 26#26: *157 udp proxy 127.0.0.1:59610 connected to 127.0.0.1:38316
+2024/11/19 07:38:20 [info] 26#26: *125 udp timed out, packets from/to client:25/0, bytes from/to client:1350/0, bytes from/to upstream:0/1394
+2024/11/19 07:38:33 [info] 24#24: *123 udp timed out, packets from/to client:68311/0, bytes from/to client:3688794/0, bytes from/to upstream:0/3688838
+2024/11/19 07:39:04 [info] 24#24: *159 udp client 127.0.0.1:61460 connected to 0.0.0.0:38315
+2024/11/19 07:39:04 [info] 24#24: *159 udp proxy 127.0.0.1:60159 connected to 127.0.0.1:38316
+2024/11/19 07:39:08 [info] 26#26: *161 udp client 127.0.0.1:61460 connected to 0.0.0.0:38315
+2024/11/19 07:39:08 [info] 26#26: *161 udp proxy 127.0.0.1:62184 connected to 127.0.0.1:38316
+2024/11/19 07:40:03 [info] 26#26: *129 udp timed out, packets from/to client:22/0, bytes from/to client:1188/0, bytes from/to upstream:0/1232
+2024/11/19 07:40:03 [info] 24#24: *127 udp timed out, packets from/to client:68355/0, bytes from/to client:3691170/0, bytes from/to upstream:0/3691214
+2024/11/19 07:40:34 [info] 24#24: *163 udp client 127.0.0.1:63908 connected to 0.0.0.0:38315
+2024/11/19 07:40:34 [info] 24#24: *163 udp proxy 127.0.0.1:60081 connected to 127.0.0.1:38316
+2024/11/19 07:40:34 [info] 26#26: *164 udp client 127.0.0.1:63908 connected to 0.0.0.0:38315
+2024/11/19 07:40:34 [info] 26#26: *164 udp proxy 127.0.0.1:56244 connected to 127.0.0.1:38316
+2024/11/19 07:41:25 [info] 26#26: *133 udp timed out, packets from/to client:28/0, bytes from/to client:1512/0, bytes from/to upstream:0/1556
+2024/11/19 07:41:34 [info] 24#24: *131 udp timed out, packets from/to client:68603/0, bytes from/to client:3704562/0, bytes from/to upstream:0/3704606
+2024/11/19 07:42:04 [info] 24#24: *167 udp client 127.0.0.1:59211 connected to 0.0.0.0:38315
+2024/11/19 07:42:04 [info] 24#24: *167 udp proxy 127.0.0.1:62832 connected to 127.0.0.1:38316
+2024/11/19 07:42:20 [info] 28#28: *139 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 07:42:20 [info] 27#27: *140 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 07:42:20 [info] 26#26: *137 udp timed out, packets from/to client:47/0, bytes from/to client:2538/0, bytes from/to upstream:0/2582
+2024/11/19 07:42:20 [info] 26#26: *169 udp client 127.0.0.1:59211 connected to 0.0.0.0:38315
+2024/11/19 07:42:20 [info] 26#26: *169 udp proxy 127.0.0.1:59531 connected to 127.0.0.1:38316
+2024/11/19 07:43:04 [info] 24#24: *135 udp timed out, packets from/to client:68470/0, bytes from/to client:3697380/0, bytes from/to upstream:0/3697424
+2024/11/19 07:43:34 [info] 24#24: *171 udp client 127.0.0.1:59854 connected to 0.0.0.0:38315
+2024/11/19 07:43:34 [info] 24#24: *171 udp proxy 127.0.0.1:62705 connected to 127.0.0.1:38316
+2024/11/19 07:43:34 [info] 26#26: *172 udp client 127.0.0.1:59854 connected to 0.0.0.0:38315
+2024/11/19 07:43:34 [info] 26#26: *172 udp proxy 127.0.0.1:59250 connected to 127.0.0.1:38316
+2024/11/19 07:44:31 [info] 26#26: *144 udp timed out, packets from/to client:12/0, bytes from/to client:648/0, bytes from/to upstream:0/692
+2024/11/19 07:44:33 [info] 24#24: *143 udp timed out, packets from/to client:68304/0, bytes from/to client:3688416/0, bytes from/to upstream:0/3688460
+2024/11/19 07:45:04 [info] 24#24: *175 udp client 127.0.0.1:65082 connected to 0.0.0.0:38315
+2024/11/19 07:45:04 [info] 24#24: *175 udp proxy 127.0.0.1:56102 connected to 127.0.0.1:38316
+2024/11/19 07:45:23 [info] 26#26: *177 udp client 127.0.0.1:65082 connected to 0.0.0.0:38315
+2024/11/19 07:45:23 [info] 26#26: *177 udp proxy 127.0.0.1:63799 connected to 127.0.0.1:38316
+2024/11/19 07:45:58 [info] 26#26: *149 udp timed out, packets from/to client:18/0, bytes from/to client:972/0, bytes from/to upstream:0/1016
+2024/11/19 07:46:03 [info] 24#24: *147 udp timed out, packets from/to client:68536/0, bytes from/to client:3700944/0, bytes from/to upstream:0/3700988
+2024/11/19 07:46:33 [info] 28#28: *179 udp client 127.0.0.1:65082 connected to 0.0.0.0:38315
+2024/11/19 07:46:33 [info] 28#28: *179 udp proxy 127.0.0.1:62535 connected to 127.0.0.1:38316
+2024/11/19 07:46:34 [info] 24#24: *181 udp client 127.0.0.1:62191 connected to 0.0.0.0:38315
+2024/11/19 07:46:34 [info] 24#24: *181 udp proxy 127.0.0.1:62661 connected to 127.0.0.1:38316
+2024/11/19 07:46:36 [info] 26#26: *183 udp client 127.0.0.1:62191 connected to 0.0.0.0:38315
+2024/11/19 07:46:36 [info] 26#26: *183 udp proxy 127.0.0.1:58124 connected to 127.0.0.1:38316
+2024/11/19 07:47:26 [info] 26#26: *152 udp timed out, packets from/to client:17/0, bytes from/to client:918/0, bytes from/to upstream:0/962
+2024/11/19 07:47:33 [info] 24#24: *151 udp timed out, packets from/to client:68530/0, bytes from/to client:3700620/0, bytes from/to upstream:0/3700664
+2024/11/19 07:47:45 [info] 28#28: *185 udp client 127.0.0.1:62191 connected to 0.0.0.0:38315
+2024/11/19 07:47:45 [info] 28#28: *185 udp proxy 127.0.0.1:60466 connected to 127.0.0.1:38316
+2024/11/19 07:48:04 [info] 24#24: *187 udp client 127.0.0.1:55710 connected to 0.0.0.0:38315
+2024/11/19 07:48:04 [info] 24#24: *187 udp proxy 127.0.0.1:59328 connected to 127.0.0.1:38316
+2024/11/19 07:48:06 [info] 26#26: *189 udp client 127.0.0.1:55710 connected to 0.0.0.0:38315
+2024/11/19 07:48:06 [info] 26#26: *189 udp proxy 127.0.0.1:56127 connected to 127.0.0.1:38316
+2024/11/19 07:48:59 [info] 26#26: *157 udp timed out, packets from/to client:31/0, bytes from/to client:1674/0, bytes from/to upstream:0/1718
+2024/11/19 07:49:03 [info] 24#24: *155 udp timed out, packets from/to client:60531/0, bytes from/to client:3268674/0, bytes from/to upstream:0/3268718
+2024/11/19 07:49:34 [info] 24#24: *191 udp client 127.0.0.1:65425 connected to 0.0.0.0:38315
+2024/11/19 07:49:34 [info] 24#24: *191 udp proxy 127.0.0.1:60279 connected to 127.0.0.1:38316
+2024/11/19 07:49:38 [info] 26#26: *193 udp client 127.0.0.1:65425 connected to 0.0.0.0:38315
+2024/11/19 07:49:38 [info] 26#26: *193 udp proxy 127.0.0.1:60046 connected to 127.0.0.1:38316
+2024/11/19 07:49:45 [info] 26#26: *161 udp timed out, packets from/to client:7/0, bytes from/to client:378/0, bytes from/to upstream:0/422
+2024/11/19 07:50:10 [info] 28#28: *195 udp client 127.0.0.1:65425 connected to 0.0.0.0:38315
+2024/11/19 07:50:10 [info] 28#28: *195 udp proxy 127.0.0.1:58654 connected to 127.0.0.1:38316
+2024/11/19 07:50:33 [info] 24#24: *159 udp timed out, packets from/to client:59071/0, bytes from/to client:3189834/0, bytes from/to upstream:0/3189878
+2024/11/19 07:51:04 [info] 24#24: *197 udp client 127.0.0.1:57105 connected to 0.0.0.0:38315
+2024/11/19 07:51:04 [info] 24#24: *197 udp proxy 127.0.0.1:58797 connected to 127.0.0.1:38316
+2024/11/19 07:51:10 [info] 26#26: *199 udp client 127.0.0.1:57105 connected to 0.0.0.0:38315
+2024/11/19 07:51:10 [info] 26#26: *199 udp proxy 127.0.0.1:61461 connected to 127.0.0.1:38316
+2024/11/19 07:51:33 [info] 26#26: *164 udp timed out, packets from/to client:38/0, bytes from/to client:2052/0, bytes from/to upstream:0/2096
+2024/11/19 07:52:03 [info] 24#24: *163 udp timed out, packets from/to client:59153/0, bytes from/to client:3194262/0, bytes from/to upstream:0/3194306
+2024/11/19 07:52:34 [info] 24#24: *201 udp client 127.0.0.1:65457 connected to 0.0.0.0:38315
+2024/11/19 07:52:34 [info] 24#24: *201 udp proxy 127.0.0.1:63206 connected to 127.0.0.1:38316
+2024/11/19 07:52:34 [info] 26#26: *202 udp client 127.0.0.1:65457 connected to 0.0.0.0:38315
+2024/11/19 07:52:34 [info] 26#26: *202 udp proxy 127.0.0.1:57902 connected to 127.0.0.1:38316
+2024/11/19 07:53:28 [info] 28#28: *205 udp client 127.0.0.1:65457 connected to 0.0.0.0:38315
+2024/11/19 07:53:28 [info] 28#28: *205 udp proxy 127.0.0.1:63893 connected to 127.0.0.1:38316
+2024/11/19 07:53:32 [info] 26#26: *169 udp timed out, packets from/to client:4/0, bytes from/to client:216/0, bytes from/to upstream:0/260
+2024/11/19 07:53:33 [info] 24#24: *167 udp timed out, packets from/to client:58887/0, bytes from/to client:3179898/0, bytes from/to upstream:0/3179942
+2024/11/19 07:54:04 [info] 24#24: *207 udp client 127.0.0.1:65209 connected to 0.0.0.0:38315
+2024/11/19 07:54:04 [info] 24#24: *207 udp proxy 127.0.0.1:56726 connected to 127.0.0.1:38316
+2024/11/19 07:54:04 [info] 26#26: *209 udp client 127.0.0.1:65209 connected to 0.0.0.0:38315
+2024/11/19 07:54:04 [info] 26#26: *209 udp proxy 127.0.0.1:59907 connected to 127.0.0.1:38316
+2024/11/19 07:55:01 [info] 26#26: *172 udp timed out, packets from/to client:6/0, bytes from/to client:324/0, bytes from/to upstream:0/368
+2024/11/19 07:55:04 [info] 24#24: *171 udp timed out, packets from/to client:59176/0, bytes from/to client:3195504/0, bytes from/to upstream:0/3195548
+2024/11/19 07:55:34 [info] 24#24: *211 udp client 127.0.0.1:60161 connected to 0.0.0.0:38315
+2024/11/19 07:55:34 [info] 24#24: *211 udp proxy 127.0.0.1:61475 connected to 127.0.0.1:38316
+2024/11/19 07:55:39 [info] 26#26: *213 udp client 127.0.0.1:60161 connected to 0.0.0.0:38315
+2024/11/19 07:55:39 [info] 26#26: *213 udp proxy 127.0.0.1:55283 connected to 127.0.0.1:38316
+2024/11/19 07:55:57 [info] 26#26: *177 udp timed out, packets from/to client:18/0, bytes from/to client:972/0, bytes from/to upstream:0/1016
+2024/11/19 07:56:33 [info] 28#28: *179 udp timed out, packets from/to client:2/0, bytes from/to client:108/0, bytes from/to upstream:0/152
+2024/11/19 07:56:33 [info] 24#24: *175 udp timed out, packets from/to client:59276/0, bytes from/to client:3200904/0, bytes from/to upstream:0/3200948
+2024/11/19 07:57:04 [info] 24#24: *215 udp client 127.0.0.1:61423 connected to 0.0.0.0:38315
+2024/11/19 07:57:04 [info] 24#24: *215 udp proxy 127.0.0.1:60505 connected to 127.0.0.1:38316
+2024/11/19 07:57:04 [info] 26#26: *217 udp client 127.0.0.1:61423 connected to 0.0.0.0:38315
+2024/11/19 07:57:04 [info] 26#26: *217 udp proxy 127.0.0.1:56676 connected to 127.0.0.1:38316
+2024/11/19 07:57:26 [info] 28#28: *219 udp client 127.0.0.1:61423 connected to 0.0.0.0:38315
+2024/11/19 07:57:26 [info] 28#28: *219 udp proxy 127.0.0.1:57181 connected to 127.0.0.1:38316
+2024/11/19 07:57:45 [info] 26#26: *183 udp timed out, packets from/to client:23/0, bytes from/to client:1242/0, bytes from/to upstream:0/1286
+2024/11/19 07:57:45 [info] 28#28: *185 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 07:58:03 [info] 24#24: *181 udp timed out, packets from/to client:59133/0, bytes from/to client:3193182/0, bytes from/to upstream:0/3193226
+2024/11/19 07:58:34 [info] 24#24: *221 udp client 127.0.0.1:61381 connected to 0.0.0.0:38315
+2024/11/19 07:58:34 [info] 24#24: *221 udp proxy 127.0.0.1:55072 connected to 127.0.0.1:38316
+2024/11/19 07:58:34 [info] 26#26: *223 udp client 127.0.0.1:61381 connected to 0.0.0.0:38315
+2024/11/19 07:58:34 [info] 26#26: *223 udp proxy 127.0.0.1:55547 connected to 127.0.0.1:38316
+2024/11/19 07:59:22 [info] 26#26: *189 udp timed out, packets from/to client:20/0, bytes from/to client:1080/0, bytes from/to upstream:0/1124
+2024/11/19 07:59:33 [info] 24#24: *187 udp timed out, packets from/to client:59395/0, bytes from/to client:3207330/0, bytes from/to upstream:0/3207374
+2024/11/19 08:00:04 [info] 24#24: *225 udp client 127.0.0.1:57578 connected to 0.0.0.0:38315
+2024/11/19 08:00:04 [info] 24#24: *225 udp proxy 127.0.0.1:55492 connected to 127.0.0.1:38316
+2024/11/19 08:00:10 [info] 28#28: *195 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 08:00:44 [info] 26#26: *227 udp client 127.0.0.1:57578 connected to 0.0.0.0:38315
+2024/11/19 08:00:44 [info] 26#26: *227 udp proxy 127.0.0.1:55357 connected to 127.0.0.1:38316
+2024/11/19 08:01:03 [info] 26#26: *193 udp timed out, packets from/to client:29/0, bytes from/to client:1566/0, bytes from/to upstream:0/1610
+2024/11/19 08:01:03 [info] 24#24: *191 udp timed out, packets from/to client:59234/0, bytes from/to client:3198636/0, bytes from/to upstream:0/3198680
+2024/11/19 08:01:34 [info] 24#24: *229 udp client 127.0.0.1:56319 connected to 0.0.0.0:38315
+2024/11/19 08:01:34 [info] 24#24: *229 udp proxy 127.0.0.1:58492 connected to 127.0.0.1:38316
+2024/11/19 08:01:34 [info] 26#26: *230 udp client 127.0.0.1:56319 connected to 0.0.0.0:38315
+2024/11/19 08:01:34 [info] 26#26: *230 udp proxy 127.0.0.1:63057 connected to 127.0.0.1:38316
+2024/11/19 08:02:23 [info] 26#26: *199 udp timed out, packets from/to client:11/0, bytes from/to client:594/0, bytes from/to upstream:0/638
+2024/11/19 08:02:34 [info] 24#24: *197 udp timed out, packets from/to client:59126/0, bytes from/to client:3192804/0, bytes from/to upstream:0/3192848
+2024/11/19 08:03:04 [info] 24#24: *233 udp client 127.0.0.1:55993 connected to 0.0.0.0:38315
+2024/11/19 08:03:04 [info] 24#24: *233 udp proxy 127.0.0.1:61820 connected to 127.0.0.1:38316
+2024/11/19 08:03:04 [info] 26#26: *234 udp client 127.0.0.1:55993 connected to 0.0.0.0:38315
+2024/11/19 08:03:04 [info] 26#26: *234 udp proxy 127.0.0.1:60052 connected to 127.0.0.1:38316
+2024/11/19 08:03:28 [info] 28#28: *205 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 08:04:01 [info] 26#26: *202 udp timed out, packets from/to client:13/0, bytes from/to client:702/0, bytes from/to upstream:0/746
+2024/11/19 08:04:04 [info] 24#24: *201 udp timed out, packets from/to client:59287/0, bytes from/to client:3201498/0, bytes from/to upstream:0/3201542
+2024/11/19 08:04:34 [info] 24#24: *237 udp client 127.0.0.1:57695 connected to 0.0.0.0:38315
+2024/11/19 08:04:34 [info] 24#24: *237 udp proxy 127.0.0.1:62685 connected to 127.0.0.1:38316
+2024/11/19 08:04:34 [info] 26#26: *239 udp client 127.0.0.1:57695 connected to 0.0.0.0:38315
+2024/11/19 08:04:34 [info] 26#26: *239 udp proxy 127.0.0.1:63377 connected to 127.0.0.1:38316
+2024/11/19 08:05:30 [info] 26#26: *209 udp timed out, packets from/to client:20/0, bytes from/to client:1080/0, bytes from/to upstream:0/1124
+2024/11/19 08:05:34 [info] 24#24: *207 udp timed out, packets from/to client:59318/0, bytes from/to client:3203172/0, bytes from/to upstream:0/3203216
+2024/11/19 08:06:04 [info] 24#24: *241 udp client 127.0.0.1:55159 connected to 0.0.0.0:38315
+2024/11/19 08:06:04 [info] 26#26: *242 udp client 127.0.0.1:55159 connected to 0.0.0.0:38315
+2024/11/19 08:06:04 [info] 26#26: *242 udp proxy 127.0.0.1:62193 connected to 127.0.0.1:38316
+2024/11/19 08:06:04 [info] 24#24: *241 udp proxy 127.0.0.1:59304 connected to 127.0.0.1:38316
+2024/11/19 08:06:55 [info] 26#26: *213 udp timed out, packets from/to client:21/0, bytes from/to client:1134/0, bytes from/to upstream:0/1178
+2024/11/19 08:07:03 [info] 24#24: *211 udp timed out, packets from/to client:59188/0, bytes from/to client:3196152/0, bytes from/to upstream:0/3196196
+2024/11/19 08:07:34 [info] 24#24: *245 udp client 127.0.0.1:65309 connected to 0.0.0.0:38315
+2024/11/19 08:07:34 [info] 24#24: *245 udp proxy 127.0.0.1:55972 connected to 127.0.0.1:38316
+2024/11/19 08:07:34 [info] 26#26: *246 udp client 127.0.0.1:65309 connected to 0.0.0.0:38315
+2024/11/19 08:07:34 [info] 26#26: *246 udp proxy 127.0.0.1:65172 connected to 127.0.0.1:38316
+2024/11/19 08:07:42 [info] 28#28: *219 udp timed out, packets from/to client:2/0, bytes from/to client:108/0, bytes from/to upstream:0/152
+2024/11/19 08:08:26 [info] 26#26: *217 udp timed out, packets from/to client:20/0, bytes from/to client:1080/0, bytes from/to upstream:0/1124
+2024/11/19 08:08:33 [info] 24#24: *215 udp timed out, packets from/to client:59206/0, bytes from/to client:3197124/0, bytes from/to upstream:0/3197168
+2024/11/19 08:09:04 [info] 24#24: *249 udp client 127.0.0.1:55689 connected to 0.0.0.0:38315
+2024/11/19 08:09:04 [info] 24#24: *249 udp proxy 127.0.0.1:65341 connected to 127.0.0.1:38316
+2024/11/19 08:09:04 [info] 26#26: *250 udp client 127.0.0.1:55689 connected to 0.0.0.0:38315
+2024/11/19 08:09:04 [info] 26#26: *250 udp proxy 127.0.0.1:65463 connected to 127.0.0.1:38316
+2024/11/19 08:09:58 [info] 26#26: *223 udp timed out, packets from/to client:24/0, bytes from/to client:1296/0, bytes from/to upstream:0/1340
+2024/11/19 08:10:03 [info] 24#24: *221 udp timed out, packets from/to client:59252/0, bytes from/to client:3199608/0, bytes from/to upstream:0/3199652
+2024/11/19 08:10:34 [info] 24#24: *253 udp client 127.0.0.1:59310 connected to 0.0.0.0:38315
+2024/11/19 08:10:34 [info] 24#24: *253 udp proxy 127.0.0.1:62633 connected to 127.0.0.1:38316
+2024/11/19 08:10:47 [info] 26#26: *255 udp client 127.0.0.1:59310 connected to 0.0.0.0:38315
+2024/11/19 08:10:47 [info] 26#26: *255 udp proxy 127.0.0.1:59537 connected to 127.0.0.1:38316
+2024/11/19 08:11:26 [info] 26#26: *227 udp timed out, packets from/to client:22/0, bytes from/to client:1188/0, bytes from/to upstream:0/1232
+2024/11/19 08:11:33 [info] 24#24: *225 udp timed out, packets from/to client:59227/0, bytes from/to client:3198258/0, bytes from/to upstream:0/3198302
+2024/11/19 08:12:04 [info] 24#24: *257 udp client 127.0.0.1:57927 connected to 0.0.0.0:38315
+2024/11/19 08:12:04 [info] 24#24: *257 udp proxy 127.0.0.1:64804 connected to 127.0.0.1:38316
+2024/11/19 08:12:04 [info] 26#26: *259 udp client 127.0.0.1:57927 connected to 0.0.0.0:38315
+2024/11/19 08:12:04 [info] 26#26: *259 udp proxy 127.0.0.1:57938 connected to 127.0.0.1:38316
+2024/11/19 08:12:59 [info] 26#26: *230 udp timed out, packets from/to client:20/0, bytes from/to client:1080/0, bytes from/to upstream:0/1124
+2024/11/19 08:13:04 [info] 24#24: *229 udp timed out, packets from/to client:59217/0, bytes from/to client:3197718/0, bytes from/to upstream:0/3197762
+2024/11/19 08:13:34 [info] 24#24: *261 udp client 127.0.0.1:57163 connected to 0.0.0.0:38315
+2024/11/19 08:13:34 [info] 24#24: *261 udp proxy 127.0.0.1:57130 connected to 127.0.0.1:38316
+2024/11/19 08:13:38 [info] 26#26: *263 udp client 127.0.0.1:57163 connected to 0.0.0.0:38315
+2024/11/19 08:13:38 [info] 26#26: *263 udp proxy 127.0.0.1:57771 connected to 127.0.0.1:38316
+2024/11/19 08:13:40 [info] 28#28: *265 udp client 127.0.0.1:57163 connected to 0.0.0.0:38315
+2024/11/19 08:13:40 [info] 28#28: *265 udp proxy 127.0.0.1:61532 connected to 127.0.0.1:38316
+2024/11/19 08:14:32 [info] 26#26: *234 udp timed out, packets from/to client:27/0, bytes from/to client:1458/0, bytes from/to upstream:0/1502
+2024/11/19 08:14:33 [info] 24#24: *233 udp timed out, packets from/to client:59347/0, bytes from/to client:3204738/0, bytes from/to upstream:0/3204782
+2024/11/19 08:15:04 [info] 24#24: *267 udp client 127.0.0.1:55391 connected to 0.0.0.0:38315
+2024/11/19 08:15:04 [info] 24#24: *267 udp proxy 127.0.0.1:60159 connected to 127.0.0.1:38316
+2024/11/19 08:15:04 [info] 26#26: *269 udp client 127.0.0.1:55391 connected to 0.0.0.0:38315
+2024/11/19 08:15:04 [info] 26#26: *269 udp proxy 127.0.0.1:57069 connected to 127.0.0.1:38316
+2024/11/19 08:15:10 [info] 26#26: *239 udp timed out, packets from/to client:12/0, bytes from/to client:648/0, bytes from/to upstream:0/692
+2024/11/19 08:16:04 [info] 24#24: *237 udp timed out, packets from/to client:59178/0, bytes from/to client:3195612/0, bytes from/to upstream:0/3195656
+2024/11/19 08:16:34 [info] 24#24: *271 udp client 127.0.0.1:65128 connected to 0.0.0.0:38315
+2024/11/19 08:16:34 [info] 24#24: *271 udp proxy 127.0.0.1:63555 connected to 127.0.0.1:38316
+2024/11/19 08:16:36 [info] 26#26: *273 udp client 127.0.0.1:65128 connected to 0.0.0.0:38315
+2024/11/19 08:16:36 [info] 26#26: *273 udp proxy 127.0.0.1:60233 connected to 127.0.0.1:38316
+2024/11/19 08:17:03 [info] 26#26: *242 udp timed out, packets from/to client:7/0, bytes from/to client:378/0, bytes from/to upstream:0/422
+2024/11/19 08:17:33 [info] 24#24: *241 udp timed out, packets from/to client:59139/0, bytes from/to client:3193506/0, bytes from/to upstream:0/3193550
+2024/11/19 08:17:43 [info] 28#28: *275 udp client 127.0.0.1:65128 connected to 0.0.0.0:38315
+2024/11/19 08:17:43 [info] 27#27: *276 udp client 127.0.0.1:65128 connected to 0.0.0.0:38315
+2024/11/19 08:17:43 [info] 28#28: *275 udp proxy 127.0.0.1:63898 connected to 127.0.0.1:38316
+2024/11/19 08:17:43 [info] 27#27: *276 udp proxy 127.0.0.1:55691 connected to 127.0.0.1:38316
+2024/11/19 08:18:04 [info] 24#24: *279 udp client 127.0.0.1:60802 connected to 0.0.0.0:38315
+2024/11/19 08:18:04 [info] 24#24: *279 udp proxy 127.0.0.1:58569 connected to 127.0.0.1:38316
+2024/11/19 08:18:04 [info] 26#26: *281 udp client 127.0.0.1:60802 connected to 0.0.0.0:38315
+2024/11/19 08:18:04 [info] 26#26: *281 udp proxy 127.0.0.1:57277 connected to 127.0.0.1:38316
+2024/11/19 08:19:00 [info] 26#26: *246 udp timed out, packets from/to client:10/0, bytes from/to client:540/0, bytes from/to upstream:0/584
+2024/11/19 08:19:03 [info] 24#24: *245 udp timed out, packets from/to client:59166/0, bytes from/to client:3194964/0, bytes from/to upstream:0/3195008
+2024/11/19 08:19:34 [info] 24#24: *283 udp client 127.0.0.1:63714 connected to 0.0.0.0:38315
+2024/11/19 08:19:34 [info] 24#24: *283 udp proxy 127.0.0.1:55931 connected to 127.0.0.1:38316
+2024/11/19 08:19:34 [info] 26#26: *285 udp client 127.0.0.1:63714 connected to 0.0.0.0:38315
+2024/11/19 08:19:34 [info] 26#26: *285 udp proxy 127.0.0.1:57248 connected to 127.0.0.1:38316
+2024/11/19 08:20:33 [info] 26#26: *250 udp timed out, packets from/to client:10/0, bytes from/to client:540/0, bytes from/to upstream:0/584
+2024/11/19 08:20:33 [info] 24#24: *249 udp timed out, packets from/to client:59212/0, bytes from/to client:3197448/0, bytes from/to upstream:0/3197492
+2024/11/19 08:20:33 [info] 28#28: *287 udp client 127.0.0.1:63714 connected to 0.0.0.0:38315
+2024/11/19 08:20:33 [info] 28#28: *287 udp proxy 127.0.0.1:61669 connected to 127.0.0.1:38316
+2024/11/19 08:21:04 [info] 24#24: *289 udp client 127.0.0.1:61282 connected to 0.0.0.0:38315
+2024/11/19 08:21:04 [info] 24#24: *289 udp proxy 127.0.0.1:58430 connected to 127.0.0.1:38316
+2024/11/19 08:21:15 [info] 26#26: *291 udp client 127.0.0.1:61282 connected to 0.0.0.0:38315
+2024/11/19 08:21:15 [info] 26#26: *291 udp proxy 127.0.0.1:61937 connected to 127.0.0.1:38316
+2024/11/19 08:22:01 [info] 26#26: *255 udp timed out, packets from/to client:42/0, bytes from/to client:2268/0, bytes from/to upstream:0/2312
+2024/11/19 08:22:03 [info] 24#24: *253 udp timed out, packets from/to client:59157/0, bytes from/to client:3194478/0, bytes from/to upstream:0/3194522
+2024/11/19 08:22:34 [info] 24#24: *293 udp client 127.0.0.1:64941 connected to 0.0.0.0:38315
+2024/11/19 08:22:34 [info] 24#24: *293 udp proxy 127.0.0.1:63343 connected to 127.0.0.1:38316
+2024/11/19 08:22:34 [info] 26#26: *294 udp client 127.0.0.1:64941 connected to 0.0.0.0:38315
+2024/11/19 08:22:34 [info] 26#26: *294 udp proxy 127.0.0.1:56039 connected to 127.0.0.1:38316
+2024/11/19 08:23:32 [info] 26#26: *259 udp timed out, packets from/to client:11/0, bytes from/to client:594/0, bytes from/to upstream:0/638
+2024/11/19 08:23:33 [info] 24#24: *257 udp timed out, packets from/to client:59090/0, bytes from/to client:3190860/0, bytes from/to upstream:0/3190904
+2024/11/19 08:23:40 [info] 28#28: *265 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 08:24:04 [info] 24#24: *297 udp client 127.0.0.1:57816 connected to 0.0.0.0:38315
+2024/11/19 08:24:04 [info] 24#24: *297 udp proxy 127.0.0.1:56653 connected to 127.0.0.1:38316
+2024/11/19 08:24:09 [info] 26#26: *299 udp client 127.0.0.1:57816 connected to 0.0.0.0:38315
+2024/11/19 08:24:09 [info] 26#26: *299 udp proxy 127.0.0.1:57260 connected to 127.0.0.1:38316
+2024/11/19 08:24:22 [info] 28#28: *301 udp client 127.0.0.1:57816 connected to 0.0.0.0:38315
+2024/11/19 08:24:22 [info] 28#28: *301 udp proxy 127.0.0.1:64369 connected to 127.0.0.1:38316
+2024/11/19 08:24:37 [info] 26#26: *263 udp timed out, packets from/to client:26/0, bytes from/to client:1404/0, bytes from/to upstream:0/1448
+2024/11/19 08:25:03 [info] 24#24: *261 udp timed out, packets from/to client:59305/0, bytes from/to client:3202470/0, bytes from/to upstream:0/3202514
+2024/11/19 08:25:34 [info] 24#24: *303 udp client 127.0.0.1:56337 connected to 0.0.0.0:38315
+2024/11/19 08:25:34 [info] 24#24: *303 udp proxy 127.0.0.1:58053 connected to 127.0.0.1:38316
+2024/11/19 08:25:34 [info] 26#26: *305 udp client 127.0.0.1:56337 connected to 0.0.0.0:38315
+2024/11/19 08:25:34 [info] 26#26: *305 udp proxy 127.0.0.1:58206 connected to 127.0.0.1:38316
+2024/11/19 08:26:10 [info] 28#28: *307 udp client 127.0.0.1:56337 connected to 0.0.0.0:38315
+2024/11/19 08:26:10 [info] 28#28: *307 udp proxy 127.0.0.1:65318 connected to 127.0.0.1:38316
+2024/11/19 08:26:32 [info] 26#26: *269 udp timed out, packets from/to client:19/0, bytes from/to client:1026/0, bytes from/to upstream:0/1070
+2024/11/19 08:26:33 [info] 24#24: *267 udp timed out, packets from/to client:59261/0, bytes from/to client:3200094/0, bytes from/to upstream:0/3200138
+2024/11/19 08:27:04 [info] 24#24: *309 udp client 127.0.0.1:65532 connected to 0.0.0.0:38315
+2024/11/19 08:27:04 [info] 24#24: *309 udp proxy 127.0.0.1:56808 connected to 127.0.0.1:38316
+2024/11/19 08:27:04 [info] 26#26: *311 udp client 127.0.0.1:65532 connected to 0.0.0.0:38315
+2024/11/19 08:27:04 [info] 26#26: *311 udp proxy 127.0.0.1:55366 connected to 127.0.0.1:38316
+2024/11/19 08:27:43 [info] 27#27: *276 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 08:27:43 [info] 28#28: *275 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 08:27:50 [info] 27#27: *313 udp client 127.0.0.1:65532 connected to 0.0.0.0:38315
+2024/11/19 08:27:50 [info] 27#27: *313 udp proxy 127.0.0.1:56983 connected to 127.0.0.1:38316
+2024/11/19 08:27:57 [info] 26#26: *273 udp timed out, packets from/to client:25/0, bytes from/to client:1350/0, bytes from/to upstream:0/1394
+2024/11/19 08:28:03 [info] 24#24: *271 udp timed out, packets from/to client:59105/0, bytes from/to client:3191670/0, bytes from/to upstream:0/3191714
+2024/11/19 08:28:30 [info] 28#28: *315 udp client 127.0.0.1:65532 connected to 0.0.0.0:38315
+2024/11/19 08:28:30 [info] 28#28: *315 udp proxy 127.0.0.1:58133 connected to 127.0.0.1:38316
+2024/11/19 08:28:34 [info] 24#24: *317 udp client 127.0.0.1:55614 connected to 0.0.0.0:38315
+2024/11/19 08:28:34 [info] 24#24: *317 udp proxy 127.0.0.1:58286 connected to 127.0.0.1:38316
+2024/11/19 08:28:44 [info] 26#26: *319 udp client 127.0.0.1:55614 connected to 0.0.0.0:38315
+2024/11/19 08:28:44 [info] 26#26: *319 udp proxy 127.0.0.1:59998 connected to 127.0.0.1:38316
+2024/11/19 08:28:45 [info] 28#28: *321 udp client 127.0.0.1:55614 connected to 0.0.0.0:38315
+2024/11/19 08:28:45 [info] 28#28: *321 udp proxy 127.0.0.1:57895 connected to 127.0.0.1:38316
+2024/11/19 08:28:45 [info] 27#27: *323 udp client 127.0.0.1:55614 connected to 0.0.0.0:38315
+2024/11/19 08:28:45 [info] 27#27: *323 udp proxy 127.0.0.1:55025 connected to 127.0.0.1:38316
+2024/11/19 08:29:30 [info] 26#26: *281 udp timed out, packets from/to client:26/0, bytes from/to client:1404/0, bytes from/to upstream:0/1448
+2024/11/19 08:29:33 [info] 24#24: *279 udp timed out, packets from/to client:59340/0, bytes from/to client:3204360/0, bytes from/to upstream:0/3204404
+2024/11/19 08:30:04 [info] 24#24: *325 udp client 127.0.0.1:61526 connected to 0.0.0.0:38315
+2024/11/19 08:30:04 [info] 24#24: *325 udp proxy 127.0.0.1:58690 connected to 127.0.0.1:38316
+2024/11/19 08:30:04 [info] 26#26: *326 udp client 127.0.0.1:61526 connected to 0.0.0.0:38315
+2024/11/19 08:30:04 [info] 26#26: *326 udp proxy 127.0.0.1:63167 connected to 127.0.0.1:38316
+2024/11/19 08:30:12 [info] 28#28: *329 udp client 127.0.0.1:61526 connected to 0.0.0.0:38315
+2024/11/19 08:30:12 [info] 28#28: *329 udp proxy 127.0.0.1:60751 connected to 127.0.0.1:38316
+2024/11/19 08:30:34 [info] 28#28: *287 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 08:31:01 [info] 26#26: *285 udp timed out, packets from/to client:17/0, bytes from/to client:918/0, bytes from/to upstream:0/962
+2024/11/19 08:31:03 [info] 24#24: *283 udp timed out, packets from/to client:58975/0, bytes from/to client:3184650/0, bytes from/to upstream:0/3184694
+2024/11/19 08:31:34 [info] 24#24: *331 udp client 127.0.0.1:61797 connected to 0.0.0.0:38315
+2024/11/19 08:31:34 [info] 24#24: *331 udp proxy 127.0.0.1:61627 connected to 127.0.0.1:38316
+2024/11/19 08:31:34 [info] 26#26: *333 udp client 127.0.0.1:61797 connected to 0.0.0.0:38315
+2024/11/19 08:31:34 [info] 26#26: *333 udp proxy 127.0.0.1:55629 connected to 127.0.0.1:38316
+2024/11/19 08:32:28 [info] 26#26: *291 udp timed out, packets from/to client:24/0, bytes from/to client:1296/0, bytes from/to upstream:0/1340
+2024/11/19 08:32:34 [info] 24#24: *289 udp timed out, packets from/to client:60394/0, bytes from/to client:3261276/0, bytes from/to upstream:0/3261320
+2024/11/19 08:33:04 [info] 24#24: *335 udp client 127.0.0.1:64465 connected to 0.0.0.0:38315
+2024/11/19 08:33:04 [info] 24#24: *335 udp proxy 127.0.0.1:63991 connected to 127.0.0.1:38316
+2024/11/19 08:33:08 [info] 26#26: *337 udp client 127.0.0.1:64465 connected to 0.0.0.0:38315
+2024/11/19 08:33:08 [info] 26#26: *337 udp proxy 127.0.0.1:64368 connected to 127.0.0.1:38316
+2024/11/19 08:34:01 [info] 26#26: *294 udp timed out, packets from/to client:34/0, bytes from/to client:1836/0, bytes from/to upstream:0/1880
+2024/11/19 08:34:04 [info] 24#24: *293 udp timed out, packets from/to client:68393/0, bytes from/to client:3693222/0, bytes from/to upstream:0/3693266
+2024/11/19 08:34:22 [info] 28#28: *301 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 08:34:34 [info] 24#24: *339 udp client 127.0.0.1:65186 connected to 0.0.0.0:38315
+2024/11/19 08:34:34 [info] 24#24: *339 udp proxy 127.0.0.1:56452 connected to 127.0.0.1:38316
+2024/11/19 08:34:47 [info] 26#26: *341 udp client 127.0.0.1:65186 connected to 0.0.0.0:38315
+2024/11/19 08:34:47 [info] 26#26: *341 udp proxy 127.0.0.1:60233 connected to 127.0.0.1:38316
+2024/11/19 08:35:27 [info] 26#26: *299 udp timed out, packets from/to client:72/0, bytes from/to client:3888/0, bytes from/to upstream:0/3932
+2024/11/19 08:35:34 [info] 24#24: *297 udp timed out, packets from/to client:67612/0, bytes from/to client:3651048/0, bytes from/to upstream:0/3651092
+2024/11/19 08:37:15 [info] 28#28: *307 udp timed out, packets from/to client:2/0, bytes from/to client:108/0, bytes from/to upstream:0/152
+2024/11/19 09:23:55 [info] 26#26: *305 udp timed out, packets from/to client:54/0, bytes from/to client:2916/0, bytes from/to upstream:0/2960
+2024/11/19 09:40:10 [info] 24#24: *303 udp timed out, packets from/to client:67765/0, bytes from/to client:3659310/0, bytes from/to upstream:0/3659354
+2024/11/19 09:42:35 [info] 27#27: *313 udp timed out, packets from/to client:11/0, bytes from/to client:594/0, bytes from/to upstream:0/638
+2024/11/19 10:14:26 [info] 26#26: *311 udp timed out, packets from/to client:135/0, bytes from/to client:7290/0, bytes from/to upstream:0/7334
+2024/11/19 10:14:28 [info] 28#28: *315 udp timed out, packets from/to client:4/0, bytes from/to client:216/0, bytes from/to upstream:0/260
+2024/11/19 10:16:12 [info] 24#24: *309 udp timed out, packets from/to client:68059/0, bytes from/to client:3675186/0, bytes from/to upstream:0/3675230
+2024/11/19 10:16:23 [info] 27#27: *323 udp timed out, packets from/to client:1/0, bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/19 10:53:26 [info] 28#28: *321 udp timed out, packets from/to client:3/0, bytes from/to client:162/0, bytes from/to upstream:0/206
+2024/11/19 10:53:31 [info] 26#26: *319 udp timed out, packets from/to client:82/0, bytes from/to client:4428/0, bytes from/to upstream:0/4472
+2024/11/19 10:54:59 [info] 24#24: *317 udp timed out, packets from/to client:67653/0, bytes from/to client:3653262/0, bytes from/to upstream:0/3653306
+2024/11/19 10:55:07 [info] 28#28: *329 udp timed out, packets from/to client:3/0, bytes from/to client:162/0, bytes from/to upstream:0/206
+2024/11/19 11:32:27 [info] 26#26: *326 udp timed out, packets from/to client:16/0, bytes from/to client:864/0, bytes from/to upstream:0/908
+2024/11/19 11:34:07 [info] 24#24: *325 udp timed out, packets from/to client:68274/0, bytes from/to client:3686796/0, bytes from/to upstream:0/3686840
+2024/11/19 11:56:33 [info] 26#26: *333 udp timed out, packets from/to client:44/0, bytes from/to client:2376/0, bytes from/to upstream:0/2420
+2024/11/19 11:57:50 [info] 24#24: *331 udp timed out, packets from/to client:68514/0, bytes from/to client:3699756/0, bytes from/to upstream:0/3699800
+2024/11/19 12:34:24 [info] 26#26: *337 udp timed out, packets from/to client:45/0, bytes from/to client:2430/0, bytes from/to upstream:0/2474
+2024/11/19 12:36:14 [info] 24#24: *335 udp timed out, packets from/to client:68562/0, bytes from/to client:3702348/0, bytes from/to upstream:0/3702392
+2024/11/19 12:54:49 [info] 26#26: *341 udp timed out, packets from/to client:48/0, bytes from/to client:2592/0, bytes from/to upstream:0/2636
+2024/11/19 12:54:53 [info] 24#24: *339 udp timed out, packets from/to client:36669/0, bytes from/to client:1980126/0, bytes from/to upstream:0/1980170
+2024/11/21 02:57:31 [info] 30#30: *1 udp client 127.0.0.1:57687 connected to 0.0.0.0:38315
+2024/11/21 02:57:31 [info] 30#30: *1 udp proxy 127.0.0.1:63027 connected to 127.0.0.1:38316
+2024/11/21 02:57:31 [error] 30#30: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:54/0, bytes from/to upstream:0/98
+2024/11/21 02:57:32 [error] 30#30: *1 recv() failed (111: Connection refused) while proxying and reading from upstream, udp client: 127.0.0.1, server: 0.0.0.0:38315, upstream: "127.0.0.1:38316", bytes from/to client:108/0, bytes from/to upstream:0/152
+2024/11/21 02:59:01 [info] 30#30: *3 udp client 127.0.0.1:58069 connected to 0.0.0.0:38315
+2024/11/21 02:59:01 [info] 30#30: *3 udp proxy 127.0.0.1:58958 connected to 127.0.0.1:38316
+2024/11/21 03:00:31 [info] 30#30: *5 udp client 127.0.0.1:64303 connected to 0.0.0.0:38315
+2024/11/21 03:00:31 [info] 30#30: *5 udp proxy 127.0.0.1:64780 connected to 127.0.0.1:38316
+2024/11/21 03:01:13 [info] 30#30: *7 udp client 127.0.0.1:55004 connected to 0.0.0.0:38315
+2024/11/21 03:01:13 [info] 30#30: *7 udp proxy 127.0.0.1:64346 connected to 127.0.0.1:38316
+2024/11/21 03:02:01 [info] 30#30: *9 udp client 127.0.0.1:56030 connected to 0.0.0.0:38315
+2024/11/21 03:02:01 [info] 30#30: *9 udp proxy 127.0.0.1:60605 connected to 127.0.0.1:38316
+2024/11/21 03:03:32 [info] 30#30: *11 udp client 127.0.0.1:56329 connected to 0.0.0.0:38315
+2024/11/21 03:03:32 [info] 30#30: *11 udp proxy 127.0.0.1:56076 connected to 127.0.0.1:38316
+2024/11/21 03:05:02 [info] 30#30: *13 udp client 127.0.0.1:59809 connected to 0.0.0.0:38315
+2024/11/21 03:05:02 [info] 30#30: *13 udp proxy 127.0.0.1:64186 connected to 127.0.0.1:38316
+2024/11/21 03:06:33 [info] 30#30: *15 udp client 127.0.0.1:61439 connected to 0.0.0.0:38315
+2024/11/21 03:06:33 [info] 30#30: *15 udp proxy 127.0.0.1:60926 connected to 127.0.0.1:38316
+2024/11/21 03:08:03 [info] 30#30: *17 udp client 127.0.0.1:64892 connected to 0.0.0.0:38315
+2024/11/21 03:08:03 [info] 30#30: *17 udp proxy 127.0.0.1:61540 connected to 127.0.0.1:38316
+2024/11/21 03:09:00 [info] 30#30: *1 udp timed out, packets from/to client:89/2, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:09:34 [info] 30#30: *19 udp client 127.0.0.1:59868 connected to 0.0.0.0:38315
+2024/11/21 03:09:34 [info] 30#30: *19 udp proxy 127.0.0.1:57062 connected to 127.0.0.1:38316
+2024/11/21 03:10:30 [info] 30#30: *3 udp timed out, packets from/to client:89/0, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:11:04 [info] 30#30: *21 udp client 127.0.0.1:63310 connected to 0.0.0.0:38315
+2024/11/21 03:11:04 [info] 30#30: *21 udp proxy 127.0.0.1:61441 connected to 127.0.0.1:38316
+2024/11/21 03:11:26 [info] 30#30: *7 udp timed out, packets from/to client:128/0, bytes from/to client:6912/0, bytes from/to upstream:0/6956
+2024/11/21 03:12:00 [info] 30#30: *5 udp timed out, packets from/to client:89/0, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:12:34 [info] 30#30: *23 udp client 127.0.0.1:65158 connected to 0.0.0.0:38315
+2024/11/21 03:12:34 [info] 30#30: *23 udp proxy 127.0.0.1:65200 connected to 127.0.0.1:38316
+2024/11/21 03:13:31 [info] 30#30: *9 udp timed out, packets from/to client:90/0, bytes from/to client:4860/0, bytes from/to upstream:0/4904
+2024/11/21 03:14:04 [info] 30#30: *25 udp client 127.0.0.1:57535 connected to 0.0.0.0:38315
+2024/11/21 03:14:04 [info] 30#30: *25 udp proxy 127.0.0.1:65078 connected to 127.0.0.1:38316
+2024/11/21 03:15:01 [info] 30#30: *11 udp timed out, packets from/to client:89/0, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:15:34 [info] 30#30: *27 udp client 127.0.0.1:57314 connected to 0.0.0.0:38315
+2024/11/21 03:15:34 [info] 30#30: *27 udp proxy 127.0.0.1:59532 connected to 127.0.0.1:38316
+2024/11/21 03:16:32 [info] 30#30: *13 udp timed out, packets from/to client:90/0, bytes from/to client:4860/0, bytes from/to upstream:0/4904
+2024/11/21 03:17:05 [info] 30#30: *29 udp client 127.0.0.1:63606 connected to 0.0.0.0:38315
+2024/11/21 03:17:05 [info] 30#30: *29 udp proxy 127.0.0.1:60884 connected to 127.0.0.1:38316
+2024/11/21 03:18:02 [info] 30#30: *15 udp timed out, packets from/to client:89/0, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:18:36 [info] 30#30: *31 udp client 127.0.0.1:58622 connected to 0.0.0.0:38315
+2024/11/21 03:18:36 [info] 30#30: *31 udp proxy 127.0.0.1:57639 connected to 127.0.0.1:38316
+2024/11/21 03:19:33 [info] 30#30: *17 udp timed out, packets from/to client:90/0, bytes from/to client:4860/0, bytes from/to upstream:0/4904
+2024/11/21 03:20:06 [info] 30#30: *33 udp client 127.0.0.1:64879 connected to 0.0.0.0:38315
+2024/11/21 03:20:06 [info] 30#30: *33 udp proxy 127.0.0.1:55217 connected to 127.0.0.1:38316
+2024/11/21 03:21:03 [info] 30#30: *19 udp timed out, packets from/to client:89/0, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:21:37 [info] 30#30: *35 udp client 127.0.0.1:55567 connected to 0.0.0.0:38315
+2024/11/21 03:21:37 [info] 30#30: *35 udp proxy 127.0.0.1:55809 connected to 127.0.0.1:38316
+2024/11/21 03:22:33 [info] 30#30: *21 udp timed out, packets from/to client:89/0, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:23:08 [info] 30#30: *37 udp client 127.0.0.1:64327 connected to 0.0.0.0:38315
+2024/11/21 03:23:08 [info] 30#30: *37 udp proxy 127.0.0.1:62184 connected to 127.0.0.1:38316
+2024/11/21 03:24:03 [info] 30#30: *23 udp timed out, packets from/to client:89/0, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:25:33 [info] 30#30: *25 udp timed out, packets from/to client:89/0, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:27:04 [info] 30#30: *27 udp timed out, packets from/to client:90/0, bytes from/to client:4860/0, bytes from/to upstream:0/4904
+2024/11/21 03:28:35 [info] 30#30: *29 udp timed out, packets from/to client:90/0, bytes from/to client:4860/0, bytes from/to upstream:0/4904
+2024/11/21 03:30:05 [info] 30#30: *31 udp timed out, packets from/to client:89/0, bytes from/to client:4806/0, bytes from/to upstream:0/4850
+2024/11/21 03:31:36 [info] 30#30: *33 udp timed out, packets from/to client:90/0, bytes from/to client:4860/0, bytes from/to upstream:0/4904
+2024/11/21 03:33:07 [info] 30#30: *35 udp timed out, packets from/to client:90/0, bytes from/to client:4860/0, bytes from/to upstream:0/4904
+2024/11/21 03:33:13 [info] 30#30: *37 udp timed out, packets from/to client:6/0, bytes from/to client:324/0, bytes from/to upstream:0/368

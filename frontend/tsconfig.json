@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    //"target": "esnext",
+    "target": "es5",
+    //"downlevelIteration": true,
+    "module": "esnext",
+    "strict": true,
+    "jsx": "preserve",
+    "importHelpers": true,
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "lib": ["esnext", "dom"],
+    "types": ["node", "element-plus/global"],
+    "composite": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
+    "declaration": true, //告诉 TypeScript 生成 .d.ts 文件。这些文件包含类型声明，通常用于将库提供给其他项目或模块使用。
+    "emitDeclarationOnly": true,
+    "noEmit": true //希望 TypeScript 仅进行类型检查而不生成任何文件
+  },
+  "include": [
+    "env.d.ts",
+    "src/**/*",
+    "src/**/*.vue",
+    "vite.config.*",
+    "vitest.config.*",
+    "cypress.config.*",
+    "nightwatch.conf.*",
+    "playwright.config.*"
+  ],
+  "exclude": [
+    "src/**/__tests__/*"
+  ],
+  "typeRoots": [
+    "./node_modules/@types",
+    "./src"
+  ]
+}
