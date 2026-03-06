@@ -27,10 +27,15 @@ def process_analog_data(device_id, payload, timestamp_str=None):
             print(f"Payload length: {len(payload)} bytes")
             # 确保数据的长度足够
             if len(payload) >= 12:
-                voltage_1 = int.from_bytes(payload[4:6], byteorder='big') / 100.0
-                current_1 = int.from_bytes(payload[6:8], byteorder='big') / 100.0
-                voltage_2 = int.from_bytes(payload[8:10], byteorder='big') / 100.0
-                current_2 = int.from_bytes(payload[10:12], byteorder='big') / 100.0
+                #voltage_1 = int.from_bytes(payload[4:6], byteorder='big') / 100.0
+                #current_1 = int.from_bytes(payload[6:8], byteorder='big') / 100.0
+                #voltage_2 = int.from_bytes(payload[8:10], byteorder='big') / 100.0
+                #current_2 = int.from_bytes(payload[10:12], byteorder='big') / 100.0
+                voltage_1 = int.from_bytes(payload[4:6], byteorder='big', signed=True) / 100.0
+                current_1 = int.from_bytes(payload[6:8], byteorder='big', signed=True) / 100.0
+                voltage_2 = int.from_bytes(payload[8:10], byteorder='big', signed=True) / 100.0
+                current_2 = int.from_bytes(payload[10:12], byteorder='big', signed=True) / 100.0
+
 
                 print(f"Analog data: Voltage1: {voltage_1}, Current1: {current_1}, Voltage2: {voltage_2}, Current2: {current_2}")
             else:
@@ -42,17 +47,17 @@ def process_analog_data(device_id, payload, timestamp_str=None):
 
     VOLTAGE_THRESHOLD = 500
 
-    if voltage_1 > VOLTAGE_THRESHOLD and voltage_2 > VOLTAGE_THRESHOLD:
+    if abs(voltage_1) > VOLTAGE_THRESHOLD and abs(voltage_2) > VOLTAGE_THRESHOLD:
         print(f"Both voltages too high for device {device_id}, skipping Redis update.")
         return
-    if voltage_1 > VOLTAGE_THRESHOLD:
+    if abs(voltage_1) > VOLTAGE_THRESHOLD:
         print(f"Voltage 1 too high for device {device_id}, setting to 0.")
         voltage_1 = 0
-    if voltage_2 > VOLTAGE_THRESHOLD:
+    if abs(voltage_2) > VOLTAGE_THRESHOLD:
         print(f"Voltage 2 too high for device {device_id}, setting to 0.")
         voltage_2 = 0
-    if voltage_1 <= 1 and voltage_2 <= 1:
-        # 如果两个电压都小于等于1V，则不保存到数据库
+    if abs(voltage_1) <= 1 and abs(voltage_2) <= 1:
+        # 如果两个电压的绝对值都小于等于1V，则不保存到数据库
         print(f"Both voltages too low for device {device_id}, not saving to database.")
         return
 

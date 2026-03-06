@@ -3,4 +3,5 @@ dist
 .git
 .vscode
 .env
-npm-shrinkwrap.json
+!npm-shrinkwrap.json
+!package.json

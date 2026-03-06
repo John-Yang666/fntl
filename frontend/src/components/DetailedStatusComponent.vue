@@ -16,128 +16,144 @@
       </div>
     </div>
 
-    <!-- 折叠开关 -->
-    <el-button @click="toggleCollapse1">
-      {{ isCollapsed1 ? '显示一方向信息' : '隐藏一方向信息' }}
-    </el-button>
-    <el-button @click="toggleCollapse2">
-      {{ isCollapsed2 ? '显示二方向信息' : '隐藏二方向信息' }}
-    </el-button>
-
     <!-- 方向一 -->
-    <template v-if="!isCollapsed1">
+    <template v-if="direction1Enabled">
       <div>
-        <h3>一方向单板状态</h3>
-        <BoardStatusComponent :boards="boards1" />
-      </div>
-      <el-divider />
-      <div>
-        <h3>一方向设备主要状态信息</h3>
-        <el-button @click="showNeighbor = !showNeighbor">
-          {{ showNeighbor ? '隐藏邻站信息' : '显示邻站信息' }}
-        </el-button>
-        <el-table :data="direction1MainStatus" border style="width:100%">
-          <CustomTableColumn prop="Status1"  label="站间A通道" />
-          <CustomTableColumn prop="Status2"  label="站间B通道" />
-          <CustomTableColumn prop="Status3"  label="CPU板A通信" />
-          <CustomTableColumn prop="Status4"  label="CPU板B通信" />
-          <CustomTableColumn prop="Status5"  label="QHJ" />
-          <CustomTableColumn prop="Status52" label="电缆状态" />
-          <CustomTableColumn prop="Status6"  label="切换模式" />
-          <template v-if="showNeighbor">
-            <CustomTableColumn prop="Status7"  label="邻站QHJ" />
-            <CustomTableColumn prop="Status72" label="邻站电缆状态" />
-            <CustomTableColumn prop="Status8"  label="邻站切换模式" />
-          </template>
-        </el-table>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <h3>一方向信息</h3>
+          <el-button @click="showDirection1 = !showDirection1">
+            {{ showDirection1 ? '隐藏一方向信息' : '显示一方向信息' }}
+          </el-button>
+        </div>
 
-        <h3>一方向动作继电器状态信息</h3>
-        <h4>A系</h4>
-        <el-table :data="direction1RelayStatusA" border style="width:100%">
-          <CustomTableColumn prop="Status1" label="本站ZDJ" />
-          <CustomTableColumn prop="Status2" label="本站FDJ" />
-          <CustomTableColumn prop="Status3" label="本站ZXJ" />
-          <CustomTableColumn prop="Status4" label="本站FXJ" />
-          <template v-if="showNeighbor">
-            <CustomTableColumn prop="Status5" label="邻站ZDJ" />
-            <CustomTableColumn prop="Status6" label="邻站FDJ" />
-            <CustomTableColumn prop="Status7" label="邻站ZXJ" />
-            <CustomTableColumn prop="Status8" label="邻站FXJ" />
-          </template>
-        </el-table>
-        <h4>B系</h4>
-        <el-table :data="direction1RelayStatusB" border style="width:100%">
-          <CustomTableColumn prop="Status1" label="本站ZDJ" />
-          <CustomTableColumn prop="Status2" label="本站FDJ" />
-          <CustomTableColumn prop="Status3" label="本站ZXJ" />
-          <CustomTableColumn prop="Status4" label="本站FXJ" />
-          <template v-if="showNeighbor">
-            <CustomTableColumn prop="Status5" label="邻站ZDJ" />
-            <CustomTableColumn prop="Status6" label="邻站FDJ" />
-            <CustomTableColumn prop="Status7" label="邻站ZXJ" />
-            <CustomTableColumn prop="Status8" label="邻站FXJ" />
-          </template>
-        </el-table>
+        <div v-show="showDirection1">
+          <h3>一方向单板状态</h3>
+          <BoardStatusComponent :boards="boards1" />
+          <el-divider />
+          <h3>一方向设备主要状态信息</h3>
+          <el-button @click="showNeighbor = !showNeighbor">
+            {{ showNeighbor ? '隐藏邻站信息' : '显示邻站信息' }}
+          </el-button>
+          <el-table :data="direction1MainStatus" border style="width:100%">
+            <CustomTableColumn prop="Status1"  label="站间A通道" />
+            <CustomTableColumn prop="Status2"  label="站间B通道" />
+            <CustomTableColumn prop="Status3"  label="CPU板A通信" />
+            <CustomTableColumn prop="Status4"  label="CPU板B通信" />
+            <CustomTableColumn prop="Status5"  label="QHJ" />
+            <CustomTableColumn prop="Status52" label="电缆状态" />
+            <CustomTableColumn prop="Status6"  label="切换模式" />
+            <template v-if="showNeighbor">
+              <CustomTableColumn prop="Status7"  label="邻站QHJ" />
+              <CustomTableColumn prop="Status72" label="邻站电缆状态" />
+              <CustomTableColumn prop="Status8"  label="邻站切换模式" />
+            </template>
+          </el-table>
+
+          <h3>一方向动作继电器状态信息</h3>
+          <h4>A系</h4>
+          <el-table :data="direction1RelayStatusA" border style="width:100%">
+            <CustomTableColumn prop="Status1" label="本站ZDJ" />
+            <CustomTableColumn prop="Status2" label="本站FDJ" />
+            <CustomTableColumn prop="Status3" label="本站ZXJ" />
+            <CustomTableColumn prop="Status4" label="本站FXJ" />
+            <template v-if="showNeighbor">
+              <CustomTableColumn prop="Status5" label="邻站ZDJ" />
+              <CustomTableColumn prop="Status6" label="邻站FDJ" />
+              <CustomTableColumn prop="Status7" label="邻站ZXJ" />
+              <CustomTableColumn prop="Status8" label="邻站FXJ" />
+            </template>
+          </el-table>
+          <h4>B系</h4>
+          <el-table :data="direction1RelayStatusB" border style="width:100%">
+            <CustomTableColumn prop="Status1" label="本站ZDJ" />
+            <CustomTableColumn prop="Status2" label="本站FDJ" />
+            <CustomTableColumn prop="Status3" label="本站ZXJ" />
+            <CustomTableColumn prop="Status4" label="本站FXJ" />
+            <template v-if="showNeighbor">
+              <CustomTableColumn prop="Status5" label="邻站ZDJ" />
+              <CustomTableColumn prop="Status6" label="邻站FDJ" />
+              <CustomTableColumn prop="Status7" label="邻站ZXJ" />
+              <CustomTableColumn prop="Status8" label="邻站FXJ" />
+            </template>
+          </el-table>
+          <el-divider />
+        </div>
       </div>
-      <el-divider />
     </template>
 
     <!-- 方向二 -->
-    <template v-if="!isCollapsed2">
+    <template v-if="direction2Enabled">
       <div>
-        <h3>二方向单板状态</h3>
-        <BoardStatusComponent :boards="boards2" />
-      </div>
-      <el-divider />
-      <div>
-        <h3>二方向设备主要状态信息</h3>
-        <el-button @click="showNeighbor = !showNeighbor">
-          {{ showNeighbor ? '隐藏邻站信息' : '显示邻站信息' }}
-        </el-button>
-        <el-table :data="direction2MainStatus" border style="width:100%">
-          <CustomTableColumn prop="Status1"  label="站间A通道" />
-          <CustomTableColumn prop="Status2"  label="站间B通道" />
-          <CustomTableColumn prop="Status3"  label="CPU板A通信" />
-          <CustomTableColumn prop="Status4"  label="CPU板B通信" />
-          <CustomTableColumn prop="Status5"  label="QHJ" />
-          <CustomTableColumn prop="Status52" label="电缆状态" />
-          <CustomTableColumn prop="Status6"  label="切换模式" />
-          <template v-if="showNeighbor">
-            <CustomTableColumn prop="Status7"  label="邻站QHJ" />
-            <CustomTableColumn prop="Status72" label="邻站电缆状态" />
-            <CustomTableColumn prop="Status8"  label="邻站切换模式" />
-          </template>
-        </el-table>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <h3>二方向信息</h3>
+          <el-button @click="showDirection2 = !showDirection2">
+            {{ showDirection2 ? '隐藏二方向信息' : '显示二方向信息' }}
+          </el-button>
+        </div>
 
-        <h3>二方向动作继电器状态信息</h3>
-        <h4>A系</h4>
-        <el-table :data="direction2RelayStatusA" border style="width:100%">
-          <CustomTableColumn prop="Status1" label="本站ZDJ" />
-          <CustomTableColumn prop="Status2" label="本站FDJ" />
-          <CustomTableColumn prop="Status3" label="本站ZXJ" />
-          <CustomTableColumn prop="Status4" label="本站FXJ" />
-          <template v-if="showNeighbor">
-            <CustomTableColumn prop="Status5" label="邻站ZDJ" />
-            <CustomTableColumn prop="Status6" label="邻站FDJ" />
-            <CustomTableColumn prop="Status7" label="邻站ZXJ" />
-            <CustomTableColumn prop="Status8" label="邻站FXJ" />
-          </template>
-        </el-table>
-        <h4>B系</h4>
-        <el-table :data="direction2RelayStatusB" border style="width:100%">
-          <CustomTableColumn prop="Status1" label="本站ZDJ" />
-          <CustomTableColumn prop="Status2" label="本站FDJ" />
-          <CustomTableColumn prop="Status3" label="本站ZXJ" />
-          <CustomTableColumn prop="Status4" label="本站FXJ" />
-          <template v-if="showNeighbor">
-            <CustomTableColumn prop="Status5" label="邻站ZDJ" />
-            <CustomTableColumn prop="Status6" label="邻站FDJ" />
-            <CustomTableColumn prop="Status7" label="邻站ZXJ" />
-            <CustomTableColumn prop="Status8" label="邻站FXJ" />
-          </template>
-        </el-table>
+        <div v-show="showDirection2">
+          <h3>二方向单板状态</h3>
+          <BoardStatusComponent :boards="boards2" />
+          <el-divider />
+          <h3>二方向设备主要状态信息</h3>
+          <el-button @click="showNeighbor = !showNeighbor">
+            {{ showNeighbor ? '隐藏邻站信息' : '显示邻站信息' }}
+          </el-button>
+          <el-table :data="direction2MainStatus" border style="width:100%">
+            <CustomTableColumn prop="Status1"  label="站间A通道" />
+            <CustomTableColumn prop="Status2"  label="站间B通道" />
+            <CustomTableColumn prop="Status3"  label="CPU板A通信" />
+            <CustomTableColumn prop="Status4"  label="CPU板B通信" />
+            <CustomTableColumn prop="Status5"  label="QHJ" />
+            <CustomTableColumn prop="Status52" label="电缆状态" />
+            <CustomTableColumn prop="Status6"  label="切换模式" />
+            <template v-if="showNeighbor">
+              <CustomTableColumn prop="Status7"  label="邻站QHJ" />
+              <CustomTableColumn prop="Status72" label="邻站电缆状态" />
+              <CustomTableColumn prop="Status8"  label="邻站切换模式" />
+            </template>
+          </el-table>
+
+          <h3>二方向动作继电器状态信息</h3>
+          <h4>A系</h4>
+          <el-table :data="direction2RelayStatusA" border style="width:100%">
+            <CustomTableColumn prop="Status1" label="本站ZDJ" />
+            <CustomTableColumn prop="Status2" label="本站FDJ" />
+            <CustomTableColumn prop="Status3" label="本站ZXJ" />
+            <CustomTableColumn prop="Status4" label="本站FXJ" />
+            <template v-if="showNeighbor">
+              <CustomTableColumn prop="Status5" label="邻站ZDJ" />
+              <CustomTableColumn prop="Status6" label="邻站FDJ" />
+              <CustomTableColumn prop="Status7" label="邻站ZXJ" />
+              <CustomTableColumn prop="Status8" label="邻站FXJ" />
+            </template>
+          </el-table>
+          <h4>B系</h4>
+          <el-table :data="direction2RelayStatusB" border style="width:100%">
+            <CustomTableColumn prop="Status1" label="本站ZDJ" />
+            <CustomTableColumn prop="Status2" label="本站FDJ" />
+            <CustomTableColumn prop="Status3" label="本站ZXJ" />
+            <CustomTableColumn prop="Status4" label="本站FXJ" />
+            <template v-if="showNeighbor">
+              <CustomTableColumn prop="Status5" label="邻站ZDJ" />
+              <CustomTableColumn prop="Status6" label="邻站FDJ" />
+              <CustomTableColumn prop="Status7" label="邻站ZXJ" />
+              <CustomTableColumn prop="Status8" label="邻站FXJ" />
+            </template>
+          </el-table>
+        </div>
       </div>
     </template>
+
+
+    <!-- 如果两个方向都未启用，给出提示 -->
+    <el-alert
+      v-if="!direction1Enabled && !direction2Enabled"
+      title="该设备未启用任一方向的状态展示"
+      type="info"
+      show-icon
+      class="mt-2"
+    />
 
     <!-- 错误提示 -->
     <el-alert
@@ -172,25 +188,29 @@ const device_id   = ref<number>(
   )
 );
 
-/* ---------------- 折叠 ---------------- */
-const isCollapsed1 = ref(false);
-const isCollapsed2 = ref(false);
-const showNeighbor = ref(true);
-const getKey = (id: number|null, s: string) => `isCollapsed_${id}_${s}`;
-const toggleCollapse1 = () => {
-  isCollapsed1.value = !isCollapsed1.value;
-  localStorage.setItem(getKey(device_id.value, '1'), JSON.stringify(isCollapsed1.value));
-};
-const toggleCollapse2 = () => {
-  isCollapsed2.value = !isCollapsed2.value;
-  localStorage.setItem(getKey(device_id.value, '2'), JSON.stringify(isCollapsed2.value));
-};
-const restoreCollapse = () => {
-  if (device_id.value !== null) {
-    isCollapsed1.value = JSON.parse(localStorage.getItem(getKey(device_id.value, '1'))||'false');
-    isCollapsed2.value = JSON.parse(localStorage.getItem(getKey(device_id.value, '2'))||'false');
+// 控制一、二方向整体展开/折叠
+const showDirection1 = ref(true);
+const showDirection2 = ref(true);
+
+/* ---------------- 方向开关（来自后端） ---------------- */
+const direction1Enabled = ref<boolean>(true);
+const direction2Enabled = ref<boolean>(true);
+
+const fetchDirectionFlags = async () => {
+  try {
+    const { data } = await axios.get(`${baseURL}/device-flags/${device_id.value}/`);
+    direction1Enabled.value = !!data.direction1_enabled;
+    direction2Enabled.value = !!data.direction2_enabled;
+  } catch (e) {
+    // 兜底：如果接口失败，就默认两个方向都显示，避免误隐藏
+    direction1Enabled.value = true;
+    direction2Enabled.value = true;
+    console.error('Error fetching device flags', e);
   }
 };
+
+/* ---------------- 邻站开关 ---------------- */
+const showNeighbor = ref(true);
 
 /* ---------------- 响应式数据 ---------------- */
 const boards1                = ref<Board[]>([]);
@@ -236,10 +256,7 @@ function getBitValueFromChar(byte: string, bitIndex: number): string {
 
 /* ---------------- 轮询获取并解析 ---------------- */
 const fetchSwitchStatus = async () => {
-  // 每次开始前清空
-  //clearAllStatuses();
   error.value = null;
-
   try {
     const { data } = await axios.get(`${baseURL}/switch-status/${device_id.value}/`);
     const bin = Array.from(Uint8Array.from(atob(data.switch_status), c => c.charCodeAt(0)))
@@ -256,7 +273,7 @@ const fetchSwitchStatus = async () => {
     direction2RelayStatusA.value = parsed.direction2RelayStatusA;
     direction2RelayStatusB.value = parsed.direction2RelayStatusB;
 
-    // 解析命令回复：字节7 bits6/5 → 一方向
+    // 解析命令回复：字节7 bits6/5 → 一方向；字节11 bits6/5 → 二方向
     const c7  = getChar(bin, 7);
     const c11 = getChar(bin,11);
     if (c7) {
@@ -276,7 +293,6 @@ const fetchSwitchStatus = async () => {
   } catch (e) {
     console.error('Error fetching switch status', e);
     error.value = '未获取设备状态';
-    // 保持全 null
     clearAllStatuses();
     networkBoardStatus.value = '离线';
   }
@@ -284,10 +300,10 @@ const fetchSwitchStatus = async () => {
 
 /* ---------------- 生命周期 ---------------- */
 let timer: ReturnType<typeof setInterval>;
-onMounted(() => {
-  restoreCollapse();
+onMounted(async () => {
   clearAllStatuses();
-  fetchSwitchStatus();
+  await fetchDirectionFlags();  // 先拿到开关
+  await fetchSwitchStatus();    // 再刷状态
   timer = setInterval(fetchSwitchStatus, 1000);
 });
 onUnmounted(() => {
@@ -295,17 +311,16 @@ onUnmounted(() => {
 });
 
 /* ---------------- 路由变化 ---------------- */
-watch(() => route.params.index, val => {
+watch(() => route.params.index, async (val) => {
   device_id.value = parseInt(Array.isArray(val)?val[0]:(val as string), 10);
-  restoreCollapse();
   clearAllStatuses();
-  fetchSwitchStatus();
+  await fetchDirectionFlags();
+  await fetchSwitchStatus();
 });
 </script>
 
 <style scoped>
 .mt-2 { margin-top: 16px; }
-
 .status-container {
   display: flex;
   justify-content: space-between;

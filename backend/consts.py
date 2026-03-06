@@ -43,7 +43,7 @@ ALARM_MEANINGS = {
 }
 
 # 通信超时参数（秒）(0号告警延时参数)
-COMMUNICATION_TIMEOUT = 60
+COMMUNICATION_TIMEOUT = 10 #60
 
 # 告警延时参数（秒）
 ALARM_DELAY = {
@@ -58,9 +58,11 @@ ALARM_DELAY = {
     190: 5, 280: 5, 370: 5, 460: 5,   
 }
 
+#拓扑图相关参数
+TOPOLOGY_TIMEOUT = 10 # 拓扑状态缓存时长（秒）
 
 #udp_receiver.py中使用的参数
-LAST_COMMUNICATION_TIME_TIMEOUT = 3600  # 最后通信时间缓存时长，影响到设备离线告警持续时长
-SWITCH_DATA_TIMEOUT = 60  # 开关量数据缓存 60 秒，即使数据包内容不变也每分钟发一次数据包给 Celery 避免意外故障
-HEARTBEAT_TIMEOUT = 60 # 收到的数据包作为心跳包，如果超过就重启本程序
-PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL= 10 #周期性设备刷新时间间隔（秒）生产环境可以设置为60秒
+LAST_COMMUNICATION_TIME_TIMEOUT = None # 最后通信时间缓存保存时长， summarize_alarms_container中通信超时时清除
+SWITCH_DATA_TIMEOUT = 60  # 开关量数据缓存时长，单位秒，即使数据包内容不变也在这个时间间隔发一次数据包给 Celery 避免意外故障。（redis_client.set(f"device_{device_id}_last_switch_packet_hash", packet_hash.encode(), ex=SWITCH_DATA_TIMEOUT)）
+HEARTBEAT_TIMEOUT = 300 # 收到的数据包作为心跳包，如果超过就重启udp_receiver程序
+PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL= 60 #周期性设备刷新时间间隔（秒）生产环境可以设置为60秒

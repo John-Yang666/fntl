@@ -25,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-7*q-54ac9t=+c)2cs6w9#c^sm%!f$=r+y+r7z+si8%8)1y!-h7'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 #DEBUG = False #20241218 改成false之后后端admin界面显示不出css样式
 
 AUTH_USER_MODEL = 'myapp.CustomUser' 
@@ -67,7 +67,7 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
-    #'django.middleware.csrf.CsrfViewMiddleware',#20241218注释掉，因为前端使用JWT认证，不需要使用CSRF
+    'django.middleware.csrf.CsrfViewMiddleware',#20241218注释掉，因为前端使用JWT认证，不需要使用CSRF
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -159,7 +159,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760000  # 10000MB 上传文件的大小限制
 FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600 # 100MB 上传文件的最大内存限制，超过大小的文件将被存储在磁盘上而不是内存中
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type
@@ -261,14 +261,17 @@ CORS_ALLOWED_ORIGINS = [ # 确保只有授权的前端应用能够访问你的�
     "http://127.0.0.1:5173",
     'http://192.168.31.243:5173' #本机局域网IP地址
 ]'''
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = True #跨域 AJAX 请求（浏览器 JS 去调接口）
 
-'''
-#已在MIDDLEWARE配置中注释掉CSRF中间件，因为前端使用JWT认证，不需要CSRF
 CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
     "http://localhost:38173",
     "http://127.0.0.1:38173",
-    "http://192.168.31.243:38173", #替换为你的局域网IP地址
-    "http://192.168.31.74:38173", #继续添加其它需要信任的域名
+    "http://192.168.0.88:8000", #替换为你的局域网IP地址
+    "http://192.168.0.88:38173", 
+    "http://192.168.0.82:8000", #继续添加其它需要信任的域名
+    "http://192.168.0.82:38173",
 ]
-'''
+
+#CSRF_COOKIE_SECURE = False  # 如果使用 HTTPS，则设置为 True

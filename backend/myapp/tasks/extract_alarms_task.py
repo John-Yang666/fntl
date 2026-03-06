@@ -1,4 +1,3 @@
-# tasks/extract_alarms_task.py
 from celery import shared_task
 from django.utils import timezone
 from django.core.cache import cache
@@ -14,10 +13,10 @@ def extract_alarms(device_id, switch_status):
     if isinstance(switch_status, str):
         switch_status = bytes(switch_status, 'utf-8')
 
-    previous_alarms = cache.get(f'device_{device_id}_alarms', {})
-    alarms_of_this_device = {}
+    previous_alarms = cache.get(f'device_{device_id}_alarms', {}) or {}
+    alarms_state = {}  # ← 本次完整状态（包含0和1）
 
-    # Fetch the device and its alarm filters
+    # 设备的过滤列表
     try:
         device = Device.objects.get(device_id=device_id)
         alarm_filters = set(device.alarm_filters)
@@ -26,8 +25,12 @@ def extract_alarms(device_id, switch_status):
 
     for alarm_code in ALARM_CODES:
         if alarm_code in alarm_filters:
-            continue  # Skip filtered alarms
+            # 被过滤的告警可选：写成0（表示忽略）或完全不写
+            # 这里写成0，避免summarize侧“缺失即未知”的歧义
+            alarms_state[alarm_code] = {'bit_value': 0}
+            continue
 
+        # ===== 你的各类取位逻辑（保持不变） =====
         if alarm_code == 70:
             byte_index = 7
             bit_value_0_self = get_switch_bit_value(switch_status, byte_index, 0)
@@ -41,12 +44,12 @@ def extract_alarms(device_id, switch_status):
             byte_index = 9
             bit_value_2_neighbor = get_switch_bit_value(switch_status, byte_index, 2)
             bit_value_3_neighbor = get_switch_bit_value(switch_status, byte_index, 3)
-            if (bit_value_2_neighbor == 0 and bit_value_3_neighbor == 0):#邻站切换模式为无效
+            if (bit_value_2_neighbor == 0 and bit_value_3_neighbor == 0):
                 bit_value = 0
-            elif (bit_value_2_self == 0 and bit_value_3_self == 1) or (bit_value_2_neighbor == 0 and bit_value_3_neighbor == 1):#本站或邻站切换模式为自动
+            elif (bit_value_2_self == 0 and bit_value_3_self == 1) or (bit_value_2_neighbor == 0 and bit_value_3_neighbor == 1):
                 bit_value = 0
             else:
-                bit_value = 0 if (bit_value_2_self == bit_value_2_neighbor) and (bit_value_3_self == bit_value_3_neighbor) else 1#本站与邻站切换模式不一致则为1
+                bit_value = 0 if ((bit_value_2_self == bit_value_2_neighbor) and (bit_value_3_self == bit_value_3_neighbor)) else 1
         elif alarm_code == 110:
             byte_index = 11
             bit_value_0_self = get_switch_bit_value(switch_status, byte_index, 0)
@@ -65,7 +68,7 @@ def extract_alarms(device_id, switch_status):
             elif (bit_value_2_self == 0 and bit_value_3_self == 1) or (bit_value_2_neighbor == 0 and bit_value_3_neighbor == 1):
                 bit_value = 0
             else:
-                bit_value = 0 if (bit_value_2_self == bit_value_2_neighbor) and (bit_value_3_self == bit_value_3_neighbor) else 1
+                bit_value = 0 if ((bit_value_2_self == bit_value_2_neighbor) and (bit_value_3_self == bit_value_3_neighbor)) else 1
         elif alarm_code in {190, 280, 370, 460}:
             byte_index = alarm_code // 10
             bit_value_0 = get_switch_bit_value(switch_status, byte_index, 0)
@@ -76,10 +79,14 @@ def extract_alarms(device_id, switch_status):
             bit_index = alarm_code % 10
             bit_value = get_switch_bit_value(switch_status, byte_index, bit_index)
 
+        # ===== 写入“本次完整状态” =====
         if bit_value == 1:
-            alarms_of_this_device[alarm_code] = {
-                'bit_value': bit_value,
-                'starttime': current_time if previous_alarms.get(alarm_code, {}).get('bit_value') != 1 else previous_alarms[alarm_code]['starttime']
-            }
+            # 保持/继承 starttime
+            start = previous_alarms.get(alarm_code, {}).get('starttime', current_time)
+            alarms_state[alarm_code] = {'bit_value': 1, 'starttime': start}
+        else:
+            alarms_state[alarm_code] = {'bit_value': 0}
 
-    cache.set(f'device_{device_id}_alarms', alarms_of_this_device, timeout=None)
+    # 写入完整状态 + 更新时间戳（持久）
+    cache.set(f'device_{device_id}_alarms', alarms_state, timeout=None)
+    cache.set(f'device_{device_id}_alarms_updated_at', current_time.isoformat(), timeout=None)

@@ -30,11 +30,12 @@ urlpatterns = [
     path('api/all-topology-status/', views.AllTopologyStatusView.as_view(), name='all_topology_status'),  # 所有拓扑状态视图
     path('api/active-alarms/', views.ActiveAlarmListView.as_view()),
     path('api/active-alarms/<int:device_id>/<int:alarm_code>/confirm/', views.ConfirmAlarmView.as_view()),
-    path('api/alerts-amount/', views.AlertsAmountView.as_view()),
+    #path('api/alerts-amount/', views.AlertsAmountView.as_view()),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/user/', views.UserDetailView.as_view(), name='user_detail'),
     path('api/download/<int:pk>/', views.download_file, name='file-download'),
+    path('api/device-flags/<int:device_id>/', views.DeviceFlagsView.as_view(), name='device-flags'),
     # path('reset_periodic_tasks/', views.reset_periodic_tasks, name='reset_periodic_tasks'),#注意：确保执行完该操作后立即删除此视图和 URL 配置，以防止未授权的访问。
 ]
 

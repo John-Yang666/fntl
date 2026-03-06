@@ -1,0 +1,33 @@
+services:
+  redis_stream:
+    image: redis:7.4.1
+    container_name: redis_stream
+    command:
+      - redis-server
+      # ---- 禁用持久化：尽量不占硬盘 ----
+      - --appendonly
+      - "no"
+      - --save
+      - ""
+      # ---- 内存上限 + 淘汰策略（必须！否则 stream 会把内存吃光）----
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+      # ---- 其它建议（可选）----
+      - --databases
+      - "3"
+      - --tcp-backlog
+      - "256"
+      - --maxclients
+      - "500"
+    ports:
+      - "36379:6379"   # 宿主机调试用；容器互通请用 redis_stream:6379
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10

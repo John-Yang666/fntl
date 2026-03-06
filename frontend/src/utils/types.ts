@@ -1,6 +1,6 @@
 export interface Board {
   name: string;
-  status: '备用' | '主用' | '正常' | '故障' | 'null';
+  status: '备用' | '主用' | '正常' | '故障' | '异常' |'null';
 }
 
 export interface DeviceStatus {

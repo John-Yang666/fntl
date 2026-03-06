@@ -1,6 +1,7 @@
 from django.core.cache import cache
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from consts import TOPOLOGY_TIMEOUT
 
 def process_topology_status(device_id, alarms_of_this_device):
     topology_status = {
@@ -25,7 +26,7 @@ def process_topology_status(device_id, alarms_of_this_device):
 
     # 将拓扑状态存入缓存
     topology_key = f"device_{device_id}_topology_status"
-    cache.set(topology_key, topology_status)
+    cache.set(topology_key, topology_status, timeout=TOPOLOGY_TIMEOUT) #20250821
 
     # 发送给 WebSocket 前端
     send_topology_update(topology_status)

@@ -1,0 +1,270 @@
+# docker-compose-prod.yml
+
+x-django-image: &django_image
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.prod
+  image: my_django:v5.0.6
+
+x-django-env: &django_env
+  DEBUG: ${DEBUG:-false}
+  DJANGO_SETTINGS_MODULE: myproject.settings
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  DATABASE_NAME: ${DATABASE_NAME:-mydatabase}
+  DATABASE_USER: ${DATABASE_USER:-myuser}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD:-mypassword}
+  DATABASE_HOST: ${DATABASE_HOST:-db}
+  DATABASE_PORT: "${DATABASE_PORT:-5432}"
+
+services:
+  redis:
+    image: redis:7.4.1
+    container_name: bt_nms_redis0
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --databases
+      - "3"
+      - --maxmemory
+      - 1000mb
+      - --maxclients
+      - "500"
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --tcp-backlog
+      - "256"
+    networks:
+      - bt_nms_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:4.0.0
+    container_name: kafka
+    ports:
+      - "19092:19092"
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "controller,broker"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+      KAFKA_LISTENERS: "INTERNAL://:9092,EXTERNAL://:19092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:9092,EXTERNAL://${KAFKA_EXTERNAL_ADDR:-localhost}:19092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+
+      KAFKA_LOG_RETENTION_HOURS: "168"
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: "300000"
+      KAFKA_LOG_SEGMENT_BYTES: "1073741824"
+    volumes:
+      - ${DATA_DIR:-/srv/bt_nms_data}/kafka:/var/lib/kafka/data
+    networks:
+      - kafka-net
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server 127.0.0.1:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+    restart: unless-stopped
+
+  db:
+    image: postgres:16.3
+    container_name: bt_nms_postgres_db0
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-mydatabase}
+      POSTGRES_USER: ${DATABASE_USER:-myuser}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-mypassword}
+    volumes:
+      - ${DATA_DIR:-/srv/bt_nms_data}/postgres:/var/lib/postgresql/data
+    networks:
+      - bt_nms_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-myuser} -d ${DATABASE_NAME:-mydatabase}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ============ Django (internal) ============
+  web:
+    <<: *django_image
+    container_name: bt_nms_django_app0
+    command: ["/app/entrypoint-prod.sh"]
+    expose:
+      - "8000"
+    volumes:
+      - static_data:/app/staticfiles
+    environment:
+      <<: *django_env
+      DJANGO_SUPERUSER_USERNAME: admin
+      DJANGO_SUPERUSER_EMAIL: admin@example.com
+      DJANGO_SUPERUSER_PASSWORD: admin
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - bt_nms_network
+      - kafka-net
+    restart: unless-stopped
+
+  # ============ Nginx (public 8000, serves /static/) ============
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bt_nms_nginx0
+    ports:
+      - "8000:8000"
+    volumes:
+      - static_data:/staticfiles:ro
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  udp_receiver:
+    <<: *django_image
+    container_name: bt_nms_udp_receiver0
+    command: python udp_receiver.py
+    environment:
+      <<: *django_env
+      CELERY_BROKER_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_GROUP_ID: udp-receiver-0
+      KAFKA_AUTO_OFFSET_RESET: latest
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks:
+      - bt_nms_network
+      - kafka-net
+    restart: unless-stopped
+
+  summarize_alarms_container:
+    <<: *django_image
+    container_name: bt_nms_summarize_alarms_container0
+    command: python summarize_alarms_container.py
+    working_dir: /app
+    environment:
+      <<: *django_env
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  celery:
+    <<: *django_image
+    container_name: bt_nms_celery_worker0
+    command: celery -A myproject worker --loglevel=info
+    environment:
+      <<: *django_env
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  celery-beat:
+    <<: *django_image
+    container_name: bt_nms_celery_beat0
+    command: celery -A myproject beat --loglevel=info
+    environment:
+      <<: *django_env
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  vue:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_BACKEND_PORT: 8000
+    image: my_vue:prod
+    container_name: bt_nms_vue_prod0
+    ports:
+      - "38173:80"
+    depends_on:
+      - web
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  flower:
+    image: mher/flower:latest
+    container_name: bt_nms_flower0
+    ports:
+      - "5555:5555"
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+      - celery
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: bt_nms_portainer0
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_DIR:-/srv/bt_nms_data}/portainer:/data
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+networks:
+  bt_nms_network:
+    driver: bridge
+  kafka-net:
+    driver: bridge
+
+volumes:
+  static_data:

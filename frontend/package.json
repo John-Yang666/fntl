@@ -18,14 +18,13 @@
     "chartjs-plugin-zoom": "^2.0.1",
     "date-fns": "^4.1.0",
     "element-plus": "^2.8.7",
-    "idb": "^7.1.1", 
+    "idb": "^7.1.1",
     "pinia": "^2.2.6",
     "pinia-plugin-persistedstate": "^2.0.0",
     "tslib": "^2.8.1",
     "vue": "^3.5.12",
     "vue-chartjs": "^5.3.2",
-    "vue-router": "^4.4.5",
-    "vuex": "^4.1.0"
+    "vue-router": "^4.4.5"
   },
   "devDependencies": {
     "@tsconfig/node20": "^20.1.2",

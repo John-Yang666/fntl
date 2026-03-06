@@ -53,66 +53,79 @@ interface Desc<T> {
   target : TargetKey;
   idx?   : number;                     // 目标数组下标，默认 0
   field  : keyof T;                    // 哪个字段
-  char   : number;                     // 协议字节序号
-  bitPos : number | [number,number];   // 位或位组合
+  char   : number;                     // 协议字节序号（协议里的“第 char 个字节”）
+  bitPos : number | [number,number] | [number,number,number,number];   // 位或位组合
   map    : (raw: string, code?: string)=>string;
 }
 
 /* ------ 1. 板卡 & 电源板状态 ------ */
 const boardDescs: Array<Desc<Board>> = [
-  // 一方向 电源板 A/B
+  // 一方向 电源板 A/B（char:4 的 0/1 位）
   { target:'boards1', idx:0, field:'status', char:4, bitPos:0, map: b=>b==='0'?'正常':'故障' },
   { target:'boards1', idx:5, field:'status', char:4, bitPos:1, map: b=>b==='0'?'正常':'故障' },
-  // 二方向 电源板 A/B
+  // 二方向 电源板 A/B（char:4 的 2/3 位）
   { target:'boards2', idx:0, field:'status', char:4, bitPos:2, map: b=>b==='0'?'正常':'故障' },
   { target:'boards2', idx:5, field:'status', char:4, bitPos:3, map: b=>b==='0'?'正常':'故障' },
 ];
 
 /* ------ 2. CPU 板 A/B 主备 ------ */
 const cpuStatus = (code:string) =>
-  ({ '1010':'主用','0101':'备用','1001':'故障' } as const)[code] ?? '正常';
+  ({ '1010':'主用','0101':'备用','1001':'故障','0000':'异常' } as const)[code] ?? '正常';
 
 const cpuDescs: Array<Desc<Board>> = [
-  { target:'boards1', idx:3, field:'status', char:19, bitPos:[3,2], map:(r,c)=>cpuStatus(c!) },
-  { target:'boards1', idx:4, field:'status', char:28, bitPos:[3,2], map:(r,c)=>cpuStatus(c!) },
-  { target:'boards2', idx:3, field:'status', char:37, bitPos:[3,2], map:(r,c)=>cpuStatus(c!) },
-  { target:'boards2', idx:4, field:'status', char:46, bitPos:[3,2], map:(r,c)=>cpuStatus(c!) },
+  // 一方向 CPU A/B 的4位码分别在 char:19 / char:28 的低4位（按 [3,2,1,0] 顺序拼接）
+  { target:'boards1', idx:3, field:'status', char:19, bitPos:[3,2,1,0], map:(r,c)=>cpuStatus(c!) },
+  { target:'boards1', idx:4, field:'status', char:28, bitPos:[3,2,1,0], map:(r,c)=>cpuStatus(c!) },
+  // 二方向 CPU A/B 的4位码在 char:37 / char:46
+  { target:'boards2', idx:3, field:'status', char:37, bitPos:[3,2,1,0], map:(r,c)=>cpuStatus(c!) },
+  { target:'boards2', idx:4, field:'status', char:46, bitPos:[3,2,1,0], map:(r,c)=>cpuStatus(c!) },
 ];
 
 /* ------ 3. 通信板 & 站间通道（由主用 CPU 决定） ------ */
-const commDescs: Array<Desc<any>> = [
-  // 一方向 通信板 A/B & Status1/2
-  { target:'boards1', idx:1, field:'status', char:16, bitPos:2, map:b=>b==='0'?'正常':'故障' },
-  { target:'boards1', idx:1, field:'status', char:25, bitPos:2, map:b=>b==='0'?'正常':'故障' },
+/** 动态生成“只读主用段”的通信 desc 列表。
+ *  一方向：A 主用→读 16；B 主用→读 25；未知→默认 16
+ *  二方向：A 主用→读 34；B 主用→读 43；未知→默认 34
+ */
+function buildCommDescsByMaster(binary: string): Array<Desc<any>> {
+  const code4 = (c: number) => {
+    const by = byteAt(binary, c);
+    return by ? [3,2,1,0].map(i => bit(by, i)).join('') : '';
+  };
 
-  { target:'boards1', idx:2, field:'status', char:16, bitPos:4, map:b=>b==='0'?'正常':'故障' },
-  { target:'boards1', idx:2, field:'status', char:25, bitPos:4, map:b=>b==='0'?'正常':'故障' },
+  // 判主用 CPU
+  const d1A = cpuStatus(code4(19));
+  const d1B = cpuStatus(code4(28));
+  const d2A = cpuStatus(code4(37));
+  const d2B = cpuStatus(code4(46));
 
-  { target:'direction1MainStatus', field:'Status1', char:16, bitPos:2, map:b=>b==='0'?'正常':'故障' },
-  { target:'direction1MainStatus', field:'Status1', char:25, bitPos:2, map:b=>b==='0'?'正常':'故障' },
+  const d1Main = d1A === '主用' ? 'A' : d1B === '主用' ? 'B' : 'Unknown';
+  const d2Main = d2A === '主用' ? 'A' : d2B === '主用' ? 'B' : 'Unknown';
 
-  { target:'direction1MainStatus', field:'Status2', char:16, bitPos:4, map:b=>b==='0'?'正常':'故障' },
-  { target:'direction1MainStatus', field:'Status2', char:25, bitPos:4, map:b=>b==='0'?'正常':'故障' },
+  const seg1 = d1Main === 'A' ? 16 : d1Main === 'B' ? 25 : 16;
+  const seg2 = d2Main === 'A' ? 34 : d2Main === 'B' ? 43 : 34;
 
-  // 二方向 同理
-  { target:'boards2', idx:1, field:'status', char:34, bitPos:2, map:b=>b==='0'?'正常':'故障' },
-  { target:'boards2', idx:1, field:'status', char:43, bitPos:2, map:b=>b==='0'?'正常':'故障' },
+  const asOK = (b:string)=>b==='0'?'正常':'故障';
 
-  { target:'boards2', idx:2, field:'status', char:34, bitPos:4, map:b=>b==='0'?'正常':'故障' },
-  { target:'boards2', idx:2, field:'status', char:43, bitPos:4, map:b=>b==='0'?'正常':'故障' },
+  return [
+    // 一方向 通信板A/B & Status1/2 —— 只读 seg1
+    { target:'boards1', idx:1, field:'status', char:seg1, bitPos:2, map:asOK },
+    { target:'boards1', idx:2, field:'status', char:seg1, bitPos:4, map:asOK },
+    { target:'direction1MainStatus', field:'Status1', char:seg1, bitPos:2, map:asOK },
+    { target:'direction1MainStatus', field:'Status2', char:seg1, bitPos:4, map:asOK },
 
-  { target:'direction2MainStatus', field:'Status1', char:34, bitPos:2, map:b=>b==='0'?'正常':'故障' },
-  { target:'direction2MainStatus', field:'Status1', char:43, bitPos:2, map:b=>b==='0'?'正常':'故障' },
-
-  { target:'direction2MainStatus', field:'Status2', char:34, bitPos:4, map:b=>b==='0'?'正常':'故障' },
-  { target:'direction2MainStatus', field:'Status2', char:43, bitPos:4, map:b=>b==='0'?'正常':'故障' },
-];
+    // 二方向 —— 只读 seg2
+    { target:'boards2', idx:1, field:'status', char:seg2, bitPos:2, map:asOK },
+    { target:'boards2', idx:2, field:'status', char:seg2, bitPos:4, map:asOK },
+    { target:'direction2MainStatus', field:'Status1', char:seg2, bitPos:2, map:asOK },
+    { target:'direction2MainStatus', field:'Status2', char:seg2, bitPos:4, map:asOK },
+  ];
+}
 
 /* ------ 4. 主要状态：QHJ/切换 & CPU 通信 ------ */
 const modeMap = { '00':'无效','01':'强制电缆','10':'自动','11':'强制光缆' } as const;
 
 const mainDescs: Array<Desc<DeviceStatus>> = [
-  // —— CPU 通信（补回原来 4 号字节的 Status3/4）——
+  // —— CPU 通信（char:4 的 4~7 位）——
   { target:'direction1MainStatus', field:'Status3', char:4, bitPos:4, map:b=>b==='0'?'正常':'故障' },
   { target:'direction1MainStatus', field:'Status4', char:4, bitPos:5, map:b=>b==='0'?'正常':'故障' },
   { target:'direction2MainStatus', field:'Status3', char:4, bitPos:6, map:b=>b==='0'?'正常':'故障' },
@@ -140,6 +153,7 @@ const mainDescs: Array<Desc<DeviceStatus>> = [
 /* ------ 5. 继电器 —— 保持不变 ------ */
 const relayMap = (b:string)=>b==='0'?'落下':'吸起';
 const relayDescs: Array<Desc<RelayStatus>> = [
+  // 一方向 A系：本站ZDJ/FDJ/ZXJ/FXJ（char:14），邻站（char:22）
   { target:'direction1RelayStatusA', field:'Status1', char:14, bitPos:0, map:relayMap },
   { target:'direction1RelayStatusA', field:'Status2', char:14, bitPos:2, map:relayMap },
   { target:'direction1RelayStatusA', field:'Status3', char:14, bitPos:4, map:relayMap },
@@ -149,6 +163,7 @@ const relayDescs: Array<Desc<RelayStatus>> = [
   { target:'direction1RelayStatusA', field:'Status7', char:22, bitPos:4, map:relayMap },
   { target:'direction1RelayStatusA', field:'Status8', char:22, bitPos:6, map:relayMap },
 
+  // 一方向 B系：本站（char:23），邻站（char:31）
   { target:'direction1RelayStatusB', field:'Status1', char:23, bitPos:0, map:relayMap },
   { target:'direction1RelayStatusB', field:'Status2', char:23, bitPos:2, map:relayMap },
   { target:'direction1RelayStatusB', field:'Status3', char:23, bitPos:4, map:relayMap },
@@ -158,6 +173,7 @@ const relayDescs: Array<Desc<RelayStatus>> = [
   { target:'direction1RelayStatusB', field:'Status7', char:31, bitPos:4, map:relayMap },
   { target:'direction1RelayStatusB', field:'Status8', char:31, bitPos:6, map:relayMap },
 
+  // 二方向 A系：本站（char:32），邻站（char:40）
   { target:'direction2RelayStatusA', field:'Status1', char:32, bitPos:0, map:relayMap },
   { target:'direction2RelayStatusA', field:'Status2', char:32, bitPos:2, map:relayMap },
   { target:'direction2RelayStatusA', field:'Status3', char:32, bitPos:4, map:relayMap },
@@ -167,6 +183,7 @@ const relayDescs: Array<Desc<RelayStatus>> = [
   { target:'direction2RelayStatusA', field:'Status7', char:40, bitPos:4, map:relayMap },
   { target:'direction2RelayStatusA', field:'Status8', char:40, bitPos:6, map:relayMap },
 
+  // 二方向 B系：本站（char:41），邻站（char:49）
   { target:'direction2RelayStatusB', field:'Status1', char:41, bitPos:0, map:relayMap },
   { target:'direction2RelayStatusB', field:'Status2', char:41, bitPos:2, map:relayMap },
   { target:'direction2RelayStatusB', field:'Status3', char:41, bitPos:4, map:relayMap },
@@ -197,7 +214,7 @@ export function parseSwitchStatus(binary: string): ParsedSwitchStatus {
     const b = byteAt(binary, d.char);
     if (!b) return;
     const raw = Array.isArray(d.bitPos)
-      ? bits(b, d.bitPos as [number,number])
+      ? d.bitPos.map(pos => bit(b, pos)).join('')
       : bit(b, d.bitPos as number);
 
     const arr = (res as any)[d.target] as any[];
@@ -207,6 +224,15 @@ export function parseSwitchStatus(binary: string): ParsedSwitchStatus {
     obj[key] = d.map(raw, raw);
   };
 
-  ;[...boardDescs, ...cpuDescs, ...commDescs, ...mainDescs, ...relayDescs].forEach(apply);
+  // 先应用：电源板 + CPU 主备状态（把“主用/备用/故障/异常”写入 boards 列）
+  [...boardDescs, ...cpuDescs].forEach(apply);
+
+  // 再应用：根据“主用CPU”只读对应通信段的 desc（替代原先固定的 commDescs）
+  const commDescsChosen = buildCommDescsByMaster(binary);
+  commDescsChosen.forEach(apply);
+
+  // 最后应用：主要状态 + 继电器
+  [...mainDescs, ...relayDescs].forEach(apply);
+
   return res;
 }

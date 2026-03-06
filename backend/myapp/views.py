@@ -12,12 +12,12 @@ from django.views import View # type: ignore
 from django.views.decorators.csrf import csrf_exempt # type: ignore
 from django.utils.decorators import method_decorator # type: ignore
 from django.conf import settings # type: ignore
-from .udp_sender import create_packet, send_packet_via_kafka  # 导入函数
+from .udp_sender import create_packet, send_packet  # 导入函数
 from django.core.cache import cache # type: ignore
 import json
 import base64
 #import paho.mqtt.client as mqtt
-from django.shortcuts import render # type: ignore
+from django.shortcuts import render, get_object_or_404 # type: ignore
 from django.http import HttpResponse # type: ignore
 from django_celery_beat.models import PeriodicTask # type: ignore
 from django_filters.rest_framework import DjangoFilterBackend # type: ignore
@@ -183,7 +183,13 @@ class DeviceViewSet(viewsets.ModelViewSet):
             # 捕获其他未知错误
             return Response({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
 
-
+class DeviceFlagsView(APIView):
+    def get(self, request, device_id: int):
+        device = get_object_or_404(Device, device_id=device_id)
+        return Response({
+            "direction1_enabled": device.direction1_enabled,
+            "direction2_enabled": device.direction2_enabled,
+        })
 
 class SwitchDataViewSet(viewsets.ModelViewSet):# 从数据库读取开关量信息
     queryset = SwitchData.objects.all()
@@ -248,10 +254,10 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AlarmData.objects.all()
     serializer_class = AlarmDataSerializer
 
-class AlertsAmountView(APIView):
+'''class AlertsAmountView(APIView):
     def get(self, request):
         count = cache.get("alerts_amount", 0)  # 默认为 0
-        return Response({'alerts_amount': count})
+        return Response({'alerts_amount': count})'''
 
 class DeviceListView(View):  # 返回按线路分组的设备列表
     def get(self, request):
@@ -313,7 +319,7 @@ class SendCommandView(View):
             )
 
             # 使用 Redis 发送数据包
-            send_packet_via_kafka(packet, udp_target_ip)
+            send_packet(packet, udp_target_ip)
 
             # 发布MQTT消息
             #payload = {

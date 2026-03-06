@@ -1,68 +1,93 @@
-# udp_sender.py（使用 confluent-kafka）
+from __future__ import annotations
+
+# udp_sender.py
 import struct
 import time
 import os
-from confluent_kafka import Producer
+from typing import Optional
 
-# Kafka 配置
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-KAFKA_TOPIC = "udp-commands"
+# =======================
+# Redis 依赖：仅 Redis Streams
+# =======================
+try:
+    import redis as redis_lib
+except Exception:
+    redis_lib = None
 
-# 初始化 Kafka Producer
-producer = Producer({
-    'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS
-})
+REDIS_STREAM_HOST = os.getenv("REDIS_STREAM_HOST", "redis_stream")
+REDIS_STREAM_PORT = int(os.getenv("REDIS_STREAM_PORT", "6379"))
+REDIS_CMD_STREAM_KEY = "stream:udp:cmd"
+REDIS_STREAM_MAXLEN = int(os.getenv("REDIS_STREAM_MAXLEN", "200000"))
 
-def create_packet(address, function_code, unix_time, operation):
-    """
-    创建一个自定义格式的数据包
-    """
+# =======================
+# 懒初始化（关键：import 阶段不触网）
+# =======================
+_redis = None
+
+
+def _get_redis():
+    global _redis
+    if _redis is None:
+        if redis_lib is None:
+            raise RuntimeError("redis-py 未安装/不可用（pip install redis）")
+        _redis = redis_lib.Redis(host=REDIS_STREAM_HOST, port=REDIS_STREAM_PORT, decode_responses=False)
+    return _redis
+
+
+def create_packet(address, function_code, unix_time, operation) -> bytes:
     packet = bytearray(16)
-    packet[0:2] = b'\x7F\x7F'  # 固定头部
-    packet[2] = address  # 地址
-    packet[3] = function_code  # 功能码
-    packet[4:8] = struct.pack('<I', unix_time)  # 时间戳，4 字节
-    packet[8] = operation  # 操作码
-    packet[9:12] = b'\xFF\xFF\xFF'  # 保留字段
-    checksum = sum(packet[2:12]) & 0xFFFF  # 计算校验和
-    packet[12:14] = struct.pack('<H', checksum)  # 校验和，2 字节
-    packet[14:16] = b'\xF7\xF7'  # 固定尾部
-    return packet
+    packet[0:2] = b"\x7F\x7F"
+    packet[2] = address
+    packet[3] = function_code
+    packet[4:8] = struct.pack("<I", unix_time)
+    packet[8] = operation
+    packet[9:12] = b"\xFF\xFF\xFF"
+    checksum = sum(packet[2:12]) & 0xFFFF
+    packet[12:14] = struct.pack("<H", checksum)
+    packet[14:16] = b"\xF7\xF7"
+    return bytes(packet)
 
-def create_forward_packet(packet, target_ip):
+
+def send_packet(packet: bytes, target_ip: str) -> None:
     """
-    创建一个用于转发的封装数据包
+    统一发送接口（仅 Redis Streams）：
+      - 写 Redis Stream（type=cmd, ip, payload）
+    注意：不在 import 阶段连接任何外部服务。
     """
-    forward_packet = f"{target_ip}\n".encode() + packet
-    return forward_packet
+    r = _get_redis()
 
-def delivery_report(err, msg):
-    if err is not None:
-        print(f"❌ Kafka 发送失败: {err}")
-    else:
-        print(f"✅ Kafka 发送成功: topic={msg.topic()}, partition={msg.partition()}, offset={msg.offset()}")
+    # 可选：这里再 ping（失败只影响发送，不影响 Django/Celery 启动）
+    # 如果你嫌每次发送都 ping 慢，可以注释掉这行
+    r.ping()
 
-def send_packet_via_kafka(packet, target_ip):
-    """
-    使用 Kafka 发布消息到指定 topic
-    """
-    forward_packet = create_forward_packet(packet, target_ip)
+    ts_ms = int(time.time() * 1000)
+    fields = {
+        b"type": b"cmd",
+        b"src": b"udp_sender",
+        b"ts": str(ts_ms).encode(),
+        b"ip": target_ip.encode(),
+        b"payload": packet,
+    }
+    r.xadd(
+        name=REDIS_CMD_STREAM_KEY,
+        fields=fields,
+        maxlen=REDIS_STREAM_MAXLEN,
+        approximate=True,
+    )
+    print(f"📤 已发送至 Redis stream '{REDIS_CMD_STREAM_KEY}'，目标: {target_ip}")
 
-    for _ in range(3):  # 连续发送 3 次
-        producer.produce(KAFKA_TOPIC, value=forward_packet, callback=delivery_report)
-        producer.poll(0)  # 触发回调
-        print(f"📤 数据包已发送至 Kafka topic '{KAFKA_TOPIC}'，目标: {target_ip}")
-        time.sleep(0.2)
 
-    producer.flush()  # 等待所有消息发送完成
+# 兼容旧名字：你 views.py / 老代码不需要改
+def send_packet_via_kafka(packet: bytes, target_ip: str) -> None:
+    return send_packet(packet, target_ip)
+
 
 if __name__ == "__main__":
-    # 示例：创建并发送一个数据包
-    target_ip = "192.168.1.100"  # 目标 IP
-    address = 1                  # 地址
-    function_code = 2           # 功能码
-    unix_time = int(time.time()) # 当前时间戳
-    operation = 0x10            # 操作码
+    target_ip = os.getenv("TARGET_IP", "192.168.1.100")
+    address = int(os.getenv("ADDRESS", "1"))
+    function_code = int(os.getenv("FUNCTION_CODE", "2"))
+    unix_time = int(time.time())
+    operation = int(os.getenv("OPERATION", "16"))
 
     packet = create_packet(address, function_code, unix_time, operation)
-    send_packet_via_kafka(packet, target_ip)
+    send_packet(packet, target_ip)

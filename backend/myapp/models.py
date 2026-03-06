@@ -9,22 +9,27 @@ from django.dispatch import receiver
 
 @receiver(post_migrate)
 def create_user_groups(sender, **kwargs):
+    # 只在 auth 迁移完成时执行，避免太早触发
+    if sender.name != 'django.contrib.auth':
+        return
+    
     # 创建系统管理员组
     admin_group, created = Group.objects.get_or_create(name='System Admin')
-    if created:
+    if admin_group.permissions.count() == 0:
         # 给系统管理员组添加所有权限
         permissions = Permission.objects.all()
         admin_group.permissions.set(permissions)
 
     # 创建普通用户组
     user_group, created = Group.objects.get_or_create(name='Regular User')
-    if created:
+    if user_group.permissions.count() == 0:
         # 给普通用户组添加查看权限
         view_permission = Permission.objects.filter(codename__startswith='view_')
         user_group.permissions.set(view_permission)
 
 class CustomUser(AbstractUser):
-    depots = models.JSONField(default=list, blank=True, verbose_name="可管理车间")
+    email = models.EmailField(null=True, blank=True, verbose_name="邮箱")
+    depots = models.JSONField(default=list, null=True, blank=True, verbose_name="可管理车间")
 
     class Meta:
         verbose_name = "用户"
@@ -45,6 +50,8 @@ class Device(models.Model):
     direction2_neighbor_direction = models.IntegerField(null=True, blank=True, db_index=True, default=1, verbose_name="二方向邻站方向")
     remark = models.TextField(blank=True, null=True, verbose_name="备注")# 新增的备注字段 20241205
     alarm_filters = models.JSONField(blank=True, default=list, verbose_name="过滤告警码")#20241205新增过滤告警码字段
+    direction1_enabled = models.BooleanField(default=True, verbose_name="一方向启用")# 20250814新增
+    direction2_enabled = models.BooleanField(default=True, verbose_name="二方向启用")# 20250814新增
 
     class Meta:
         verbose_name = "设备信息"
@@ -92,9 +99,9 @@ class AnalogData(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)  # 使用 UUID 作为主键
     device = models.ForeignKey(Device, to_field='device_id', on_delete=models.CASCADE, verbose_name="设备")
     voltage_1 = models.FloatField(verbose_name="电压1(V)")
-    current_1 = models.FloatField(verbose_name="电流1(A)")
+    current_1 = models.FloatField(verbose_name="电流1(mA)")
     voltage_2 = models.FloatField(verbose_name="电压2(V)")
-    current_2 = models.FloatField(verbose_name="电流2(A)")
+    current_2 = models.FloatField(verbose_name="电流2(mA)")
     timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -128,7 +135,7 @@ class AlarmActive(models.Model):
     def __str__(self):
         return f"{self.device.name} 当前告警: {self.alarm_code}（{self.alarm_meaning}）"
 
-
+#历史告警
 class AlarmData(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     device = models.ForeignKey(Device, to_field='device_id', on_delete=models.CASCADE, verbose_name="设备")

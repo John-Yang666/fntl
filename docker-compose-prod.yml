@@ -4,15 +4,24 @@ services:
     container_name: bt_nms_redis0
     command:
       - redis-server
-      - --appendonly no
-      - --databases 3
-      - --maxmemory 100mb
-      - --maxclients 500
-      - --maxmemory-policy allkeys-lru
-      - --save ""
-      - --tcp-backlog 256
+      - --appendonly
+      - "no"
+      - --databases
+      - "3"
+      - --maxmemory
+      - 1000mb
+      - --maxclients
+      - "500"
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --tcp-backlog
+      - "256"
     networks:
       - bt_nms_network
+    tmpfs:
+      - /data:rw,mode=1777,size=268435456
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -20,169 +29,322 @@ services:
       retries: 5
     restart: unless-stopped
 
-  #udp_agent: # 生产环境中，不在docker中运行，直接运行在外部操作系统中，这段需要删除。
-  #  build:
-  #    context: ./udp_agent
-  #    dockerfile: Dockerfile-udp  # 为 udp_agent.py 创建的 Dockerfile
-  #  image: udp_agent:latest #本地开发可以不用image
-  #  container_name: bt_nms_udp_agent0
-  #  depends_on:
-  #      - redis
-  #  #ports:
-  #  #    - "38315:38315/udp"  # 映射容器的 UDP 端口到主机
-  #  network_mode: host  # 使用 host 网络模式
-  #  #networks:
-  #  #    - bt_nms_network
-  #  restart: unless-stopped
-
-  vue:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.prod #生产环境版本
-      args:
-        VITE_BACKEND_PORT: 8000
-    image: my_vue:prod
-    container_name: bt_nms_vue_prod0
+  redis_stream:
+    image: redis:7.4.1
+    container_name: bt_nms_redis_stream0
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --save
+      - ""
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --databases
+      - "3"
+      - --tcp-backlog
+      - "256"
+      - --maxclients
+      - "500"
     ports:
-      - "38173:80"  # 映射 Nginx 服务端口
+      - "36379:6379"
+    tmpfs:
+      - /data:rw,mode=1777,size=268435456
     networks:
-      - bt_nms_network
-    depends_on:
-      - web
+      - msgbus-net
     restart: unless-stopped
-
-  web:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    image: my_django:v5.0.6
-    container_name: bt_nms_django_app0
-    # 生产环境中makemigrations指令可删去
-    command: ["/app/entrypoint.sh"] #entrypoint-prod.sh文件在Dockerfile中复制时重命名为entrypoint.sh
-    volumes:
-      - ./backend:/app  # 确保路径正确
-    ports:
-      - "8000:8000"
-    environment:
-      - DEBUG=True
-      - DJANGO_SETTINGS_MODULE=myproject.settings
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - DATABASE_NAME=mydatabase
-      - DATABASE_USER=myuser
-      - DATABASE_PASSWORD=mypassword
-      - DATABASE_HOST=db
-      - DATABASE_PORT=5432
-      - DJANGO_SUPERUSER_USERNAME=admin
-      - DJANGO_SUPERUSER_EMAIL=admin@example.com
-      - DJANGO_SUPERUSER_PASSWORD=admin
-    depends_on:
-      - redis
-      - db
-    networks:
-      - bt_nms_network
-      - kafka_kafka-net
-    restart: unless-stopped
-
-  udp_receiver:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    image: my_django:v5.0.6  # 保持与 web 相同的镜像
-    container_name: bt_nms_udp_receiver0
-    command: python udp_receiver.py
-    environment:
-      - DEBUG=True
-      - DJANGO_SETTINGS_MODULE=myproject.settings
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - KAFKA_GROUP_ID=udp-receiver-0
-    depends_on:
-      - web
-    volumes:
-      - ./backend:/app
-    networks:
-      - bt_nms_network
-      - kafka_kafka-net
-    restart: unless-stopped
-
-  summarize_alarms_container:
-    build:  # 复用 web 服务的构建配置
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    image: my_django:v5.0.6  # 保持与 web 相同的镜像
-    container_name: bt_nms_summarize_alarms_container0
-    command: python summarize_alarms_container.py
-    volumes:
-      - ./backend:/app  # 动态挂载代码（与 web 服务路径一致）
-    working_dir: /app
-    environment:
-      - DEBUG=True
-      - DJANGO_SETTINGS_MODULE=myproject.settings
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    depends_on:
-      - web
-    networks:
-      - bt_nms_network
-    restart: unless-stopped
-
-  celery:
-    build:  # 复用 web 服务的构建配置
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    image: my_django:v5.0.6  # 保持与 web 相同的镜像
-    container_name: bt_nms_celery_worker0
-    command: celery -A myproject worker --loglevel=info
-    volumes:
-      - ./backend:/app  # 动态挂载代码（与 web 服务路径一致）
-    environment:
-      - DEBUG=True
-      - DJANGO_SETTINGS_MODULE=myproject.settings
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - CELERY_BROKER_URL=redis://redis:6379/0
-    depends_on:
-      - redis
-      - db
-    networks:
-      - bt_nms_network
-    restart: unless-stopped
-
-
-  celery-beat:
-    build:  # 复用 web 服务的构建配置
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    image: my_django:v5.0.6  # 保持镜像版本一致
-    container_name: bt_nms_celery_beat0
-    command: celery -A myproject beat --loglevel=info
-    volumes:
-      - ./backend:/app  # 动态挂载代码（与 web 服务路径一致）
-    environment:
-      - DEBUG=True
-      - DJANGO_SETTINGS_MODULE=myproject.settings
-      - CELERY_BROKER_URL=redis://redis:6379/0
-    depends_on:
-      - redis
-      - db
-    networks:
-      - bt_nms_network
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   db:
     image: postgres:16.3
     container_name: bt_nms_postgres_db0
     environment:
-      - POSTGRES_DB=mydatabase
-      - POSTGRES_USER=myuser
-      - POSTGRES_PASSWORD=mypassword
-    #ports:
-      #- "5432:5432"
+      POSTGRES_DB: ${DATABASE_NAME:-mydatabase}
+      POSTGRES_USER: ${DATABASE_USER:-myuser}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-mypassword}
     volumes:
-      - bt_nms_postgres_data:/var/lib/postgresql/data
+      - ${DATA_DIR:-/srv/bt_nms_data}/postgres:/var/lib/postgresql/data
+    networks:
+      - bt_nms_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-myuser} -d ${DATABASE_NAME:-mydatabase}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    image: my_django:v5.0.6-prod
+    container_name: bt_nms_django_app0
+    command: ["bash", "/app/entrypoint-prod.sh"]
+    expose:
+      - "8000"
+    volumes:
+      - ./backend:/app
+      - static_data:/app/staticfiles
+    tmpfs:
+      - /tmp:rw,mode=1777,size=268435456
+    environment:
+      DEBUG: ${DEBUG:-false}
+      DJANGO_SETTINGS_MODULE: myproject.settings
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      DJANGO_SUPERUSER_USERNAME: admin
+      DJANGO_SUPERUSER_EMAIL: admin@example.com
+      DJANGO_SUPERUSER_PASSWORD: admin
+
+      MSG_BUS_BACKEND: redis
+      REDIS_STREAM_HOST: redis_stream
+      REDIS_STREAM_PORT: "6379"
+      REDIS_STREAM_MAXLEN: "200000"
+      REDIS_PACKET_STREAM_KEY: stream:udp:packets
+      REDIS_CMD_STREAM_KEY: stream:udp:cmd
+
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      redis_stream:
+        condition: service_healthy
+
+    # ✅ 关键：让 compose 知道 Django 真的已可用（不是“进程启动了就算”）
+    # 说明：用 python 标准库探测 http://127.0.0.1:8000/admin/
+    # 这样不依赖 curl/wget 是否存在
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/admin/', timeout=2); print('ok')\" || exit 1"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+    networks:
+      - bt_nms_network
+      - msgbus-net
+    restart: unless-stopped
+
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bt_nms_nginx0
+    ports:
+      - "8000:8000"
+    volumes:
+      - static_data:/staticfiles:ro
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    tmpfs:
+      - /var/cache/nginx:rw,mode=1777,size=134217728
+      - /tmp:rw,mode=1777,size=134217728
+
+    # ✅ 关键：等 web 健康后再启动 nginx
+    depends_on:
+      web:
+        condition: service_healthy
+
+    # ✅ 双保险：即使某些环境 condition 不够稳，也等到端口可连接才启动
+    command: >
+      /bin/sh -c "
+      until nc -z web 8000; do
+        echo '[nginx] waiting for web:8000...';
+        sleep 1;
+      done;
+      echo '[nginx] web is up, starting nginx...';
+      nginx -g 'daemon off;'
+      "
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  udp_receiver:
+    image: my_django:v5.0.6-prod
+    container_name: bt_nms_udp_receiver0
+    command: python udp_receiver.py
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    tmpfs:
+      - /tmp:rw,mode=1777,size=268435456
+    environment:
+      DEBUG: ${DEBUG:-false}
+      DJANGO_SETTINGS_MODULE: myproject.settings
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      CELERY_BROKER_URL: redis://redis:6379/0
+
+      MSG_BUS_BACKEND: redis
+      REDIS_STREAM_HOST: redis_stream
+      REDIS_STREAM_PORT: "6379"
+      REDIS_STREAM_BLOCK_MS: "2000"
+      REDIS_STREAM_COUNT: "200"
+      REDIS_STREAM_MAXLEN: "200000"
+
+      REDIS_PACKET_STREAM_KEY: stream:udp:packets
+      REDIS_PACKET_GROUP: udp-receiver-packet
+      REDIS_PACKET_CONSUMER: udp-receiver-packet-0
+      # （cmd stream 不需要给 udp_receiver）
+
+      DATABASE_NAME: ${DATABASE_NAME:-mydatabase}
+      DATABASE_USER: ${DATABASE_USER:-myuser}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-mypassword}
+      DATABASE_HOST: ${DATABASE_HOST:-db}
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+
+      # ✅ 建议删掉 Kafka 相关 env，避免混淆（如要回滚再加回）
+      # KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # KAFKA_GROUP_ID: udp-receiver-0
+      # KAFKA_AUTO_OFFSET_RESET: latest
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis_stream:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks:
+      - bt_nms_network
+      - msgbus-net
+    restart: unless-stopped
+
+  summarize_alarms_container:
+    image: my_django:v5.0.6-prod
+    container_name: bt_nms_summarize_alarms_container0
+    command: python summarize_alarms_container.py
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    tmpfs:
+      - /tmp:rw,mode=1777,size=268435456
+    environment:
+      DEBUG: ${DEBUG:-false}
+      DJANGO_SETTINGS_MODULE: myproject.settings
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      DATABASE_NAME: ${DATABASE_NAME:-mydatabase}
+      DATABASE_USER: ${DATABASE_USER:-myuser}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-mypassword}
+      DATABASE_HOST: ${DATABASE_HOST:-db}
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  celery:
+    image: my_django:v5.0.6-prod
+    container_name: bt_nms_celery_worker0
+    command: celery -A myproject worker --loglevel=info
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    tmpfs:
+      - /tmp:rw,mode=1777,size=268435456
+    environment:
+      DEBUG: ${DEBUG:-false}
+      DJANGO_SETTINGS_MODULE: myproject.settings
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      CELERY_BROKER_URL: redis://redis:6379/0
+
+      DATABASE_NAME: ${DATABASE_NAME:-mydatabase}
+      DATABASE_USER: ${DATABASE_USER:-myuser}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-mypassword}
+      DATABASE_HOST: ${DATABASE_HOST:-db}
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+
+      MSG_BUS_BACKEND: redis
+      REDIS_STREAM_HOST: redis_stream
+      REDIS_STREAM_PORT: "6379"
+      REDIS_STREAM_MAXLEN: "200000"
+      REDIS_PACKET_STREAM_KEY: stream:udp:packets
+      REDIS_CMD_STREAM_KEY: stream:udp:cmd
+
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis_stream:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks:
+      - bt_nms_network
+      - msgbus-net
+    restart: unless-stopped
+
+  celery-beat:
+    image: my_django:v5.0.6-prod
+    container_name: bt_nms_celery_beat0
+    command: celery -A myproject beat --loglevel=info
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    tmpfs:
+      - /tmp:rw,mode=1777,size=268435456
+    environment:
+      DEBUG: ${DEBUG:-false}
+      DJANGO_SETTINGS_MODULE: myproject.settings
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      CELERY_BROKER_URL: redis://redis:6379/0
+
+      DATABASE_NAME: ${DATABASE_NAME:-mydatabase}
+      DATABASE_USER: ${DATABASE_USER:-myuser}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-mypassword}
+      DATABASE_HOST: ${DATABASE_HOST:-db}
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+
+      MSG_BUS_BACKEND: redis
+      REDIS_STREAM_HOST: redis_stream
+      REDIS_STREAM_PORT: "6379"
+      REDIS_STREAM_MAXLEN: "200000"
+      REDIS_PACKET_STREAM_KEY: stream:udp:packets
+      REDIS_CMD_STREAM_KEY: stream:udp:cmd
+
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis_stream:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks:
+      - bt_nms_network
+      - msgbus-net
+    restart: unless-stopped
+
+  vue:
+    #build:
+    #  context: ./frontend
+    #  dockerfile: Dockerfile.prod
+    #  args:
+    #    VITE_BACKEND_PORT: 8000
+    image: my_vue:prod
+    container_name: bt_nms_vue_prod0
+    ports:
+      - "38173:80"
+    depends_on:
+      - web
     networks:
       - bt_nms_network
     restart: unless-stopped
@@ -191,20 +353,33 @@ services:
     image: mher/flower:latest
     container_name: bt_nms_flower0
     ports:
-      - "5555:5555"  # 将 Flower 的端口暴露出来
+      - "5555:5555"
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0  # 使用环境变量指定 Broker
+      CELERY_BROKER_URL: redis://redis:6379/0
     depends_on:
       - redis
       - celery
     networks:
       - bt_nms_network
+    restart: unless-stopped
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: bt_nms_portainer0
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_DIR:-/srv/bt_nms_data}/portainer:/data
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
 
 networks:
   bt_nms_network:
     driver: bridge
-  kafka_kafka-net:
-    external: true
+  msgbus-net:
+    driver: bridge
 
 volumes:
-  bt_nms_postgres_data:
+  static_data:
