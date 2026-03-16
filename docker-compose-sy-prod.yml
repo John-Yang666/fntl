@@ -1,0 +1,230 @@
+name: bt_nms_sy_prod
+
+services:
+  redis:
+    image: redis:7.4.1
+    container_name: bt_nms_sy_redis0
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --databases
+      - "3"
+      - --maxmemory
+      - 1000mb
+      - --maxclients
+      - "500"
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --tcp-backlog
+      - "256"
+    networks:
+      - sy_nms_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis_stream:
+    image: redis:7.4.1
+    container_name: bt_nms_sy_redis_stream0
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --databases
+      - "3"
+      - --maxmemory
+      - 1000mb
+      - --maxclients
+      - "500"
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --tcp-backlog
+      - "256"
+    ports:
+      - "36380:6379"
+    networks:
+      - sy_nms_network
+      - sy_kafka_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  db:
+    image: postgres:16.3
+    container_name: bt_nms_sy_postgres_db0
+    environment:
+      - POSTGRES_DB=mydatabase
+      - POSTGRES_USER=myuser
+      - POSTGRES_PASSWORD=mypassword
+    volumes:
+      - sy_nms_postgres_data0:/var/lib/postgresql/data
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  web:
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_django_app0
+    command: ["/app/entrypoint.sh"]
+    volumes:
+      - ./sy_backend:/app
+    ports:
+      - "8001:8000"
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - STREAM_REDIS_HOST=redis_stream
+      - STREAM_REDIS_PORT=6379
+      - DATABASE_NAME=mydatabase
+      - DATABASE_USER=myuser
+      - DATABASE_PASSWORD=mypassword
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - DJANGO_SUPERUSER_USERNAME=admin
+      - DJANGO_SUPERUSER_EMAIL=admin@example.com
+      - DJANGO_SUPERUSER_PASSWORD=admin
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - SY_STREAM_DB=0
+      - SY_CMD_STREAM=sy-serial-commands
+      - SY_CMD_STREAM_MAXLEN=200000
+      - UDP_STREAM_DB=0
+      - UDP_COMMAND_STREAM=udp-commands
+      - UDP_COMMAND_STREAM_MAXLEN=200000
+    depends_on:
+      - redis
+      - redis_stream
+      - db
+    networks:
+      - sy_nms_network
+      - sy_kafka_network
+    restart: unless-stopped
+
+  sy_receiver:
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_receiver0
+    command: python sy_receiver.py
+    volumes:
+      - ./sy_backend:/app
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - STREAM_REDIS_HOST=redis_stream
+      - STREAM_REDIS_PORT=6379
+      - SY_STREAM_DB=0
+      - SY_RAW_STREAM=sy.raw
+      - SY_RAW_GROUP=sy-receiver-0
+      - SY_RAW_CONSUMER=sy-receiver-0
+      - SY_RAW_STREAM_MAXLEN=200000
+    depends_on:
+      - redis
+      - redis_stream
+      - web
+    networks:
+      - sy_nms_network
+      - sy_kafka_network
+    restart: unless-stopped
+
+  summarize_alarms_container:
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_summarize_alarms_container0
+    command: python sy_summarize_alarms_container.py
+    volumes:
+      - ./sy_backend:/app
+    working_dir: /app
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - web
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  celery:
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_celery_worker0
+    command: celery -A myproject worker --loglevel=info
+    volumes:
+      - ./sy_backend:/app
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - db
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  celery-beat:
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_celery_beat0
+    command: celery -A myproject beat --loglevel=info
+    volumes:
+      - ./sy_backend:/app
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - db
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  flower:
+    image: mher/flower:latest
+    container_name: bt_nms_sy_flower0
+    ports:
+      - "5556:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - celery
+    networks:
+      - sy_nms_network
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: bt_nms_sy_portainer0
+    ports:
+      - "9001:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sy_nms_portainer_data0:/data
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+networks:
+  sy_nms_network:
+    driver: bridge
+  sy_kafka_network:
+    driver: bridge
+
+volumes:
+  sy_nms_postgres_data0:
+  sy_nms_portainer_data0:

@@ -1,7 +1,7 @@
 <template>
   <div class="login-container">
     <div class="login-header">
-      <h2>武汉贝通网管登陆</h2>
+      <h2>武汉贝通 / SY 统一网管登录</h2>
     </div>
     <form @submit.prevent="handleLogin">
       <div class="input-group">
@@ -22,7 +22,6 @@
 import { defineComponent, ref, onMounted } from 'vue';
 import { useUserStore } from '@/stores/userStore';
 import { useRouter, useRoute } from 'vue-router';
-import { getFromDB } from '@/utils/indexedDB';
 
 export default defineComponent({
   setup() {
@@ -40,21 +39,20 @@ export default defineComponent({
         const redirectPath = (route.query.redirect as string) || '/';
         router.push(redirectPath);
       } catch (err) {
-        error.value = '登录失败，请检查用户名或密码。';
+        error.value = err instanceof Error ? err.message : '登录失败，请检查用户名或密码。';
       }
     };
 
-    // 应用启动时检查用户是否已登录
     onMounted(async () => {
       try {
-        const tokenData = await getFromDB<{ access: string }>('token'); // 🔹 使用 IndexedDB 获取 token
-        if (tokenData?.access) {
-          await userStore.fetchUserDetails();
+        await userStore.loadAuthData();
+        if (userStore.isAuthenticated) {
+          await userStore.ensureUsersLoaded();
           const redirectPath = (route.query.redirect as string) || '/';
-          router.push(redirectPath); // ✅ 如果已登录，自动跳转
+          router.push(redirectPath);
         }
       } catch {
-        userStore.logout(); // 🔹 如果获取失败，执行登出清理
+        userStore.logout();
       }
     });
 

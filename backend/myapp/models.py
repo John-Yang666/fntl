@@ -95,6 +95,28 @@ class SwitchData(models.Model):
         bits = [(status_int >> (total_bits - 1 - i)) & 1 for i in range(total_bits)]
         return ''.join(str(bit) for bit in bits)
 
+    def get_status_bits_grouped_by_byte(self, start_byte=4):
+        """按字节显示开关量：例如 (4)01010101 (5)11001100 ..."""
+        if not self.switch_status:
+            return ""
+
+        raw_status = self.switch_status
+        if isinstance(raw_status, memoryview):
+            raw_status = raw_status.tobytes()
+        elif isinstance(raw_status, bytearray):
+            raw_status = bytes(raw_status)
+
+        grouped = []
+        for idx, byte_value in enumerate(raw_status):
+            if isinstance(byte_value, int):
+                value = byte_value
+            elif isinstance(byte_value, (bytes, bytearray, memoryview)):
+                value = int.from_bytes(bytes(byte_value)[:1], byteorder="big")
+            else:
+                value = int(byte_value)
+            grouped.append(f"({start_byte + idx}){value:08b}")
+        return " ".join(grouped)
+
 class AnalogData(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)  # 使用 UUID 作为主键
     device = models.ForeignKey(Device, to_field='device_id', on_delete=models.CASCADE, verbose_name="设备")

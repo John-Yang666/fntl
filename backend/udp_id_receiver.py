@@ -16,7 +16,6 @@ import threading
 import logging
 import time
 from datetime import datetime, timezone
-from celery import Celery
 import redis
 import hashlib
 from confluent_kafka import Consumer
@@ -27,17 +26,17 @@ from consts import LAST_COMMUNICATION_TIME_TIMEOUT, SWITCH_DATA_TIMEOUT, HEARTBE
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("receiver")
 
-# Celery 配置
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
-celery_app = Celery(broker=CELERY_BROKER_URL)
-
 # Redis 连接参数
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_STREAM_HOST = os.getenv("REDIS_STREAM_HOST", "redis_stream")
+REDIS_STREAM_PORT = int(os.getenv("REDIS_STREAM_PORT", "6379"))
+REDIS_PACKET_STREAM_KEY = os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets")
 
 # 连接 Redis
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=1, decode_responses=False)  # 缓存
 redis_client2 = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=2, decode_responses=True)  # 时间记录
+stream_redis = redis.Redis(host=REDIS_STREAM_HOST, port=REDIS_STREAM_PORT, decode_responses=False)
 
 # Kafka 连接参数
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
@@ -72,18 +71,19 @@ def periodic_device_cache_refresher(interval=PERIODIC_DEVICE_CACHE_REFRESH_INTER
             last_device_ids_hash = new_hash
             logger.info(f"[device_cache] Refreshed {len(device_cache)} device IDs from DB")
 
-# === 发送任务到 Celery ===
-def send_task_to_celery(device_id, data, timestamp, task_name):
+# === 发送数据包到 Redis Stream（由 udp_receiver 统一处理） ===
+def send_packet_to_stream(data):
     try:
-        if isinstance(data, dict):
-            data = json.dumps(data).encode('utf-8')
-        celery_app.send_task(
-            task_name,
-            args=[device_id, data, timestamp.isoformat()]
+        stream_redis.xadd(
+            REDIS_PACKET_STREAM_KEY,
+            {
+                b"type": b"packet",
+                b"ip": b"0.0.0.0",
+                b"data_hex": data.hex().encode(),
+            },
         )
-        logger.info(f"Task sent to Celery for device {device_id} using {task_name}")
     except Exception as e:
-        logger.error(f"Failed to send task to Celery: {e}")
+        logger.error(f"Failed to enqueue packet to stream: {e}")
 
 # === 计算数据包哈希值 ===
 def calculate_packet_hash(data):
@@ -115,11 +115,11 @@ def handle_packet(data):
         if len(data) == 54:
             redis_key_hash = f"device_{device_id}_last_switch_packet_hash"
             redis_client.set(redis_key_hash, packet_hash.encode(), ex=SWITCH_DATA_TIMEOUT)
-            send_task_to_celery(device_id, data, current_time, "myapp.tasks.process_switch_data.process_switch_data")
-            logger.info(f"Switch data from device {device_id} sent to Celery.")
+            send_packet_to_stream(data)
+            logger.info(f"Switch data from device {device_id} sent to stream.")
         elif len(data) == 20:
-            send_task_to_celery(device_id, data, current_time, "myapp.tasks.process_analog_data.process_analog_data")
-            logger.info(f"Analog data from device {device_id} sent to Celery.")
+            send_packet_to_stream(data)
+            logger.info(f"Analog data from device {device_id} sent to stream.")
         else:
             logger.error(f"Unknown data length ({len(data)}) from device_id {device_id}")
     else:

@@ -8,8 +8,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # 注入 docker-compose 中的环境变量给 Vite
-ARG VITE_BACKEND_PORT
-ENV VITE_BACKEND_PORT=$VITE_BACKEND_PORT
+ARG VITE_BT_BACKEND_PORT
+ARG VITE_SY_BACKEND_PORT
+ENV VITE_BT_BACKEND_PORT=$VITE_BT_BACKEND_PORT
+ENV VITE_SY_BACKEND_PORT=$VITE_SY_BACKEND_PORT
 
 # 安装依赖
 RUN npm install
@@ -22,4 +24,3 @@ EXPOSE 5173
 
 # 设置启动命令为开发服务器
 CMD ["npm", "run", "dev"]
-

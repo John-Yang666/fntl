@@ -19,10 +19,10 @@ app.use(pinia);
 app.use(router);
 app.use(ElementPlus);
 
-app.mount('#app');
-
 // 恢复 IndexedDB 中的用户数据
 const userStore = useUserStore()
 userStore.loadAuthData().then(() => {
   // 已经从 IndexedDB 恢复 token、user 等数据
-})
+});
+
+app.mount('#app');

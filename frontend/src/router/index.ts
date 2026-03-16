@@ -1,8 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import type { RouteRecordRaw } from 'vue-router';
 import { useUserStore } from '@/stores/userStore';
-import { getFromDB } from '@/utils/indexedDB';
 
-const routes = [
+const routes: RouteRecordRaw[] = [
   {
     path: '/',
     name: 'home',
@@ -34,6 +34,10 @@ const routes = [
   },
   {
     path: '/device/:index',
+    redirect: to => `/bt/device/${to.params.index}`
+  },
+  {
+    path: '/:system(bt|sy)/device/:index',
     name: 'device',
     component: () => import('../views/DeviceView.vue'),
     meta: { requiresAuth: true }
@@ -58,47 +62,46 @@ const routes = [
   },
   {
     path: '/switch-mode/:index',
+    redirect: to => `/bt/switch-mode/${to.params.index}`
+  },
+  {
+    path: '/:system(bt|sy)/switch-mode/:index',
     name: 'switchMode',
     component: () => import('../views/SwitchModeView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, hideHeader: true }
   },
   {
     path: '/restart-command/:index',
+    redirect: to => `/bt/restart-command/${to.params.index}`
+  },
+  {
+    path: '/:system(bt|sy)/restart-command/:index',
     name: 'restartCommand',
     component: () => import('../views/RestartCommandView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, hideHeader: true }
   }
 ];
 
 const router = createRouter({
-  history: createWebHistory(window.location.pathname),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes
 });
 
 router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore();
-  
-  // ✅ 从 IndexedDB 获取 token
-  const tokenData = await getFromDB<{ access: string }>('token');
+  await userStore.loadAuthData();
 
-  if (tokenData?.access) {
-    try {
-      if (!userStore.isAuthenticated) {
-        await userStore.fetchUserDetails();
-      }
-    } catch (error) {
-      await userStore.logout();
-      next({ path: '/login', query: { redirect: to.fullPath } });
-      return;
-    }
-  }
-
-  // ✅ 处理受保护路由访问
   if (to.matched.some(record => record.meta.requiresAuth)) {
     if (!userStore.isAuthenticated) {
       next({ path: '/login', query: { redirect: to.fullPath } });
     } else {
-      next();
+      try {
+        await userStore.ensureUsersLoaded();
+        next();
+      } catch (error) {
+        await userStore.logout();
+        next({ path: '/login', query: { redirect: to.fullPath } });
+      }
     }
   } else {
     next();

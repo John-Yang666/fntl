@@ -33,6 +33,7 @@ import axios from 'axios';
 import { useRoute } from 'vue-router';
 import DeviceNameComponent from '@/components/DeviceNameComponent.vue';
 import { useUserStore } from '@/stores/userStore';
+import { getApiBase, getSystemFromRoute } from '@/utils/systems';
 
 const route = useRoute();
 const device_id = route.params.index as string;
@@ -42,10 +43,8 @@ const isAuthenticated = ref(false);
 const responseMessage = ref(''); // 存储后端的响应信息
 const messageType = ref<'success' | 'error'>('success'); // 消息类型
 
-// 动态获取当前浏览器地址栏的 IP 或域名
-const backendPort = import.meta.env.VITE_BACKEND_PORT;
-const baseURL = `${window.location.protocol}//${window.location.hostname}:${backendPort}/api`;
 const userStore = useUserStore();
+const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
 
 const validatePassword = () => {
   const correctPassword = 'chongqi'; // 替换为实际密码
@@ -68,7 +67,7 @@ const sendRestartCommand = async () => {
   const username = computed(() => userStore.user?.username ?? null);
 
   try {
-    const response = await axios.post(`${baseURL}/send-command/${device_id}/`, {
+    const response = await axios.post(`${baseURL()}/send-command/${device_id}/`, {
       function_code: functionCode,
       time: Math.floor(Date.now() / 1000),
       operation: modeByte,

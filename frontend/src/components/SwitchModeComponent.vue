@@ -59,6 +59,7 @@ import axios from 'axios';
 import { useRoute } from 'vue-router';
 import DeviceNameComponent from '@/components/DeviceNameComponent.vue';
 import { useUserStore } from '@/stores/userStore';
+import { getApiBase, getSystemFromRoute } from '@/utils/systems';
 
 const route = useRoute();
 const device_id = route.params.index as string;
@@ -70,10 +71,8 @@ const isAuthenticated = ref(false);
 const responseMessage = ref(''); // 用于存储后端的响应信息
 const messageType = ref<'success' | 'error'>('success'); // 消息类型
 
-// 动态获取当前浏览器地址栏的 IP 或域名
-const backendPort = import.meta.env.VITE_BACKEND_PORT;
-const baseURL = `${window.location.protocol}//${window.location.hostname}:${backendPort}/api`;
 const userStore = useUserStore();
+const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
 
 const modes = {
   cable: '强制电缆',
@@ -98,7 +97,7 @@ const sendCommand = async (targetId: string) => {
 
   try {
     const username = computed(() => userStore.user?.username ?? null);
-    const response = await axios.post(`${baseURL}/send-command/${targetId}/`, {
+    const response = await axios.post(`${baseURL()}/send-command/${targetId}/`, {
       function_code: selectedDirection.value === 'direction1' ? 1 : 2,
       time: Math.floor(Date.now() / 1000),
       operation: { cable: 1, fiber: 3, auto: 2 }[selectedMode.value],
@@ -118,7 +117,7 @@ const sendCommand = async (targetId: string) => {
 
 const sendNeighborCommand = async () => {
   try {
-    const response = await axios.get(`${baseURL}/devices/?device_id=${device_id}`);
+    const response = await axios.get(`${baseURL()}/devices/?device_id=${device_id}`);
     
     if (response.data.results.length === 0) {
       responseMessage.value = '未找到设备信息。';
@@ -144,7 +143,7 @@ const sendNeighborCommand = async () => {
       }
 
       const username = computed(() => userStore.user?.username ?? null);
-      const commandResponse = await axios.post(`${baseURL}/send-command/${neighborId}/`, {
+      const commandResponse = await axios.post(`${baseURL()}/send-command/${neighborId}/`, {
         function_code: neighborDirection,  // 使用邻站的方向
         time: Math.floor(Date.now() / 1000),
         operation: { cable: 1, fiber: 3, auto: 2 }[selectedMode.value],

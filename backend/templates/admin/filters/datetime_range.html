@@ -1,0 +1,59 @@
+{% load i18n %}
+<details data-filter-title="{{ title }}" open>
+  <summary>{{ title }}</summary>
+  <ul>
+    <li{% if spec.is_all_selected %} class="selected"{% endif %}>
+      <a href="{{ spec.clear_query_string|iriencode }}">{{ spec.ALL_LABEL }}</a>
+    </li>
+    {% for choice in choices %}
+      <li{% if choice.selected %} class="selected"{% endif %}>
+        <a href="{{ choice.query_string|iriencode }}">{{ choice.display }}</a>
+      </li>
+    {% endfor %}
+  </ul>
+
+  <div style="padding: 0 0 8px; color: #666;">{{ spec.TIMEZONE_HINT }}</div>
+
+  <form
+    method="get"
+    action="{{ spec.clear_query_string|iriencode }}"
+    onsubmit="
+      var fromInput = this.elements['{{ spec.lookup_kwarg_since }}'];
+      var toInput = this.elements['{{ spec.lookup_kwarg_until }}'];
+      if (fromInput && !fromInput.value) { fromInput.disabled = true; }
+      if (toInput && !toInput.value) { toInput.disabled = true; }
+      return true;
+    "
+  >
+    {% for key, value in spec.preserved_params %}
+      <input type="hidden" name="{{ key }}" value="{{ value }}">
+    {% endfor %}
+    <div style="display: grid; gap: 8px;">
+      <label for="{{ spec.lookup_kwarg_since }}_input">{{ spec.FROM_LABEL }}</label>
+      <input
+        id="{{ spec.lookup_kwarg_since }}_input"
+        type="datetime-local"
+        name="{{ spec.lookup_kwarg_since }}"
+        value="{{ spec.current_from }}"
+        step="60"
+      >
+
+      <label for="{{ spec.lookup_kwarg_until }}_input">{{ spec.TO_LABEL }}</label>
+      <input
+        id="{{ spec.lookup_kwarg_until }}_input"
+        type="datetime-local"
+        name="{{ spec.lookup_kwarg_until }}"
+        value="{{ spec.current_to }}"
+        step="60"
+      >
+    </div>
+
+    <div style="margin-top: 10px; margin-bottom: 14px; white-space: nowrap;">
+      <button type="submit">{{ spec.BUTTON_LABEL }}</button>
+      <span style="display: inline-block; margin-left: 24px;">
+        <a href="{{ spec.clear_query_string|iriencode }}">{{ spec.CLEAR_LABEL }}</a>
+      </span>
+    </div>
+  </form>
+  <div style="border-top: 1px solid #d9d9d9; margin-top: 8px;"></div>
+</details>

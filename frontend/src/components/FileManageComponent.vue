@@ -2,7 +2,11 @@
   <el-card>
     <template #header>文件管理</template>
 
-    <!-- 上传区域（仅管理员可见） -->
+    <el-tabs v-model="activeSystem">
+      <el-tab-pane label="BT 文件" name="bt" />
+      <el-tab-pane label="SY 文件" name="sy" />
+    </el-tabs>
+
     <el-form v-if="isAdmin" :inline="true" style="margin-bottom: 20px">
       <el-form-item label="备注名称">
         <el-input v-model="remark" placeholder="请输入备注" style="width: 300px" />
@@ -21,8 +25,7 @@
 
     <el-divider>已上传文件</el-divider>
 
-    <!-- 文件列表 -->
-    <el-table :data="files" style="width: 100%">
+    <el-table :data="currentFiles" style="width: 100%">
       <el-table-column prop="name" label="备注名称" />
       <el-table-column prop="upload_time" label="上传时间" />
       <el-table-column label="操作" width="180">
@@ -43,82 +46,91 @@
   </el-card>
 </template>
 
-<script setup>
-import { ref, onMounted } from 'vue'
-import axios from 'axios'
-import { ElMessage } from 'element-plus'
-import { useUserStore } from '@/stores/userStore'
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue';
+import axios from 'axios';
+import { ElMessage } from 'element-plus';
+import { useUserStore } from '@/stores/userStore';
+import { SYSTEMS, type SystemType, getSystemOrigin } from '@/utils/systems';
 
-const backendPort = import.meta.env.VITE_BACKEND_PORT
-const baseURL = `${window.location.protocol}//${window.location.hostname}:${backendPort}`
-
-const userStore = useUserStore()
-const token = userStore.token
-const userInfo = userStore.user
-const isAdmin = userInfo?.groups?.includes('System Admin') || userInfo?.is_superuser || false
-
-if (!token) {
-  ElMessage.warning('未登录或登录已过期，请重新登录')
+interface UploadedFile {
+  id: number;
+  name: string;
+  upload_time: string;
 }
 
-const files = ref([])
-const remark = ref('')  // 备注字段
+const userStore = useUserStore();
+const activeSystem = ref<SystemType>('bt');
+const remark = ref('');
+const files = ref<Record<SystemType, UploadedFile[]>>({
+  bt: [],
+  sy: [],
+});
 
-const fetchFiles = async () => {
+const isAdmin = computed(() => {
+  const user = userStore.getUser(activeSystem.value);
+  return !!user?.groups?.includes('System Admin') || !!user?.is_superuser;
+});
+
+const currentFiles = computed(() => files.value[activeSystem.value]);
+
+const fetchFiles = async (system: SystemType) => {
   try {
-    const res = await axios.get(`${baseURL}/api/uploaded-files/`)
-    files.value = res.data.results
-  } catch (e) {
-    ElMessage.error('文件列表加载失败')
+    const res = await axios.get(`${getSystemOrigin(system)}/api/uploaded-files/`);
+    files.value[system] = res.data.results;
+  } catch (error) {
+    ElMessage.error(`${system.toUpperCase()} 文件列表加载失败`);
   }
-}
+};
 
-const customUpload = async ({ file }) => {
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('name', remark.value || file.name)
+const customUpload = async ({ file }: { file: File }) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('name', remark.value || file.name);
 
   try {
-    await axios.post(`${baseURL}/api/uploaded-files/`, formData, {
+    await userStore.requestWithAuth(activeSystem.value, {
+      method: 'post',
+      url: '/uploaded-files/',
+      data: formData,
       headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'multipart/form-data'
-      }
-    })
-    ElMessage.success('上传成功')
-    remark.value = ''
-    fetchFiles()
-  } catch (e) {
-    console.error('上传失败:', e.response?.data || e)
-    ElMessage.error('上传失败: ' + (e.response?.data?.detail || '请检查控制台'))
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    ElMessage.success('上传成功');
+    remark.value = '';
+    await fetchFiles(activeSystem.value);
+  } catch (error) {
+    ElMessage.error('上传失败');
   }
-}
+};
 
-const beforeUpload = (file) => {
+const beforeUpload = (file: File) => {
   if (file.size > 10 * 1024 * 1024) {
-    ElMessage.warning('文件不能超过10MB')
-    return false
+    ElMessage.warning('文件不能超过10MB');
+    return false;
   }
-  return true
-}
+  return true;
+};
 
-const downloadFile = (id) => {
-  window.open(`${baseURL}/api/download/${id}/`, '_blank')
-}
+const downloadFile = (id: number) => {
+  window.open(`${getSystemOrigin(activeSystem.value)}/api/download/${id}/`, '_blank');
+};
 
-const deleteFile = async (id) => {
+const deleteFile = async (id: number) => {
   try {
-    await axios.delete(`${baseURL}/api/uploaded-files/${id}/`, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    })
-    ElMessage.success('删除成功')
-    fetchFiles()
-  } catch (e) {
-    ElMessage.error('删除失败')
+    await userStore.requestWithAuth(activeSystem.value, {
+      method: 'delete',
+      url: `/uploaded-files/${id}/`,
+    });
+    ElMessage.success('删除成功');
+    await fetchFiles(activeSystem.value);
+  } catch (error) {
+    ElMessage.error('删除失败');
   }
-}
+};
 
-onMounted(fetchFiles)
+onMounted(async () => {
+  await Promise.all(SYSTEMS.map((system) => fetchFiles(system)));
+});
 </script>

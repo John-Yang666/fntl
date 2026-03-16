@@ -1,6 +1,13 @@
+import axios, { type AxiosRequestConfig } from 'axios';
 import { defineStore } from 'pinia';
-import authApi from '@/authApi';
-import { saveToDB, getFromDB, deleteFromDB } from '@/utils/indexedDB';
+import { deleteFromDB, getFromDB, saveToDB } from '@/utils/indexedDB';
+import {
+  SYSTEMS,
+  TOKEN_STORAGE_KEYS,
+  USER_STORAGE_KEYS,
+  type SystemType,
+  getApiBase,
+} from '@/utils/systems';
 
 interface User {
   username: string;
@@ -12,120 +19,197 @@ interface User {
 }
 
 interface UserState {
-  user: User | null;
-  token: string | null;
-  refreshToken: string | null;
+  auth: Record<SystemType, {
+    user: User | null;
+    token: string | null;
+    refreshToken: string | null;
+  }>;
 }
 
 export const useUserStore = defineStore('user', {
   state: (): UserState => ({
-    user: null,
-    token: null,
-    refreshToken: null,
+    auth: {
+      bt: {
+        user: null,
+        token: null,
+        refreshToken: null,
+      },
+      sy: {
+        user: null,
+        token: null,
+        refreshToken: null,
+      },
+    },
   }),
   actions: {
-    /**
-     * 在应用启动时(如 main.ts / App.vue onMounted 里) 调用
-     * 以恢复 IndexedDB 中的 token、refreshToken、user 到 Pinia state
-     */
     async loadAuthData(): Promise<void> {
-      const tokenData = await getFromDB<{ access: string; refresh: string }>('token');
-      if (tokenData) {
-        this.token = tokenData.access;
-        this.refreshToken = tokenData.refresh;
-      }
+      await Promise.all(SYSTEMS.map(async (system) => {
+        const tokenData = await getFromDB<{ access: string; refresh: string }>(
+          TOKEN_STORAGE_KEYS[system],
+        );
+        if (tokenData) {
+          this.auth[system].token = tokenData.access;
+          this.auth[system].refreshToken = tokenData.refresh;
+        }
 
-      const userData = await getFromDB<User>('user');
-      if (userData) {
-        this.user = userData;
-      }
+        const userData = await getFromDB<User>(USER_STORAGE_KEYS[system]);
+        if (userData) {
+          this.auth[system].user = userData;
+        }
+      }));
     },
 
-    /** 登录并持久化 token、refreshToken、user */
     async login(username: string, password: string): Promise<void> {
-      try {
-        const response = await authApi.post('/token/', { username, password });
+      const results = await Promise.allSettled(SYSTEMS.map(async (system) => {
+        const response = await axios.post(`${getApiBase(system)}/token/`, {
+          username,
+          password,
+        });
+
         const { access, refresh } = response.data;
+        this.auth[system].token = access;
+        this.auth[system].refreshToken = refresh;
+        await saveToDB(TOKEN_STORAGE_KEYS[system], { access, refresh });
+        await this.fetchUserDetails(system);
+      }));
 
-        // 更新 Pinia state
-        this.token = access;
-        this.refreshToken = refresh;
+      const failedSystems = results
+        .map((result, index) => ({ result, system: SYSTEMS[index] }))
+        .filter(({ result }) => result.status === 'rejected')
+        .map(({ system }) => system.toUpperCase());
 
-        // 写入 IndexedDB
-        await saveToDB('token', { access, refresh });
-
-        // 拉取用户详情并存储
-        await this.fetchUserDetails();
-      } catch (error) {
-        throw new Error('Failed to login');
+      if (failedSystems.length > 0) {
+        await this.logout();
+        throw new Error(`登录失败: ${failedSystems.join(', ')}`);
       }
     },
 
-    /** 获取用户信息并存储到 Pinia & IndexedDB */
-    async fetchUserDetails(): Promise<void> {
+    async fetchUserDetails(system: SystemType): Promise<void> {
+      const tokenData = await getFromDB<{ access: string; refresh: string }>(TOKEN_STORAGE_KEYS[system]);
+      if (!tokenData?.access) {
+        throw new Error(`No access token for ${system}`);
+      }
+
       try {
-        const tokenData = await getFromDB<{ access: string; refresh: string }>('token');
-        if (tokenData?.access) {
-          const response = await authApi.get('/user/', {
+        const response = await axios.get(`${getApiBase(system)}/user/`, {
+          headers: {
+            Authorization: `Bearer ${tokenData.access}`,
+          },
+        });
+        this.auth[system].user = response.data;
+        await saveToDB(USER_STORAGE_KEYS[system], response.data);
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status === 401 && tokenData.refresh) {
+          await this.refreshTokenAction(system);
+          const refreshed = await getFromDB<{ access: string; refresh: string }>(TOKEN_STORAGE_KEYS[system]);
+          if (!refreshed?.access) {
+            throw error;
+          }
+
+          const retry = await axios.get(`${getApiBase(system)}/user/`, {
             headers: {
-              Authorization: `Bearer ${tokenData.access}`,
+              Authorization: `Bearer ${refreshed.access}`,
             },
           });
-          this.user = response.data;
-          await saveToDB('user', response.data); // 持久化用户信息
+          this.auth[system].user = retry.data;
+          await saveToDB(USER_STORAGE_KEYS[system], retry.data);
+          return;
         }
-      } catch (error) {
-        // 拉取失败，说明当前 token 不可用，登出清理
-        await this.logout();
-        throw new Error('Failed to fetch user details');
+
+        await this.logoutSystem(system);
+        throw new Error(`Failed to fetch user details for ${system}`);
       }
     },
 
-    /** 通过 refresh token 刷新 access token */
-    async refreshTokenAction(): Promise<void> {
-      try {
-        const tokenData = await getFromDB<{ access: string; refresh: string }>('token');
-        if (!tokenData?.refresh) {
-          throw new Error('No refresh token available');
-        }
-
-        const response = await authApi.post('/token/refresh/', { refresh: tokenData.refresh });
-        const newToken = response.data.access;
-
-        this.updateToken(newToken);
-      } catch (error) {
-        // 若刷新失败，强制登出
-        await this.logout();
-        throw new Error('Failed to refresh token');
+    async refreshTokenAction(system: SystemType): Promise<void> {
+      const tokenData = await getFromDB<{ access: string; refresh: string }>(TOKEN_STORAGE_KEYS[system]);
+      if (!tokenData?.refresh) {
+        throw new Error(`No refresh token available for ${system}`);
       }
+
+      const response = await axios.post(`${getApiBase(system)}/token/refresh/`, {
+        refresh: tokenData.refresh,
+      });
+      const newToken = response.data.access;
+      await this.updateToken(system, newToken);
     },
 
-    /** 更新 Pinia & IndexedDB 中的 access token */
-    async updateToken(newToken: string): Promise<void> {
-      this.token = newToken;
-      const tokenData = await getFromDB<{ access: string; refresh: string }>('token');
+    async updateToken(system: SystemType, newToken: string): Promise<void> {
+      this.auth[system].token = newToken;
+      const tokenData = await getFromDB<{ access: string; refresh: string }>(TOKEN_STORAGE_KEYS[system]);
       if (tokenData) {
         tokenData.access = newToken;
-        await saveToDB('token', tokenData);
+        await saveToDB(TOKEN_STORAGE_KEYS[system], tokenData);
       }
     },
 
-    /** 清空 Pinia & IndexedDB 中的所有凭据 */
+    async ensureUsersLoaded(): Promise<void> {
+      await Promise.all(SYSTEMS.map(async (system) => {
+        if (this.auth[system].token && !this.auth[system].user) {
+          await this.fetchUserDetails(system);
+        }
+      }));
+    },
+
+    async getAuthHeaders(system: SystemType): Promise<Record<string, string>> {
+      const tokenData = await getFromDB<{ access: string; refresh: string }>(TOKEN_STORAGE_KEYS[system]);
+      if (!tokenData?.access) {
+        throw new Error(`No token for ${system}`);
+      }
+
+      return {
+        Authorization: `Bearer ${tokenData.access}`,
+      };
+    },
+
+    async requestWithAuth<T = unknown>(system: SystemType, config: AxiosRequestConfig): Promise<T> {
+      const execute = async () => {
+        const headers = await this.getAuthHeaders(system);
+        const response = await axios.request<T>({
+          ...config,
+          url: config.url?.startsWith('http') ? config.url : `${getApiBase(system)}${config.url}`,
+          headers: {
+            ...(config.headers || {}),
+            ...headers,
+          },
+        });
+        return response.data;
+      };
+
+      try {
+        return await execute();
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
+          await this.refreshTokenAction(system);
+          return execute();
+        }
+        throw error;
+      }
+    },
+
+    async logoutSystem(system: SystemType): Promise<void> {
+      this.auth[system].user = null;
+      this.auth[system].token = null;
+      this.auth[system].refreshToken = null;
+      await deleteFromDB(TOKEN_STORAGE_KEYS[system]);
+      await deleteFromDB(USER_STORAGE_KEYS[system]);
+    },
+
     async logout(): Promise<void> {
-      this.user = null;
-      this.token = null;
-      this.refreshToken = null;
-      await deleteFromDB('token');
-      await deleteFromDB('user');
+      await Promise.all(SYSTEMS.map((system) => this.logoutSystem(system)));
     }
   },
   getters: {
-    /** 通过 token 是否为空来判断是否已登录 */
-    isAuthenticated: (state: UserState): boolean => !!state.token,
-    /** 是否为管理员 */
-    isAdmin: (state: UserState): boolean => state.user?.groups.includes('System Admin') || false,
-    /** 检查某个权限 */
-    hasPermission: (state: UserState): (permission: string) => boolean => (permission: string): boolean =>
-      state.user?.permissions.includes(permission) || false,
+    user: (state: UserState): User | null => state.auth.bt.user || state.auth.sy.user,
+    isAuthenticated: (state: UserState): boolean =>
+      SYSTEMS.every((system) => !!state.auth[system].token),
+    isSystemAuthenticated: (state: UserState): (system: SystemType) => boolean =>
+      (system: SystemType): boolean => !!state.auth[system].token,
+    getUser: (state: UserState): (system: SystemType) => User | null =>
+      (system: SystemType): User | null => state.auth[system].user,
+    hasPermission: (state: UserState): (permission: string) => boolean =>
+      (permission: string): boolean =>
+        !!state.auth.bt.user?.permissions.includes(permission) ||
+        !!state.auth.sy.user?.permissions.includes(permission),
   }
 });

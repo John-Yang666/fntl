@@ -1,6 +1,6 @@
 <template>
   <div class="tabs-container" :class="{ 'has-alerts': hasAlerts }">
-    <div class="tabs-text">FNTL-MS100 贝通云网管系统</div>
+    <div class="tabs-text">FNTL-MS100 BT / SY 统一云网管系统</div>
 
     <el-tabs type="card" @tab-click="handleClick" v-model="activeName">
       <el-tab-pane label="设备监控" name="main"></el-tab-pane>
@@ -46,8 +46,9 @@ import { useRouter } from 'vue-router';
 import type { TabsPaneContext } from 'element-plus';
 import axios from 'axios';
 import { useUserStore } from '@/stores/userStore';
-import { getFromDB } from '@/utils/indexedDB';
 import { ElMessage } from 'element-plus';
+import { loadSelectedDeviceKeys } from '@/utils/selectedDevices';
+import { SYSTEMS, makeDeviceKey, getApiBase } from '@/utils/systems';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -58,10 +59,7 @@ const props = defineProps({
 const activeName = ref(props.selectedTab);
 
 const username = computed(() => userStore.user?.username ?? null);
-
-const backendPort = import.meta.env.VITE_BACKEND_PORT;
-const baseURL = `${window.location.protocol}//${window.location.hostname}:${backendPort}/api`;
-const selectedDevices = ref<number[]>([]);
+const selectedDevices = ref<string[]>([]);
 const hasAlerts = ref(false);
 const activeAlertsTabLabel = ref('当前告警');
 
@@ -137,18 +135,30 @@ let previousAlertSnapshot = '';
 
 const checkAlerts = async () => {
   try {
-    const response = await axios.get(`${baseURL}/active-alarms/`);
-    const allAlerts = response.data as Array<{ device_id: number; alarm_code: number }>;
+    const responses = await Promise.all(
+      SYSTEMS.map(async (system) => ({
+        system,
+        alerts: (await axios.get(`${getApiBase(system)}/active-alarms/`)).data as Array<{
+          device_id: number;
+          alarm_code: number;
+        }>,
+      })),
+    );
 
-    const selectedDevicesStr = await getFromDB<string>('selectedDevices');
-    const selectedDeviceIds: number[] = selectedDevicesStr ? JSON.parse(selectedDevicesStr) : [];
-
-    const filteredAlerts = allAlerts.filter(alert =>
-      selectedDeviceIds.includes(alert.device_id)
+    const selectedSet = new Set(selectedDevices.value);
+    const filteredAlerts = responses.flatMap(({ system, alerts }) =>
+      alerts
+        .filter((alert) =>
+          selectedSet.size === 0 || selectedSet.has(makeDeviceKey(system, alert.device_id)),
+        )
+        .map((alert) => ({
+          system,
+          ...alert,
+        })),
     );
 
     const currentSnapshot = filteredAlerts
-      .map(a => `${a.device_id}-${a.alarm_code}`)
+      .map(a => `${a.system}:${a.device_id}-${a.alarm_code}`)
       .sort()
       .join('|');
 
@@ -209,10 +219,7 @@ const cancelLogout = () => console.log('Logout canceled');
 
 // -------- 生命周期 --------
 onMounted(async () => {
-  const storedSelectedDevices = await getFromDB<string>('selectedDevices');
-  if (storedSelectedDevices) {
-    selectedDevices.value = JSON.parse(storedSelectedDevices);
-  }
+  selectedDevices.value = await loadSelectedDeviceKeys();
 
   const storedSoundEnabled = ssGet('soundEnabled');
   soundEnabled.value = storedSoundEnabled ? JSON.parse(storedSoundEnabled) : false;
@@ -242,6 +249,9 @@ window.addEventListener('beforeunload', () => {
   display: flex;
   align-items: center;
   position: relative;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 16px;
   overflow: hidden;
   background-color: #f5f5f5;
   padding: 8px 5px 0px 8px;

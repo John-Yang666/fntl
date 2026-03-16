@@ -73,7 +73,9 @@ services:
     restart: unless-stopped
 
   web:
-    image: my_django:v5.0.6
+    image: my_django:v5.0.6-prod
+    security_opt:
+      - seccomp:unconfined
     container_name: bt_nms_django_app0
     command: ["bash", "/app/entrypoint-prod.sh"]
     expose:
@@ -96,7 +98,7 @@ services:
       MSG_BUS_BACKEND: redis
       REDIS_STREAM_HOST: redis_stream
       REDIS_STREAM_PORT: "6379"
-      REDIS_STREAM_MAXLEN: "200000"
+      REDIS_STREAM_MAXLEN: "100000"
       REDIS_PACKET_STREAM_KEY: stream:udp:packets
       REDIS_CMD_STREAM_KEY: stream:udp:cmd
 
@@ -132,7 +134,9 @@ services:
     restart: unless-stopped
 
   udp_receiver:
-    image: my_django:v5.0.6
+    image: my_django:v5.0.6-prod
+    security_opt:
+      - seccomp:unconfined
     container_name: bt_nms_udp_receiver0
     command: python udp_receiver.py
     working_dir: /app
@@ -148,12 +152,14 @@ services:
       REDIS_PORT: "6379"
       CELERY_BROKER_URL: redis://redis:6379/0
 
-      MSG_BUS_BACKEND: redis
       REDIS_STREAM_HOST: redis_stream
       REDIS_STREAM_PORT: "6379"
       REDIS_STREAM_BLOCK_MS: "2000"
       REDIS_STREAM_COUNT: "200"
-      REDIS_STREAM_MAXLEN: "200000"
+      REDIS_STREAM_MAXLEN: "100000"
+      INGEST_BATCH_MS: "200"
+      INGEST_MAX_BATCH: "200"
+      INGEST_LOG_INTERVAL_SEC: "1"
 
       REDIS_PACKET_STREAM_KEY: stream:udp:packets
       REDIS_PACKET_GROUP: udp-receiver-packet
@@ -175,7 +181,9 @@ services:
     restart: unless-stopped
 
   summarize_alarms_container:
-    image: my_django:v5.0.6
+    image: my_django:v5.0.6-prod
+    security_opt:
+      - seccomp:unconfined
     container_name: bt_nms_summarize_alarms_container0
     command: python summarize_alarms_container.py
     working_dir: /app
@@ -188,6 +196,8 @@ services:
       DJANGO_SETTINGS_MODULE: myproject.settings
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      SUMMARY_INTERVAL_SEC: "1.5"
+      SUMMARY_DEVICE_CACHE_REFRESH_SEC: "30"
 
       DATABASE_NAME: ${DATABASE_NAME}
       DATABASE_USER: ${DATABASE_USER}
@@ -203,9 +213,11 @@ services:
     restart: unless-stopped
 
   celery:
-    image: my_django:v5.0.6
+    image: my_django:v5.0.6-prod
+    security_opt:
+      - seccomp:unconfined
     container_name: bt_nms_celery_worker0
-    command: celery -A myproject worker --loglevel=info
+    command: celery -A myproject worker --loglevel=info --pool=threads --concurrency=2 --without-gossip --without-mingle --without-heartbeat
     working_dir: /app
     volumes:
       - ./backend:/app
@@ -228,7 +240,7 @@ services:
       MSG_BUS_BACKEND: redis
       REDIS_STREAM_HOST: redis_stream
       REDIS_STREAM_PORT: "6379"
-      REDIS_STREAM_MAXLEN: "200000"
+      REDIS_STREAM_MAXLEN: "100000"
       REDIS_PACKET_STREAM_KEY: stream:udp:packets
       REDIS_CMD_STREAM_KEY: stream:udp:cmd
     depends_on:
@@ -242,7 +254,9 @@ services:
     restart: unless-stopped
 
   celery-beat:
-    image: my_django:v5.0.6
+    image: my_django:v5.0.6-prod
+    security_opt:
+      - seccomp:unconfined
     container_name: bt_nms_celery_beat0
     command: celery -A myproject beat --loglevel=info
     working_dir: /app
@@ -267,7 +281,7 @@ services:
       MSG_BUS_BACKEND: redis
       REDIS_STREAM_HOST: redis_stream
       REDIS_STREAM_PORT: "6379"
-      REDIS_STREAM_MAXLEN: "200000"
+      REDIS_STREAM_MAXLEN: "100000"
       REDIS_PACKET_STREAM_KEY: stream:udp:packets
       REDIS_CMD_STREAM_KEY: stream:udp:cmd
     depends_on:

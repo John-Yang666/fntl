@@ -1,5 +1,2 @@
-from .cleanup_tasks import *
-from .process_switch_data import process_switch_data
-from .process_analog_data import process_analog_data
-from .my_daily_task import my_daily_task
-from celery import shared_task
+from .cleanup_tasks import *  # noqa: F401,F403
+from .my_daily_task import my_daily_task  # noqa: F401

@@ -1,0 +1,320 @@
+name: bt_nms_sy
+
+services:
+  # =======================
+  # 业务 Redis（保持原样）
+  # =======================
+  redis:
+    image: redis:7.4.1
+    container_name: bt_nms_sy_redis
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --databases
+      - "3"
+      - --maxmemory
+      - 1000mb
+      - --maxclients
+      - "500"
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --tcp-backlog
+      - "256"
+    networks:
+      - sy_nms_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # =======================
+  # ✅ Redis Streams（新加）
+  # 供 sy_agent / sy_receiver / sy_command_sender / admin 重连 使用
+  # =======================
+  redis_stream:
+    image: redis:7.4.1
+    container_name: bt_nms_sy_redis_stream
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --databases
+      - "3"
+      - --maxmemory
+      - 1000mb
+      - --maxclients
+      - "500"
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --tcp-backlog
+      - "256"
+    # ✅ 宿主机 sy_agent 连接用：localhost:36380
+    ports:
+      - "36380:6379"
+    networks:
+      - sy_nms_network
+      - sy_kafka_network   # 你要求网络结构不变：继续挂着
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # =======================
+  # PostgreSQL
+  # =======================
+  db:
+    image: postgres:16.3
+    container_name: bt_nms_sy_postgres_db
+    environment:
+      - POSTGRES_DB=mydatabase
+      - POSTGRES_USER=myuser
+      - POSTGRES_PASSWORD=mypassword
+    volumes:
+      - sy_nms_postgres_data:/var/lib/postgresql/data
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  # =======================
+  # Django Web
+  # =======================
+  web:
+    #build:
+    #  context: ./sy_backend
+    #  dockerfile: Dockerfile
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_django_app
+    command: ["/app/entrypoint.sh"]
+    volumes:
+      - ./sy_backend:/app
+    ports:
+      - "8001:8000"
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+
+      # Django 业务 Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+      # ✅ Streams Redis（独立容器）
+      - STREAM_REDIS_HOST=redis_stream
+      - STREAM_REDIS_PORT=6379
+
+      # PostgreSQL
+      - DATABASE_NAME=mydatabase
+      - DATABASE_USER=myuser
+      - DATABASE_PASSWORD=mypassword
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+
+      # superuser（原样保留）
+      - DJANGO_SUPERUSER_USERNAME=admin
+      - DJANGO_SUPERUSER_EMAIL=admin@example.com
+      - DJANGO_SUPERUSER_PASSWORD=admin
+
+      # Celery broker（可选：你项目里如果依赖）
+      - CELERY_BROKER_URL=redis://redis:6379/0
+
+      # ✅ Redis Streams：下行命令（web/admin/api 发命令给 sy_agent）
+      - SY_STREAM_DB=0
+      - SY_CMD_STREAM=sy-serial-commands
+      - SY_CMD_STREAM_MAXLEN=200000
+
+      # ✅ admin “重连动作”专用 stream
+      - UDP_STREAM_DB=0
+      - UDP_COMMAND_STREAM=udp-commands
+      - UDP_COMMAND_STREAM_MAXLEN=200000
+
+    depends_on:
+      - redis
+      - redis_stream
+      - db
+    networks:
+      - sy_nms_network
+      - sy_kafka_network   # 你要求先不动
+    restart: unless-stopped
+
+  # =======================
+  # sy_receiver（从 Streams 读 sy.raw）
+  # =======================
+  sy_receiver:
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_receiver
+    command: python sy_receiver.py
+    volumes:
+      - ./sy_backend:/app
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+
+      # Django/业务 Redis（sy_receiver 里 db=2 还在用）
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+      # Celery（保持不变）
+      - CELERY_BROKER_URL=redis://redis:6379/0
+
+      # ✅ Streams Redis（独立容器）
+      - STREAM_REDIS_HOST=redis_stream
+      - STREAM_REDIS_PORT=6379
+
+      # ✅ Redis Streams：上行 raw（替代 Kafka）
+      - SY_STREAM_DB=0
+      - SY_RAW_STREAM=sy.raw
+      - SY_RAW_GROUP=sy-receiver-0
+      - SY_RAW_CONSUMER=sy-receiver-0
+      - SY_RAW_STREAM_MAXLEN=200000
+      # （可选）是否记录 RawFrameLog
+      # - SY_LOG_RAW_FRAMES=0
+      # （可选）A1 心跳落库间隔秒
+      # - A1_HEARTBEAT_SECONDS=60
+
+    depends_on:
+      - redis
+      - redis_stream
+      - web
+    networks:
+      - sy_nms_network
+      - sy_kafka_network   # 你要求先不动
+    restart: unless-stopped
+
+  # =======================
+  # summarize_alarms_container
+  # =======================
+  summarize_alarms_container:
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_summarize_alarms_container
+    command: python sy_summarize_alarms_container.py
+    volumes:
+      - ./sy_backend:/app
+    working_dir: /app
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - web
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  # =======================
+  # celery worker
+  # =======================
+  celery:
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_celery_worker
+    command: celery -A myproject worker --loglevel=info
+    volumes:
+      - ./sy_backend:/app
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - db
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  # =======================
+  # celery beat
+  # =======================
+  celery-beat:
+    image: my_django:v5.0.6
+    container_name: bt_nms_sy_celery_beat
+    command: celery -A myproject beat --loglevel=info
+    volumes:
+      - ./sy_backend:/app
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=myproject.settings
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - db
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  # =======================
+  # Vue dev
+  # =======================
+  vue:
+    profiles: ["legacy-frontend"]
+    #build:
+    #  context: ./sy_frontend_legacy
+    #  dockerfile: Dockerfile
+    image: my_vue:dev
+    container_name: bt_nms_sy_vue_dev
+    environment:
+      - VITE_BT_BACKEND_PORT=8000
+      - VITE_SY_BACKEND_PORT=8001
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "38174:5173"
+    command: >
+      sh -c "npm install && npm run dev"
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  # =======================
+  # Flower
+  # =======================
+  flower:
+    image: mher/flower:latest
+    container_name: bt_nms_sy_flower
+    ports:
+      - "5556:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - celery
+    networks:
+      - sy_nms_network
+
+  # =======================
+  # Portainer
+  # =======================
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: bt_nms_sy_portainer
+    ports:
+      - "9001:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sy_nms_portainer_data:/data
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+
+networks:
+  sy_nms_network:
+    driver: bridge
+    name: sy_nms_sy_nms_network
+  sy_kafka_network:
+    driver: bridge
+
+
+volumes:
+  sy_nms_postgres_data:
+  sy_nms_portainer_data:

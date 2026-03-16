@@ -44,6 +44,7 @@ import {
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import zoomPlugin from 'chartjs-plugin-zoom';
+import { getApiBase, getSystemFromRoute } from '@/utils/systems';
 
 ChartJS.register(
   Title,
@@ -93,11 +94,9 @@ interface AnalogData {
   device: number;
 }
 
-const backendPort = import.meta.env.VITE_BACKEND_PORT;
-const baseURL = `${window.location.protocol}//${window.location.hostname}:${backendPort}/api`;
-
 const rawData = ref<{ analog: AnalogData[]; relay: RelayActionData[] }>({ analog: [], relay: [] });
 const route = useRoute();
+const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
 const device_id = ref<number>(parseInt(Array.isArray(route.params.index) ? route.params.index[0] : route.params.index as string, 10));
 const loading = ref<boolean>(true);
 
@@ -300,7 +299,7 @@ const fetchAnalogData = async () => {
     if (endTime.value) {
       params.timestamp__lte = endTime.value;
     }
-    const response = await axios.get(`${baseURL}/analog-data/`, { params });
+    const response = await axios.get(`${baseURL()}/analog-data/`, { params });
     rawData.value.analog = response.data.results;
   } catch (error) {
     handleError(error, 'Error fetching analog data');
@@ -323,7 +322,7 @@ const fetchRelayData = async () => {
       const oneMinuteLater = new Date(currentTime.getTime() + 1 * 60000);
       params.timestamp__lte = oneMinuteLater.toISOString();
     }
-    const response = await axios.get(`${baseURL}/relay-actions/`, { params });
+    const response = await axios.get(`${baseURL()}/relay-actions/`, { params });
     rawData.value.relay = response.data.results;
   } catch (error) {
     handleError(error, 'Error fetching relay data');

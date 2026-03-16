@@ -36,7 +36,8 @@ def cleanup_analog_data(days):
 
 @shared_task
 def cleanup_alarm_data(days):
-    return cleanup_old_data(AlarmData, days, 'timestamp')
+    # AlarmData 使用 timestamp_start 记录开始时间
+    return cleanup_old_data(AlarmData, days, 'timestamp_start')
 
 @shared_task
 def cleanup_relay_action(days):

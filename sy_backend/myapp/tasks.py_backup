@@ -1,0 +1,251 @@
+#20240625
+import json
+from django.core.cache import cache
+from django.conf import settings
+from celery import shared_task
+from django.utils import timezone
+from django.db import transaction
+from datetime import timedelta
+from myapp.models import SwitchData, AnalogData, Device, AlarmData
+from datetime import datetime
+import time
+
+# 定义告警码列表
+ALARM_CODES = {40, 41, 42, 43, 44, 45, 46, 47, 162, 164, 190, 252, 254, 280, 342, 344, 370, 432, 434, 460}
+
+def cleanup_old_data(model, days, date_field='timestamp'):
+    # 清理数据库中过期的数据
+    # model: 需要清理数据的 Django 模型类。例如，SwitchData、AnalogData 或 AlarmData。
+    # days: 数据保留的天数。例如，传入 30 表示清理 30 天前的数据。
+    # date_field: 模型中表示日期的字段名称，用于确定记录的过期时间。例如，"created_at" 或 "timestamp"。
+    threshold_date = timezone.now() - timedelta(days=days)
+    batch_size = 100  # 定义每批次删除的记录数量，防止一次删除过多造成程序卡顿
+    total_deleted = 0  # 初始化删除的记录总数
+
+    while True:  # 循环删除记录，直到没有符合条件的记录为止
+        with transaction.atomic():
+            # 获取要删除的记录的ID
+            records_to_delete = model.objects.filter(**{f"{date_field}__lt": threshold_date})[:batch_size]
+            records_ids = list(records_to_delete.values_list('id', flat=True))
+            deleted_count = len(records_ids)
+            
+            if deleted_count == 0:
+                break
+            
+            # 逐一删除获取到的记录
+            model.objects.filter(id__in=records_ids).delete()
+            total_deleted += deleted_count
+
+    return f'Successfully deleted {total_deleted} old records from {model.__name__} in batches of {batch_size}'  # 返回删除操作的总结
+
+@shared_task
+def cleanup_switch_data(days):
+    # 清理 SwitchData 表中的过期数据
+    return cleanup_old_data(SwitchData, days, 'timestamp')
+
+@shared_task
+def cleanup_analog_data(days):
+    # 清理 AnalogData 表中的过期数据
+    return cleanup_old_data(AnalogData, days, 'timestamp')
+
+@shared_task
+def cleanup_alarm_data(days):
+    # 清理 AlarmData 表中的过期数据
+    return cleanup_old_data(AlarmData, days, 'timestamp') 
+
+@shared_task
+def process_switch_data(device_id, payload):
+    # 处理开关量数据
+    # 从 payload 中解析开关量数据
+    switch_status = payload[4:50]  # 开关量数据在 payload 的位置
+
+    #print(f'bit_value193:{get_bit_value(switch_status, 19, 3)}')
+    #print(f'switch_status:{switch_status}')
+
+    # 检查缓存中的开关量数据是否有变化
+    redis_key = f"device_{device_id}_switch_status"
+    previous_switch_status = cache.get(redis_key)
+    if previous_switch_status != switch_status:  # 如果变化了，执行以下操作
+        # 存储数据到缓存
+        cache.set(redis_key, switch_status, timeout=5)
+
+        # 提取告警信息
+        alarms = extract_alarms(device_id, switch_status)  # 提取告警信息并判断告警起止
+        for alarm in alarms:  # 处理提取到的告警信息
+            AlarmData.objects.create(device_id=device_id, alarm_code=alarm['code'], timestamp=alarm['timestamp'], alarm_start_or_stop=alarm['status'])
+        print(f"Processed alarms for device {device_id}")
+
+        # 提取供拓扑图使用的数据存储到缓存
+        # 用于拓扑图显示的数据：(设备状态，线路状态)
+        topology_key = f"device_{device_id}_topology_status"
+        topology_status = calculate_topology_status(device_id, switch_status)  # 计算拓扑状态
+        cache.set(topology_key, topology_status, timeout=10)
+
+        print(f"Stored switch data for device {device_id} in Redis")
+
+        # 存储数据到数据库
+        SwitchData.objects.create(device_id=device_id, switch_status=switch_status)
+        print(f"Processed switch data for device {device_id}")
+        
+       
+
+@shared_task
+def process_analog_data(device_id, payload):
+    # 处理模拟量数据
+    # 从 payload 中解析模拟量数据
+    voltage_1 = int.from_bytes(payload[4:6], byteorder='big') / 100.0
+    current_1 = int.from_bytes(payload[6:8], byteorder='big') / 100.0
+    voltage_2 = int.from_bytes(payload[8:10], byteorder='big') / 100.0
+    current_2 = int.from_bytes(payload[10:12], byteorder='big') / 100.0
+
+    # 存储数据到数据库
+    AnalogData.objects.create(device_id=device_id, voltage_1=voltage_1, current_1=current_1, voltage_2=voltage_2, current_2=current_2)
+    print(f"Processed analog data for device {device_id}")
+
+    # 存储数据到Redis缓存，使用 device_id 作为键
+    value = {
+        'voltage_1': voltage_1,
+        'current_1': current_1,
+        'voltage_2': voltage_2,
+        'current_2': current_2,
+    }
+    redis_key = f'device_{device_id}_analog_status'
+    cache.set(redis_key, json.dumps(value), timeout=5)
+    print(f"Stored analog data for device {device_id} in Redis")
+
+def extract_alarms(device_id, switch_status):  # 从开关量数据包中提取告警信息,并判断告警起止
+    alarms = []
+    current_time = datetime.now()
+
+    # 确保 switch_status 是 bytes 类型
+    if isinstance(switch_status, str):
+        switch_status = bytes(switch_status, 'utf-8')
+
+    # 获取上次的告警状态
+    previous_alarms = cache.get(f'device_{device_id}_alarms', {})
+
+    current_alarms = {}
+
+    # 遍历 ALARM_CODES 进行检查
+    for alarm_code in ALARM_CODES:
+        if alarm_code == 190:
+            # 190告警需要特殊处理
+            byte_index = 19
+            bit_value_0 = get_bit_value(switch_status, byte_index, 0)
+            bit_value_3 = get_bit_value(switch_status, byte_index, 3)
+            bit_value = bit_value_0 & bit_value_3  # 两个位都为1才产生告警
+        elif alarm_code == 280:
+            # 280告警需要特殊处理
+            byte_index = 28
+            bit_value_0 = get_bit_value(switch_status, byte_index, 0)
+            bit_value_3 = get_bit_value(switch_status, byte_index, 3)
+            bit_value = bit_value_0 & bit_value_3  # 两个位都为1才产生告警
+        elif alarm_code == 370:
+            # 370告警需要特殊处理
+            byte_index = 37
+            bit_value_0 = get_bit_value(switch_status, byte_index, 0)
+            bit_value_3 = get_bit_value(switch_status, byte_index, 3)
+            bit_value = bit_value_0 & bit_value_3  # 两个位都为1才产生告警
+        elif alarm_code == 460:
+            # 460告警需要特殊处理
+            byte_index = 46
+            bit_value_0 = get_bit_value(switch_status, byte_index, 0)
+            bit_value_3 = get_bit_value(switch_status, byte_index, 3)
+            bit_value = bit_value_0 & bit_value_3  # 两个位都为1才产生告警
+        else:
+            byte_index = alarm_code // 10
+            bit_index = alarm_code % 10
+            bit_value = get_bit_value(switch_status, byte_index, bit_index)
+        
+        current_alarms[alarm_code] = bit_value
+
+        if bit_value == 1 and previous_alarms.get(alarm_code) != 1:
+            alarms.append({
+                'code': alarm_code,
+                'timestamp': current_time,
+                'status': '起'
+            })
+        elif bit_value == 0 and previous_alarms.get(alarm_code) == 1:
+            alarms.append({
+                'code': alarm_code,
+                'timestamp': current_time,
+                'status': '止'
+            })
+    
+    # 更新缓存中的告警状态
+    cache.set(f'device_{device_id}_alarms', current_alarms, timeout=60*60*24)  # 缓存保存一天
+
+    return alarms
+
+def get_bit_value(data, byte_index, bit_index):
+    # 获取特定位的值
+    byte_value = data[byte_index-4]
+    return (byte_value >> bit_index) & 1
+
+def calculate_topology_status(device_id, switch_status):
+    # 计算拓扑状态
+    topology_status = {'device_status': 'good', 'direction1_line_status': 'null', 'direction2_line_status': 'null'}
+    previous_alarms = cache.get(f'device_{device_id}_alarms', {})
+    if any(previous_alarms.values()):
+        topology_status['device_status'] = 'bad'
+    direction1_line_status = get_direction_line_status(switch_status, 1)
+    direction2_line_status = get_direction_line_status(switch_status, 2)
+    topology_status['direction1_line_status'] = direction1_line_status
+    topology_status['direction2_line_status'] = direction2_line_status
+    #print(topology_status)
+    return topology_status
+                    
+def get_direction_line_status(switch_status, direction):
+    # 获取某一方向的线路状态
+    
+    print(f'bit_value192:{get_bit_value(switch_status, 19, 2)}')
+    print(f'bit_value191:{get_bit_value(switch_status, 19, 1)}')
+    print(f'bit_value190:{get_bit_value(switch_status, 19, 0)}')
+    print(f'byte_value:{switch_status[(19-4)]}')
+    print(switch_status)
+    if direction == 1:
+        if get_bit_value(switch_status, 19, 3) == 1 and get_bit_value(switch_status, 19, 1) == 1:
+            return get_line_status(switch_status, 16, 2, 16, 4)
+        elif get_bit_value(switch_status, 28, 3) == 1 and get_bit_value(switch_status, 28, 1) == 1:
+            return get_line_status(switch_status, 25, 2, 25, 4)
+    elif direction == 2:
+        if get_bit_value(switch_status, 37, 3) == 1 and get_bit_value(switch_status, 37, 1) == 1:
+            return get_line_status(switch_status, 34, 2, 34, 4)
+        elif get_bit_value(switch_status, 46, 3) == 1 and get_bit_value(switch_status, 46, 1) == 1:
+            return get_line_status(switch_status, 43, 2, 43, 4)
+    else:
+        return 'null'
+
+def get_line_status(data, byte_index_a, bit_index_a, byte_index_b, bit_index_b):
+    # 获取线路状态
+    a_status = get_bit_value(data, byte_index_a, bit_index_a) == 0
+    b_status = get_bit_value(data, byte_index_b, bit_index_b) == 0
+    #print(f"a_status: {a_status}")
+
+    if a_status and b_status:
+        return 'good'
+    elif a_status or b_status:
+        return 'blink'
+    else:
+        return 'bad'
+
+@shared_task
+def my_daily_task():# 调度在admin页面手动配置
+    """
+    This task runs daily to clean up old data from SwitchData, AnalogData, and AlarmData tables.
+    """
+    days_to_keep = 30  # Example: keep data for 30 days
+
+    # Clean up old SwitchData
+    result_switch_data = cleanup_switch_data(days_to_keep)
+    print(f"Cleanup SwitchData result: {result_switch_data}")
+
+    # Clean up old AnalogData
+    result_analog_data = cleanup_analog_data(days_to_keep)
+    print(f"Cleanup AnalogData result: {result_analog_data}")
+
+    # Clean up old AlarmData
+    result_alarm_data = cleanup_alarm_data(days_to_keep)
+    print(f"Cleanup AlarmData result: {result_alarm_data}")
+
+    return "my daily task completed."

@@ -6,19 +6,11 @@ import threading
 import logging
 import socket
 import queue
-import json
 import time
 from typing import TYPE_CHECKING
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-
-# Kafka 依赖：仅在 MSG_BUS_BACKEND=kafka 时需要（这里保留回滚）
-try:
-    from confluent_kafka import Producer, Consumer
-except Exception:
-    Producer = None
-    Consumer = None
 
 # Redis 依赖：宿主机跑 redis_stream 时需要
 try:
@@ -33,16 +25,10 @@ if TYPE_CHECKING:
 # =======================
 # ✅ 宿主机固定配置（不使用环境变量）
 # =======================
-MSG_BUS_BACKEND = "redis"  # "redis" | "kafka"
 
 # UDP
 HOST_IP = "0.0.0.0"
 HOST_PORT = 38315
-
-# Kafka（保留回滚用）
-KAFKA_BOOTSTRAP_SERVERS = "localhost:19092"
-KAFKA_TOPIC_PUB = "udp-packets"
-KAFKA_TOPIC_SUB = "udp-commands"
 
 # Redis Stream（双 stream）
 REDIS_STREAM_HOST = "127.0.0.1"
@@ -62,6 +48,7 @@ REDIS_STREAM_COUNT = 100
 # 裁剪：packet 高频，cmd 低频
 REDIS_PACKET_MAXLEN = 200000   # packet stream 近似裁剪
 REDIS_CMD_MAXLEN = 50000       # cmd stream 近似裁剪（够用了）
+
 
 # =======================
 # 日志配置
@@ -104,7 +91,7 @@ class BlockedIPsHandler(FileSystemEventHandler):
         if event.src_path.endswith("blocked_ips.txt"):
             global blocked_ips
             blocked_ips = load_blocked_ips()
-            logger.info("检测到blocked_ips.txt 更新，已重新加载IP列表")
+            logger.info("检测到 blocked_ips.txt 更新，已重新加载 IP 列表")
 
 
 # =======================
@@ -128,60 +115,43 @@ def _fmt_payload(b: bytes, max_show: int = 32) -> str:
 
 
 # =======================
-# MessageBus 抽象：Kafka / Redis Streams
+# Redis MessageBus
 # =======================
 class MessageBus:
     """
-    抽象：
-      - publish_packet(ip, data_bytes)
-      - start_cmd_subscriber(send_queue)
-      - close()
-
     Redis 双 stream：
       - packet -> stream:udp:packets
       - cmd    -> stream:udp:cmd
     """
 
     def __init__(self):
-        self.backend = MSG_BUS_BACKEND
-        self._kafka_producer = None
-        self._redis: "RedisClient | None" = None
-
+        self._redis: RedisClient | None = None
         self._cmd_thread: threading.Thread | None = None
         self._cmd_thread_stop = threading.Event()
 
-        if self.backend == "kafka":
-            if Producer is None or Consumer is None:
-                raise RuntimeError("MSG_BUS_BACKEND=kafka 但 confluent_kafka 未安装/不可用")
-            self._kafka_producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
+        if redis_lib is None:
+            raise RuntimeError("redis-py 未安装/不可用（pip install redis）")
 
-        elif self.backend == "redis":
-            if redis_lib is None:
-                raise RuntimeError("MSG_BUS_BACKEND=redis 但 redis-py 未安装/不可用（pip install redis）")
-            self._redis = redis_lib.Redis(
-                host=REDIS_STREAM_HOST, port=REDIS_STREAM_PORT, decode_responses=False
-            )
-            self._redis.ping()
-            # ✅ 确保 cmd stream + group 存在（MKSTREAM）
-            self._ensure_group(REDIS_CMD_STREAM_KEY, REDIS_CMD_GROUP)
+        self._redis = redis_lib.Redis(
+            host=REDIS_STREAM_HOST,
+            port=REDIS_STREAM_PORT,
+            decode_responses=False,
+        )
+        self._redis.ping()
 
-        else:
-            raise ValueError(f"未知 MSG_BUS_BACKEND={self.backend}，只能是 kafka 或 redis")
-
-    @staticmethod
-    def _delivery_report(err, msg):
-        if err:
-            logger.error(f"❌ Kafka 发送失败: {err}")
-        else:
-            logger.debug(
-                f"✅ Kafka 成功发送到 topic={msg.topic()} partition={msg.partition()} offset={msg.offset()}"
-            )
+        # 确保 cmd stream + group 存在（MKSTREAM）
+        self._ensure_group(REDIS_CMD_STREAM_KEY, REDIS_CMD_GROUP)
 
     def _ensure_group(self, stream_key: str, group_name: str) -> None:
         """幂等创建 group：从 $ 开始，只消费新消息"""
         assert self._redis is not None
         try:
-            self._redis.xgroup_create(name=stream_key, groupname=group_name, id="$", mkstream=True)
+            self._redis.xgroup_create(
+                name=stream_key,
+                groupname=group_name,
+                id="$",
+                mkstream=True,
+            )
             logger.info(f"[redis] created group={group_name} on stream={stream_key}")
         except Exception as e:
             msg = str(e)
@@ -190,15 +160,9 @@ class MessageBus:
             logger.warning(f"[redis] ensure_group got error: {e}")
 
     def publish_packet(self, source_ip: str, data: bytes) -> None:
-        """packet 发布：Kafka topic 或 packet stream"""
-        if self.backend == "kafka":
-            message = json.dumps({"ip": source_ip, "data": data.hex()}).encode()
-            assert self._kafka_producer is not None
-            self._kafka_producer.produce(KAFKA_TOPIC_PUB, value=message, callback=self._delivery_report)
-            self._kafka_producer.poll(0)
-            return
-
+        """packet 发布到 packet stream"""
         assert self._redis is not None
+
         ts_ms = int(time.time() * 1000)
         fields = {
             b"src": b"udp_agent",
@@ -214,13 +178,9 @@ class MessageBus:
         )
 
     def start_cmd_subscriber(self, send_queue: queue.Queue) -> None:
-        """cmd 订阅：Kafka topic 或 cmd stream"""
-        if self.backend == "kafka":
-            self._cmd_thread = KafkaSubscriber(send_queue)
-            self._cmd_thread.start()
-            return
-
+        """启动 cmd stream 订阅线程"""
         assert self._redis is not None
+
         self._cmd_thread = RedisCmdSubscriber(
             r=self._redis,
             stream_key=REDIS_CMD_STREAM_KEY,
@@ -233,24 +193,11 @@ class MessageBus:
 
     def close(self) -> None:
         try:
-            if self.backend == "redis":
-                self._cmd_thread_stop.set()
+            self._cmd_thread_stop.set()
             if self._cmd_thread:
                 self._cmd_thread.join(timeout=2)
         except Exception:
             pass
-
-        if self.backend == "kafka":
-            try:
-                if self._cmd_thread and hasattr(self._cmd_thread, "consumer"):
-                    self._cmd_thread.consumer.close()
-            except Exception:
-                pass
-            try:
-                if self._kafka_producer:
-                    self._kafka_producer.flush()
-            except Exception:
-                pass
 
 
 # =======================
@@ -369,7 +316,7 @@ class UdpCommunicationThread(threading.Thread):
             try:
                 self.bus.publish_packet(source_ip, data)
             except Exception as e:
-                logger.error(f"发布数据包失败({MSG_BUS_BACKEND}): {e}", exc_info=True)
+                logger.error(f"发布数据包失败(redis): {e}", exc_info=True)
 
     def stop(self):
         self.running = False
@@ -388,59 +335,6 @@ class UdpCommunicationThread(threading.Thread):
 
 
 # =======================
-# Kafka 订阅线程（回滚用）
-# =======================
-class KafkaSubscriber(threading.Thread):
-    def __init__(self, send_queue: queue.Queue):
-        super().__init__(daemon=True)
-        if Consumer is None:
-            raise RuntimeError("KafkaSubscriber 启动失败：confluent_kafka.Consumer 不可用")
-        self.send_queue = send_queue
-        self.consumer = Consumer(
-            {
-                "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-                "group.id": "udp-agent-command-consumer",
-                "auto.offset.reset": "latest",
-            }
-        )
-        self.consumer.subscribe([KAFKA_TOPIC_SUB])
-
-    def run(self):
-        logger.info("开始监听 Kafka topic 'udp-commands'...")
-        while True:
-            try:
-                msgs = self.consumer.consume(num_messages=100, timeout=0.1)
-            except Exception as e:
-                logger.error(f"Kafka consume error: {e}")
-                continue
-
-            if not msgs:
-                continue
-
-            for msg in msgs:
-                if msg is None or msg.error():
-                    if msg and msg.error():
-                        logger.error(f"Kafka consumer error: {msg.error()}")
-                    continue
-                self.handle_message(msg.value())
-
-    def handle_message(self, data: bytes):
-        try:
-            if b"\n" not in data:
-                logger.error("Kafka 指令格式错误，缺少换行符。")
-                return
-            encoded_ip, payload = data.split(b"\n", 1)
-            target_ip = encoded_ip.decode().strip()
-            if target_ip in blocked_ips:
-                logger.info(f"忽略被屏蔽的IP: {target_ip}")
-                return
-            self.send_queue.put((target_ip, payload))
-            logger.info(f"收到 Kafka 指令，目标IP: {target_ip}，数据大小: {len(payload)} 字节")
-        except Exception as e:
-            logger.error(f"处理 Kafka 指令失败: {e}", exc_info=True)
-
-
-# =======================
 # Redis Streams 命令订阅线程（只读 cmd stream）
 # =======================
 class RedisCmdSubscriber(threading.Thread):
@@ -454,7 +348,7 @@ class RedisCmdSubscriber(threading.Thread):
 
     def __init__(
         self,
-        r: "RedisClient",
+        r: RedisClient,
         stream_key: str,
         group: str,
         consumer: str,
@@ -472,7 +366,12 @@ class RedisCmdSubscriber(threading.Thread):
     def _ensure_group(self) -> None:
         """自愈：stream/group 不存在就重建（MKSTREAM）"""
         try:
-            self.r.xgroup_create(name=self.stream_key, groupname=self.group, id="$", mkstream=True)
+            self.r.xgroup_create(
+                name=self.stream_key,
+                groupname=self.group,
+                id="$",
+                mkstream=True,
+            )
             logger.info(f"[redis] created group={self.group} on stream={self.stream_key}")
         except Exception as e:
             msg = str(e)
@@ -561,7 +460,7 @@ async def main():
     logger.info("启动主程序...")
 
     bus = MessageBus()
-    logger.info(f"MessageBus backend = {MSG_BUS_BACKEND}")
+    logger.info("MessageBus backend = redis")
 
     send_queue: queue.Queue = queue.Queue()
 
@@ -599,4 +498,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("退出UDP监控工具。")
+        logger.info("退出 UDP 监控工具。")

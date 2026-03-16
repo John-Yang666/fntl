@@ -14,24 +14,24 @@ def my_daily_task(
     Each type of data can have its own retention period in days.
     """
     
-    # Clean up old SwitchData
-    result_switch_data = cleanup_switch_data(switch_data_days)
-    print(f"Cleanup SwitchData result: {result_switch_data}")
+    jobs = [
+        ("SwitchData", cleanup_switch_data, switch_data_days),
+        ("AnalogData", cleanup_analog_data, analog_data_days),
+        ("AlarmData", cleanup_alarm_data, alarm_data_days),
+        ("RelayAction", cleanup_relay_action, relay_action_days),
+        ("UserOperation", cleanup_user_operation, user_operation_days),
+    ]
 
-    # Clean up old AnalogData
-    result_analog_data = cleanup_analog_data(analog_data_days)
-    print(f"Cleanup AnalogData result: {result_analog_data}")
+    errors = []
+    for name, fn, days in jobs:
+        try:
+            result = fn(days)
+            print(f"Cleanup {name} result: {result}")
+        except Exception as exc:
+            msg = f"Cleanup {name} failed: {exc}"
+            print(msg)
+            errors.append(msg)
 
-    # Clean up old AlarmData
-    result_alarm_data = cleanup_alarm_data(alarm_data_days)
-    print(f"Cleanup AlarmData result: {result_alarm_data}")
-
-    # Clean up old RelayAction
-    result_relay_action = cleanup_relay_action(relay_action_days)
-    print(f"Cleanup RelayAction result: {result_relay_action}")
-
-    # Clean up old UserOperation
-    result_user_operation = cleanup_user_operation(user_operation_days)
-    print(f"Cleanup UserOperation result: {result_user_operation}")
-
+    if errors:
+        return f"my daily task completed with {len(errors)} error(s)."
     return "my daily task completed."

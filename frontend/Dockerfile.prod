@@ -18,10 +18,12 @@ COPY package.json npm-shrinkwrap.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --no-audit --no-fund
 
-# 透传 Vite 的构建期环境变量（例：后端端口）
-# docker build/compose 用 --build-arg VITE_BACKEND_PORT=xxxx 传入
-ARG VITE_BACKEND_PORT
-ENV VITE_BACKEND_PORT=${VITE_BACKEND_PORT}
+# 透传 Vite 的构建期环境变量（BT / SY 双后端端口）
+# docker build/compose 用 --build-arg VITE_BT_BACKEND_PORT=8000 --build-arg VITE_SY_BACKEND_PORT=8001 传入
+ARG VITE_BT_BACKEND_PORT
+ARG VITE_SY_BACKEND_PORT
+ENV VITE_BT_BACKEND_PORT=${VITE_BT_BACKEND_PORT}
+ENV VITE_SY_BACKEND_PORT=${VITE_SY_BACKEND_PORT}
 
 # 复制源码（放在依赖安装之后，避免改源码导致重装依赖）
 COPY . .

@@ -2,22 +2,27 @@
 import os
 import logging
 from contextlib import redirect_stdout, redirect_stderr
+from datetime import datetime, timedelta
 from io import StringIO
 import time
 
 from django.contrib import admin, messages
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import connections
+from django.http import HttpResponseRedirect
+from django.template.response import TemplateResponse
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.utils.html import format_html
 
 from import_export import resources, fields
 from import_export.admin import ImportExportModelAdmin
+from import_export.forms import ExportForm
 from import_export.widgets import JSONWidget, BooleanWidget, ManyToManyWidget
-
-from django_admin_filters import DateRange
 
 from .models import (
     Device, SwitchData, AlarmActive, AnalogData, AlarmData,
@@ -33,7 +38,10 @@ class SafeImportExportModelAdmin(ImportExportModelAdmin):
     """
     有些部署组合下（容器日志、调试捕获、错误输出等），stdout/stderr 可能污染导出响应体，
     导致“文件名正确但内容变成日志/乱码”。此处强制屏蔽导出动作期间的输出。
+    同时统一使用非 Selectable 导出表单，避免自定义字段在 export_fields 过滤阶段被丢弃。
     """
+    export_form_class = ExportForm
+
     def export_action(self, request, *args, **kwargs):
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
             return super().export_action(request, *args, **kwargs)
@@ -61,6 +69,28 @@ class DepotScopedAdmin(admin.ModelAdmin):
 
         return qs.none()
 
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not request.user.is_superuser:
+            actions.pop("truncate_table", None)
+        return actions
+
+    def changelist_view(self, request, extra_context=None):
+        # Django admin 默认要求 action 必须勾选条目；为“清空整表”放宽该限制。
+        if request.method == "POST" and request.POST.get("action") == "truncate_table":
+            selected = request.POST.getlist(ACTION_CHECKBOX_NAME)
+            select_across = request.POST.get("select_across") == "1"
+            if not selected and not select_across:
+                actions = self.get_actions(request)
+                action = actions.get("truncate_table")
+                if action:
+                    queryset = self.get_queryset(request).none()
+                    response = action[0](self, request, queryset)
+                    if response is not None:
+                        return response
+                    return HttpResponseRedirect(request.get_full_path())
+        return super().changelist_view(request, extra_context=extra_context)
+
 
 # ========================
 # 公共工具函数（批量动作）
@@ -73,47 +103,217 @@ batch_confirm.short_description = "确认选中的告警"
 
 
 def batch_delete(modeladmin, request, queryset):
-    """批量强制删除（分批避免大事务）"""
-    batch_size = 1000
-    iterator = queryset.iterator()
+    """批量强制删除（高性能分批版）"""
+    batch_size = max(int(os.getenv("ADMIN_BATCH_DELETE_SIZE", "20000")), 1000)
+    model = modeladmin.model
+    pk_name = model._meta.pk.name
+    using = queryset.db
     deleted_count = 0
 
+    # 删除场景不需要排序；清空 ORDER BY 可避免千万级数据的大排序开销。
+    base_queryset = queryset.order_by()
+
     while True:
-        ids = []
-        for _ in range(batch_size):
-            try:
-                ids.append(next(iterator).id)
-            except StopIteration:
+        pk_subquery = base_queryset.values(pk_name)[:batch_size]
+        batch_qs = model.objects.filter(**{f"{pk_name}__in": pk_subquery})
+
+        try:
+            # 直接走 SQL DELETE，避免 ORM 实例化与 Collector 级联分析开销。
+            deleted = batch_qs._raw_delete(using=using)
+        except Exception:
+            # 回退到常规 delete，确保异常场景仍可完成删除。
+            logger.exception("batch_delete: _raw_delete failed, fallback to delete()")
+            ids = list(base_queryset.values_list(pk_name, flat=True)[:batch_size])
+            if not ids:
                 break
-        if not ids:
+            deleted, _ = model.objects.filter(**{f"{pk_name}__in": ids}).delete()
+
+        if deleted <= 0:
             break
+        deleted_count += deleted
 
-        modeladmin.model.objects.filter(id__in=ids).delete()
-        deleted_count += len(ids)
-
-    # ✅ 不用 print，避免输出污染导出/响应；用 logger
-    logger.info("batch_delete: deleted=%s model=%s", deleted_count, modeladmin.model.__name__)
+    logger.info("batch_delete: deleted=%s model=%s batch_size=%s", deleted_count, model.__name__, batch_size)
+    modeladmin.message_user(request, f"成功强制删除 {deleted_count} 条记录。")
 batch_delete.short_description = '强制删除选中的项目'
+
+def truncate_table(modeladmin, request, queryset):
+    """清空整表（仅 superuser，二次确认）"""
+    if not request.user.is_superuser:
+        modeladmin.message_user(request, "仅超级管理员可执行“清空整表(慎用)”。", level=messages.ERROR)
+        return None
+
+    model = modeladmin.model
+    opts = model._meta
+    table_name = opts.db_table
+    using = queryset.db
+    conn = connections[using]
+
+    if conn.vendor != "postgresql":
+        modeladmin.message_user(request, "当前数据库非 PostgreSQL，已拒绝执行 TRUNCATE。", level=messages.ERROR)
+        return None
+
+    if request.POST.get("confirm_truncate") == "yes":
+        quoted_table = conn.ops.quote_name(table_name)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(f"TRUNCATE TABLE {quoted_table}")
+            logger.warning(
+                "truncate_table: table=%s model=%s operator=%s",
+                table_name,
+                model.__name__,
+                request.user.username,
+            )
+            modeladmin.message_user(request, f"已清空整表：{table_name}", level=messages.WARNING)
+        except Exception:
+            logger.exception("truncate_table failed: table=%s model=%s", table_name, model.__name__)
+            modeladmin.message_user(request, f"清空整表失败：{table_name}", level=messages.ERROR)
+        return None
+
+    context = {
+        **modeladmin.admin_site.each_context(request),
+        "title": f"确认清空整表（慎用）：{opts.verbose_name_plural}",
+        "opts": opts,
+        "action_name": "truncate_table",
+        "action_checkbox_name": ACTION_CHECKBOX_NAME,
+        "selected_ids": request.POST.getlist(ACTION_CHECKBOX_NAME),
+        "select_across": request.POST.get("select_across", "0"),
+        "table_name": table_name,
+        "model_label": opts.verbose_name_plural,
+    }
+    return TemplateResponse(request, "admin/truncate_table_confirmation.html", context)
+truncate_table.short_description = "清空整表(慎用)"
 
 
 # ========================
 # 自定义时间筛选器
 # ========================
-class MyDateRangePicker(DateRange):
-    WIDGET_LOCALE = 'zh-cn'
-    WIDGET_WITH_TIME = True
+class MyDateRangePicker(admin.FieldListFilter):
+    template = "admin/filters/datetime_range.html"
+
     FILTER_LABEL = "时间范围"
     ALL_LABEL = '全部'
-    CUSTOM_LABEL = "自定义时间格式如下："
     FROM_LABEL = "从"
     TO_LABEL = "到"
-    DATE_FORMAT = "YYYY-MM-DD HH:mm \n 例如: 2024-01-01 00:00"
-    BUTTON_LABEL = "按上述时间筛选"
-    is_null_option = False
+    BUTTON_LABEL = "应用筛选"
+    CLEAR_LABEL = "清空时间范围"
+    TIMEZONE_HINT = "按北京时间（Asia/Shanghai）"
     options = (
-        ('1da', "24小时之内", 60 * 60 * -24),
-        ('1dp', "7天之内", 60 * 60 * -24 * 7),
+        ('15m', "15分钟内", -15 * 60),
+        ('1h', "1小时内", -60 * 60),
+        ('6h', "6小时内", -6 * 60 * 60),
+        ('24h', "24小时内", -24 * 60 * 60),
+        ('3d', "3天内", -3 * 24 * 60 * 60),
+        ('7d', "7天内", -7 * 24 * 60 * 60),
+        ('30d', "30天内", -30 * 24 * 60 * 60),
     )
+
+    def __init__(self, field, request, params, model, model_admin, field_path):
+        self.lookup_kwarg_since = f"{field_path}__gte"
+        self.lookup_kwarg_until = f"{field_path}__lte"
+        self.lookup_kwarg_preset = f"{field_path}__range"
+        super().__init__(field, request, params, model, model_admin, field_path)
+        self.title = self.FILTER_LABEL
+
+        excluded = set(self.expected_parameters())
+        excluded.add("p")
+        self.preserved_params = []
+        for key, values in request.GET.lists():
+            if key in excluded:
+                continue
+            for value in values:
+                self.preserved_params.append((key, value))
+
+    def expected_parameters(self):
+        return [self.lookup_kwarg_since, self.lookup_kwarg_until, self.lookup_kwarg_preset]
+
+    @classmethod
+    def _parse_input_datetime(cls, value):
+        if isinstance(value, (list, tuple)):
+            # In case duplicate query params exist, use the last non-empty value.
+            for item in reversed(value):
+                if item not in (None, ""):
+                    value = item
+                    break
+            else:
+                return None
+        if value in (None, ""):
+            return None
+        raw = str(value).strip()
+        dt = parse_datetime(raw)
+        if dt is None:
+            for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+                try:
+                    dt = datetime.strptime(raw, fmt)
+                    break
+                except ValueError:
+                    continue
+        if dt is None:
+            raise ValueError(f"Invalid datetime value: {raw}")
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_current_timezone())
+        return timezone.localtime(dt)
+
+    @classmethod
+    def _format_input_value(cls, value):
+        if value in (None, ""):
+            return ""
+        try:
+            dt = cls._parse_input_datetime(value)
+        except ValueError:
+            return str(value)
+        return dt.strftime("%Y-%m-%dT%H:%M")
+
+    @staticmethod
+    def _format_query_value(dt):
+        return timezone.localtime(dt).strftime("%Y-%m-%dT%H:%M")
+
+    def choices(self, changelist):
+        now = timezone.localtime(timezone.now())
+        selected_preset = self.used_parameters.get(self.lookup_kwarg_preset)
+
+        self.current_from = self._format_input_value(self.used_parameters.get(self.lookup_kwarg_since))
+        self.current_to = self._format_input_value(self.used_parameters.get(self.lookup_kwarg_until))
+        self.is_all_selected = not self.current_from and not self.current_to
+        self.clear_query_string = changelist.get_query_string(
+            {},
+            remove=[*self.expected_parameters(), "p"],
+        )
+
+        for key, label, offset_seconds in self.options:
+            start = now + timedelta(seconds=offset_seconds)
+            yield {
+                "selected": selected_preset == key,
+                "query_string": changelist.get_query_string(
+                    {
+                        self.lookup_kwarg_since: self._format_query_value(start),
+                        self.lookup_kwarg_until: self._format_query_value(now),
+                        self.lookup_kwarg_preset: key,
+                    },
+                    remove=["p"],
+                ),
+                "display": label,
+            }
+
+    def queryset(self, request, queryset):
+        try:
+            dt_from = self._parse_input_datetime(self.used_parameters.get(self.lookup_kwarg_since))
+            dt_to = self._parse_input_datetime(self.used_parameters.get(self.lookup_kwarg_until))
+        except Exception as exc:
+            logger.warning("Datetime filter parsing failed and was ignored: %s", exc)
+            return queryset
+
+        if dt_from and dt_to and dt_from > dt_to:
+            dt_from, dt_to = dt_to, dt_from
+
+        filters = {}
+        if dt_from:
+            filters[self.lookup_kwarg_since] = dt_from
+        if dt_to:
+            filters[self.lookup_kwarg_until] = dt_to
+
+        if not filters:
+            return queryset
+        return queryset.filter(**filters)
 
 
 # ========================
@@ -125,7 +325,7 @@ class AlarmActiveAdmin(DepotScopedAdmin):
     list_display = ('timestamp_start_display', 'device', 'alarm_code', 'alarm_meaning', 'show_confirmed_status')
     search_fields = ('device__device_id', 'device__name', 'alarm_code')
     list_filter = (('timestamp_start', MyDateRangePicker), 'device__name', 'device__device_id', 'alarm_code', 'is_confirmed')
-    actions = [batch_delete, batch_confirm]
+    actions = [batch_delete, truncate_table, batch_confirm]
 
     def alarm_meaning(self, obj):
         return obj.alarm_meaning
@@ -182,7 +382,7 @@ class AlarmDataAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
     list_display = ('timestamp_start_display', 'timestamp_end_display', 'device', 'alarm_code', 'alarm_meaning', 'show_confirmed_status')
     search_fields = ('device__device_id', 'device__name', 'alarm_code')
     list_filter = (('timestamp_start', MyDateRangePicker), 'device__name', 'device__device_id', 'alarm_code', 'is_confirmed')
-    actions = [batch_delete, batch_confirm]
+    actions = [batch_delete, truncate_table, batch_confirm]
 
     def alarm_meaning(self, obj):
         return obj.alarm_meaning
@@ -223,7 +423,7 @@ class SwitchDataResource(resources.ModelResource):
 
     def dehydrate_switch_status(self, obj):
         # ✅ 转成可读字符串，避免 bytes/对象直出
-        return obj.get_status_bits()
+        return obj.get_status_bits_grouped_by_byte(start_byte=4)
 
     def dehydrate_timestamp(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -233,13 +433,14 @@ class SwitchDataResource(resources.ModelResource):
 class SwitchDataAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = SwitchDataResource
+    export_form_class = ExportForm
     list_display = ('timestamp_with_seconds', 'device', 'formatted_switch_status')
     list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id')
     search_fields = ('device__device_id', 'device__ip_address', 'device__name')
-    actions = [batch_delete]
+    actions = [batch_delete, truncate_table]
 
     def formatted_switch_status(self, obj):
-        return obj.get_status_bits()
+        return obj.get_status_bits_grouped_by_byte(start_byte=4)
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -278,7 +479,7 @@ class AnalogDataAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
     list_display = ('timestamp_with_seconds', 'device', 'voltage_1', 'current_1', 'voltage_2', 'current_2')
     list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id')
     search_fields = ('device__device_id', 'device__ip_address', 'device__name')
-    actions = [batch_delete]
+    actions = [batch_delete, truncate_table]
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -372,7 +573,7 @@ class UserOperationAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
     list_display = ('timestamp_with_seconds', 'device', 'operation', 'username')
     search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'operation', 'username')
     list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id', 'operation', 'username')
-    actions = [batch_delete]
+    actions = [batch_delete, truncate_table]
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S')
@@ -413,7 +614,7 @@ class RelayActionAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
     list_display = ('timestamp_with_seconds', 'device', 'relay', 'action')
     search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'relay', 'action')
     list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id', 'relay', 'action')
-    actions = [batch_delete]
+    actions = [batch_delete, truncate_table]
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')

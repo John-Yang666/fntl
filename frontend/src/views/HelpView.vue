@@ -44,7 +44,7 @@
             <el-collapse-item title="修改系统设置" name="2">
               <p>需要时，在厂家工程师指导下，在项目文件夹内打开文件：<br />
                 /BT_NMS/backend/myproject/settings.py<br />
-                修改设置。<br />
+                或 BT_NMS 中复制后的 SY 编排文件。<br />
               </p>
             </el-collapse-item>
             <el-collapse-item title="其它" name="3">

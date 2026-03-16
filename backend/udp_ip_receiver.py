@@ -13,20 +13,22 @@ import threading
 import logging
 import time
 from datetime import datetime, timezone
-from celery import Celery
+import redis
 from confluent_kafka import Consumer, Producer
 from myapp.models import Device
 
 # 参数配置
-from consts import LAST_COMMUNICATION_TIME_TIMEOUT, SWITCH_DATA_TIMEOUT, HEARTBEAT_TIMEOUT, PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL
+from consts import HEARTBEAT_TIMEOUT, PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL
 
 # 日志设置
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("receiver")
 
-# Celery 配置
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
-celery_app = Celery(broker=CELERY_BROKER_URL)
+# Redis Stream 配置
+REDIS_STREAM_HOST = os.getenv("REDIS_STREAM_HOST", "redis_stream")
+REDIS_STREAM_PORT = int(os.getenv("REDIS_STREAM_PORT", "6379"))
+REDIS_PACKET_STREAM_KEY = os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets")
+stream_redis = redis.Redis(host=REDIS_STREAM_HOST, port=REDIS_STREAM_PORT, decode_responses=False)
 
 # Kafka 配置
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092")
@@ -73,16 +75,19 @@ def periodic_device_cache_refresher(interval=PERIODIC_DEVICE_CACHE_REFRESH_INTER
 def get_device_id_by_ip(ip_address):
     return device_cache.get(ip_address)
 
-# === 发送任务到 Celery ===
-def send_task_to_celery(device_id, data, timestamp):
+# === 发送数据包到 Redis Stream（由 udp_receiver 统一处理） ===
+def send_packet_to_stream(ip_address, data):
     try:
-        celery_app.send_task(
-            "myapp.tasks.process_switch_data.process_switch_data",
-            args=[device_id, data, timestamp.isoformat()]
+        stream_redis.xadd(
+            REDIS_PACKET_STREAM_KEY,
+            {
+                b"type": b"packet",
+                b"ip": ip_address.encode(),
+                b"data_hex": data.hex().encode(),
+            },
         )
-        logger.info(f"Task sent to Celery for device {device_id}")
     except Exception as e:
-        logger.error(f"Failed to send task to Celery: {e}")
+        logger.error(f"Failed to enqueue packet to stream: {e}")
 
 # === 处理数据包 ===
 def handle_packet(data, addr):
@@ -103,7 +108,7 @@ def handle_packet(data, addr):
             packet_count += 1
 
         if len(data) == 54:
-            send_task_to_celery(device_id, data, current_time)
+            send_packet_to_stream(ip_address, data)
         else:
             logger.error(f"Unknown data length ({len(data)}) from IP {ip_address}")
     else:

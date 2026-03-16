@@ -306,7 +306,8 @@ services:
     image: my_vue:dev
     container_name: bt_nms_vue_dev
     environment:
-      - VITE_BACKEND_PORT=8000
+      - VITE_BT_BACKEND_PORT=8000
+      - VITE_SY_BACKEND_PORT=8001
     volumes:
       - ./frontend:/app
       - /app/node_modules
