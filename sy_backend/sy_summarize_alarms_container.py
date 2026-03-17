@@ -1,219 +1,231 @@
-# summarize_alarms_container.py —— sy 版带详细日志
 import os
 import sys
 import time
 import logging
 from datetime import datetime
 
-# ---- Django 环境 ----
-sys.path.append('/app')  # 容器路径，按需调整
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
-import django
+sys.path.append("/app")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myproject.settings")
+import django  # noqa: E402
+
 django.setup()
 
-from django.utils import timezone
-from django.core.cache import cache
-from django.db.models import Q
+from django.core.cache import cache  # noqa: E402
+from django.utils import timezone  # noqa: E402
+import redis  # noqa: E402
 
-import redis
+from consts import COMMUNICATION_TIMEOUT, SY_ALARM_CODES, SY_ALARM_DELAY  # noqa: E402
+from myapp.models import AlarmActive, AlarmData, Device  # noqa: E402
+from myapp.tasks.topology_processing import process_topology_status  # noqa: E402
 
-from myapp.models import Device, AlarmActive, AlarmData
-from myapp.tasks.topology_processing import process_topology_status
-from consts import SY_ALARM_DELAY, COMMUNICATION_TIMEOUT, SY_ALARM_CODES  # 这里的 ALARM_CODES 建议在 consts 里给 sy 赋值为 SY_ALARM_CODES
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# 直接让 print 也及时 flush，方便 docker logs 看
-def log(msg):
-    print(msg, flush=True)
-    logger.info(msg)
-
-# Redis（通信时间等，跟 sy_receiver 里的配置保持一致）
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+SUMMARY_INTERVAL_SEC = float(os.getenv("SUMMARY_INTERVAL_SEC", "1"))
+SUMMARY_DEVICE_CACHE_REFRESH_SEC = float(os.getenv("SUMMARY_DEVICE_CACHE_REFRESH_SEC", "30"))
+
 redis_client = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, db=2, decode_responses=True)
 
 
-# ---------- 工具函数 ----------
-def parse_iso_aware(s: str):
-    """将 ISO 字符串转为 aware datetime（UTC）"""
-    dt = datetime.fromisoformat(s)
+def parse_iso_aware(raw_value: str):
+    dt = datetime.fromisoformat(raw_value)
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt, timezone=timezone.utc)
     return dt
 
 
-def get_comm_status(device_id: int, now: datetime):
-    """
-    返回 (comm_ok: bool | None, last_comm_time: datetime|None)
-    None 表示拿不到通信时间（未知）
-    """
-    key = f"device_{device_id}_last_communication_time"
-    s = redis_client.get(key)
-    if not s:
-        # 没有 key，说明 sy_receiver 那边还没收到这个设备的任何帧
+def get_comm_status_from_raw(device_id: int, raw_time: str | None, raw_monotonic: str | None, now: datetime, now_monotonic: float):
+    if not raw_time:
         return None, None
+
     try:
-        last_comm = parse_iso_aware(s)
-    except Exception as e:
-        log(f"[comm] parse error for device {device_id}: {e}")
+        last_comm = parse_iso_aware(raw_time)
+    except Exception as exc:
+        logger.error("[comm] parse error device=%s err=%s", device_id, exc)
         return None, None
-    comm_ok = (now - last_comm).total_seconds() <= COMMUNICATION_TIMEOUT
-    return comm_ok, last_comm
+
+    if raw_monotonic is not None:
+        try:
+            elapsed = now_monotonic - float(raw_monotonic)
+            if elapsed < 0:
+                elapsed = 0.0
+            return elapsed <= COMMUNICATION_TIMEOUT, last_comm
+        except (TypeError, ValueError) as exc:
+            logger.warning("[comm] invalid monotonic device=%s err=%s", device_id, exc)
+
+    return (now - last_comm).total_seconds() <= COMMUNICATION_TIMEOUT, last_comm
+
+
+def build_comm_status_map(device_ids: list[int], now: datetime, now_monotonic: float):
+    if not device_ids:
+        return {}
+
+    raw_time_values = redis_client.mget([f"device_{device_id}_last_communication_time" for device_id in device_ids])
+    raw_monotonic_values = redis_client.mget([f"device_{device_id}_last_communication_monotonic" for device_id in device_ids])
+
+    status_map = {}
+    for idx, device_id in enumerate(device_ids):
+        status_map[device_id] = get_comm_status_from_raw(
+            device_id=device_id,
+            raw_time=raw_time_values[idx],
+            raw_monotonic=raw_monotonic_values[idx],
+            now=now,
+            now_monotonic=now_monotonic,
+        )
+    return status_map
 
 
 def hydrate_cache_from_db(device_id: int):
-    """
-    当缓存缺失时，从 AlarmActive 回灌完整 0/1 状态到缓存（不含 0 号）
-    - 处于活跃的非0号告警：bit=1, starttime=active.timestamp_start
-    - 其余 ALARM_CODES（排除 0）写 bit=0
-    返回 alarms_state 字典
-    """
     alarms_state = {}
-    actives = (AlarmActive.objects
-               .filter(device_id=device_id)
-               .values('alarm_code', 'timestamp_start'))
-    active_codes = set()
-    for a in actives:
-        code = a['alarm_code']
-        if code == 0:
-            continue  # 0 号不用写在位图缓存里
-        active_codes.add(code)
-        alarms_state[code] = {
-            'bit_value': 1,
-            'starttime': a['timestamp_start'],
-        }
-
-    # 其余写 0
-    for code in SY_ALARM_CODES:
+    actives = AlarmActive.objects.filter(device_id=device_id).values("alarm_code", "timestamp_start")
+    for active in actives:
+        code = active["alarm_code"]
         if code == 0:
             continue
-        if code not in alarms_state:
-            alarms_state[code] = {'bit_value': 0}
+        alarms_state[code] = {
+            "bit_value": 1,
+            "starttime": active["timestamp_start"],
+        }
 
-    cache.set(f'device_{device_id}_alarms', alarms_state, timeout=None)
+    for code in SY_ALARM_CODES:
+        if code not in alarms_state:
+            alarms_state[code] = {"bit_value": 0}
+
+    cache.set(f"device_{device_id}_alarms", alarms_state, timeout=None)
     return alarms_state
 
 
-# ---------- 主逻辑 ----------
+def safe_alarm_end_time(timestamp_start: datetime):
+    timestamp_end = timezone.now()
+    if timestamp_end < timestamp_start:
+        logger.warning("[alarm_time_guard] end earlier than start start=%s end=%s", timestamp_start, timestamp_end)
+        return timestamp_start
+    return timestamp_end
+
+
 def summarize_alarms():
-    log("[sy_summarize] start summarize_alarms loop.")
+    device_ids_cache = []
+    next_device_cache_refresh = 0.0
 
     while True:
         current_time = timezone.now()
-        log(f"[sy_summarize] tick at {current_time.isoformat()}")
+        current_monotonic = time.monotonic()
 
-        # ------- 每台设备：生成 0 号/非 0 号告警 -------
-        for device in Device.objects.all():
-            device_id = device.device_id
+        if not device_ids_cache or current_monotonic >= next_device_cache_refresh:
+            device_ids_cache = list(Device.objects.values_list("device_id", flat=True))
+            next_device_cache_refresh = current_monotonic + SUMMARY_DEVICE_CACHE_REFRESH_SEC
 
-            comm_ok, last_comm_time = get_comm_status(device_id, current_time)
+        comm_status_map = build_comm_status_map(device_ids_cache, current_time, current_monotonic)
+        active_alarms = list(AlarmActive.objects.all())
+        active_alarm_by_key = {(alarm.device_id, alarm.alarm_code): alarm for alarm in active_alarms}
 
+        raised_alarms = 0
+        cleared_alarms = 0
+
+        for device_id in device_ids_cache:
+            comm_ok, last_comm_time = comm_status_map.get(device_id, (None, None))
             if comm_ok is None:
-                # 还没收到任何帧，跳过，但打一行日志方便你确认
-                log(f"[sy_summarize] device={device_id} comm_status=UNKNOWN (no last_communication_time yet)")
                 continue
 
-            log(f"[sy_summarize] device={device_id} comm_ok={comm_ok}")
-
             if not comm_ok:
-                # 通信超时：拉起 0 号（若未存在）
-                if not AlarmActive.objects.filter(device_id=device_id, alarm_code=0).exists():
-                    AlarmActive.objects.create(
+                if (device_id, 0) not in active_alarm_by_key:
+                    active_alarm = AlarmActive.objects.create(
                         device_id=device_id,
                         alarm_code=0,
                         timestamp_start=last_comm_time,
                     )
-                    # 通信中断时可选：清掉 switch_status/last_comm_time
-                    cache.delete(f'device_{device_id}_switch_status')
-                    redis_client.delete(f'device_{device_id}_last_communication_time')
-
-                    log(f"[sy_summarize] device={device_id} raise alarm 0 (comm timeout)")
-                # 不删除 device_{id}_alarms，保持通信中断前的当前告警状态
-            else:
-                # 通信恢复：若存在 0 号则结束
-                active0 = AlarmActive.objects.filter(device_id=device_id, alarm_code=0).first()
-                if active0:
-                    AlarmData.objects.create(
-                        device_id=device_id,
-                        alarm_code=0,
-                        timestamp_start=active0.timestamp_start,
-                        timestamp_end=current_time,
-                        is_confirmed=active0.is_confirmed,
-                    )
-                    active0.delete()
-                    log(f"[sy_summarize] device={device_id} clear alarm 0 (comm restored)")
-
-                # 生成非 0 号告警（读取完整位图；缺失则回灌）
-                alarm_key = f'device_{device_id}_alarms'
-                current_alarms = cache.get(alarm_key, None)
-                if current_alarms is None:
-                    current_alarms = hydrate_cache_from_db(device_id)
-                    log(f"[sy_summarize] device={device_id} cache hydrated from DB")
-
-                alarms_of_this_device = {}
-
-                for alarm_code in SY_ALARM_CODES:
-                    if alarm_code == 0:
-                        continue
-                    alarm_status = current_alarms.get(alarm_code)
-                    if not alarm_status:
-                        continue
-
-                    if alarm_status.get('bit_value') == 1:
-                        alarm_start_time = alarm_status.get('starttime')
-                        if isinstance(alarm_start_time, str):
-                            alarm_start_time = parse_iso_aware(alarm_start_time)
-                        if timezone.is_naive(alarm_start_time):
-                            alarm_start_time = timezone.make_aware(alarm_start_time, timezone=timezone.utc)
-
-                        # 延时判定
-                        delay = SY_ALARM_DELAY.get(alarm_code, 5)
-                        if (current_time - alarm_start_time).total_seconds() > delay:
-                            alarms_of_this_device[alarm_code] = {'bit_value': 1}
-                            if not AlarmActive.objects.filter(device_id=device_id, alarm_code=alarm_code).exists():
-                                AlarmActive.objects.create(
-                                    device_id=device_id,
-                                    alarm_code=alarm_code,
-                                    timestamp_start=alarm_start_time,
-                                )
-                                log(f"[sy_summarize] device={device_id} raise alarm {alarm_code}")
-
-                # 更新拓扑（可用 alarms_of_this_device）
-                if alarms_of_this_device:
-                    log(f"[sy_summarize] device={device_id} active alarms in this loop: {sorted(alarms_of_this_device.keys())}")
-                process_topology_status(device_id, alarms_of_this_device)
-
-        # ------- 结束告警：仅在通信恢复且明确 bit=0 才结束 -------
-        for active_alarm in AlarmActive.objects.select_related('device').all():
-            device_id = active_alarm.device.device_id
-            alarm_code = active_alarm.alarm_code
-
-            comm_ok, _last_comm_time = get_comm_status(device_id, current_time)
-            if comm_ok is None:
+                    active_alarm_by_key[(device_id, 0)] = active_alarm
+                    cache.delete(f"device_{device_id}_switch_status")
+                    cache.delete(f"device_{device_id}_switch_status_updated_at")
+                    cache.delete(f"device_{device_id}_switch_status_version")
+                    redis_client.delete(f"device_{device_id}_last_communication_time")
+                    redis_client.delete(f"device_{device_id}_last_communication_monotonic")
+                    raised_alarms += 1
+                process_topology_status(device_id, {0: {"bit_value": 1}})
                 continue
 
-            # 0 号：通信恢复即可结束（上面已经处理，这里再兜一层）
+            active0 = active_alarm_by_key.get((device_id, 0))
+            if active0:
+                AlarmData.objects.create(
+                    device_id=device_id,
+                    alarm_code=0,
+                    timestamp_start=active0.timestamp_start,
+                    timestamp_end=safe_alarm_end_time(active0.timestamp_start),
+                    is_confirmed=active0.is_confirmed,
+                )
+                active0.delete()
+                active_alarm_by_key.pop((device_id, 0), None)
+                cleared_alarms += 1
+
+            current_alarms = cache.get(f"device_{device_id}_alarms", None)
+            if current_alarms is None:
+                current_alarms = hydrate_cache_from_db(device_id)
+
+            alarms_of_this_device = {}
+            for alarm_code in SY_ALARM_CODES:
+                alarm_status = current_alarms.get(alarm_code)
+                if not alarm_status or alarm_status.get("bit_value") != 1:
+                    continue
+
+                alarm_start_time = alarm_status.get("starttime")
+                if alarm_start_time is None:
+                    continue
+                if isinstance(alarm_start_time, str):
+                    alarm_start_time = parse_iso_aware(alarm_start_time)
+                if timezone.is_naive(alarm_start_time):
+                    alarm_start_time = timezone.make_aware(alarm_start_time, timezone=timezone.utc)
+
+                delay_seconds = SY_ALARM_DELAY.get(alarm_code, 5)
+                if (current_time - alarm_start_time).total_seconds() <= delay_seconds:
+                    continue
+
+                alarms_of_this_device[alarm_code] = {"bit_value": 1}
+                if (device_id, alarm_code) not in active_alarm_by_key:
+                    active_alarm = AlarmActive.objects.create(
+                        device_id=device_id,
+                        alarm_code=alarm_code,
+                        timestamp_start=alarm_start_time,
+                    )
+                    active_alarm_by_key[(device_id, alarm_code)] = active_alarm
+                    raised_alarms += 1
+
+            process_topology_status(device_id, alarms_of_this_device)
+
+        for (device_id, alarm_code), active_alarm in list(active_alarm_by_key.items()):
+            comm_ok, _last_comm_time = comm_status_map.get(device_id, (None, None))
+            if comm_ok is None:
+                comm_ok, _last_comm_time = get_comm_status_from_raw(
+                    device_id=device_id,
+                    raw_time=redis_client.get(f"device_{device_id}_last_communication_time"),
+                    raw_monotonic=redis_client.get(f"device_{device_id}_last_communication_monotonic"),
+                    now=current_time,
+                    now_monotonic=current_monotonic,
+                )
+                comm_status_map[device_id] = (comm_ok, _last_comm_time)
+
+            if comm_ok is None:
+                continue
             if alarm_code == 0:
                 if comm_ok:
                     AlarmData.objects.create(
                         device_id=device_id,
                         alarm_code=0,
                         timestamp_start=active_alarm.timestamp_start,
-                        timestamp_end=current_time,
+                        timestamp_end=safe_alarm_end_time(active_alarm.timestamp_start),
                         is_confirmed=active_alarm.is_confirmed,
                     )
                     active_alarm.delete()
-                    log(f"[sy_summarize] device={device_id} clear alarm 0 in cleanup loop")
+                    active_alarm_by_key.pop((device_id, alarm_code), None)
+                    cleared_alarms += 1
                 continue
 
-            # 非 0 号：通信未恢复时不结束
             if not comm_ok:
                 continue
 
-            alarm_key = f'device_{device_id}_alarms'
-            current_alarms = cache.get(alarm_key, None)
+            current_alarms = cache.get(f"device_{device_id}_alarms", None)
             if current_alarms is None:
                 current_alarms = hydrate_cache_from_db(device_id)
 
@@ -221,22 +233,28 @@ def summarize_alarms():
             if not bit_info:
                 continue
 
-            if bit_info.get('bit_value') == 0:
+            if bit_info.get("bit_value") == 0:
                 AlarmData.objects.create(
                     device_id=device_id,
                     alarm_code=alarm_code,
                     timestamp_start=active_alarm.timestamp_start,
-                    timestamp_end=current_time,
+                    timestamp_end=safe_alarm_end_time(active_alarm.timestamp_start),
                     is_confirmed=active_alarm.is_confirmed,
                 )
                 active_alarm.delete()
-                log(f"[sy_summarize] device={device_id} clear alarm {alarm_code} (bit=0)")
+                active_alarm_by_key.pop((device_id, alarm_code), None)
+                cleared_alarms += 1
 
-        # 结束一轮
-        log("[sy_summarize] one loop done.")
-        time.sleep(1)
+        logger.info(
+            "[sy_summarize] devices=%s active=%s raised=%s cleared=%s",
+            len(device_ids_cache),
+            len(active_alarm_by_key),
+            raised_alarms,
+            cleared_alarms,
+        )
+        time.sleep(SUMMARY_INTERVAL_SEC)
 
 
 if __name__ == "__main__":
-    log("[sy_summarize] Ready to summarize alarms.")
+    logger.info("[sy_summarize] ready")
     summarize_alarms()

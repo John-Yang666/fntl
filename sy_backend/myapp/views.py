@@ -23,6 +23,7 @@ from myapp.serializers import (
     AnalogDataSerializer,
     AlarmDataSerializer,
     RelayActionSerializer,
+    UserOperationSerializer,
     UploadedFileSerializer,
     DeviceDetailSerializer,
 )
@@ -272,6 +273,7 @@ class RelayActionViewSet(viewsets.ModelViewSet):
     filterset_fields = {
         "timestamp": ["gte", "lte"],
         "device": ["exact"],
+        "device__line": ["exact"],
     }
 
     def get_queryset(self):
@@ -281,6 +283,25 @@ class RelayActionViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(device_id=device_id)
         queryset = queryset.order_by("-timestamp")
         return queryset
+
+
+class UserOperationViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = UserOperation.objects.all()
+    serializer_class = UserOperationSerializer
+    pagination_class = CustomPageNumberPagination
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = {
+        "timestamp": ["gte", "lte"],
+        "device": ["exact"],
+        "device__line": ["exact"],
+    }
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        device_id = self.request.query_params.get("device")
+        if device_id is not None:
+            queryset = queryset.filter(device_id=device_id)
+        return queryset.order_by("-timestamp")
 
 
 class ActiveAlarmListView(APIView):
@@ -308,6 +329,26 @@ class ConfirmAlarmView(APIView):
 class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AlarmData.objects.all()
     serializer_class = AlarmDataSerializer
+    pagination_class = CustomPageNumberPagination
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = {
+        "timestamp_start": ["gte", "lte"],
+        "device": ["exact"],
+        "device__line": ["exact"],
+        "alarm_code": ["exact"],
+        "is_confirmed": ["exact"],
+    }
+
+    def get_queryset(self):
+        return super().get_queryset().order_by("-timestamp_start")
+
+    @action(detail=True, methods=["post"], url_path="confirm")
+    def confirm(self, request, pk=None):
+        alarm = self.get_object()
+        if not alarm.is_confirmed:
+            alarm.is_confirmed = True
+            alarm.save(update_fields=["is_confirmed"])
+        return Response({"message": "历史告警已确认"}, status=status.HTTP_200_OK)
 
 
 class DeviceListView(View):  # 返回按线路分组的设备列表
@@ -552,11 +593,25 @@ class DeviceSwitchDataView(APIView):
     """
     
     def get(self, request, device_id):
-        # 从缓存中获取数据
-        switch_status = cache.get(f'device_{device_id}_switch_status')
-        
+        switch_status = cache.get(f"device_{device_id}_switch_status")
         if not switch_status:
-            return Response({'detail': '数据未找到或已过期'}, status=status.HTTP_404_NOT_FOUND)
-        
-        # 返回缓存中的数据
+            return Response({"detail": "数据未找到或已过期"}, status=status.HTTP_404_NOT_FOUND)
+
+        if isinstance(switch_status, memoryview):
+            switch_status = switch_status.tobytes()
+        elif isinstance(switch_status, bytearray):
+            switch_status = bytes(switch_status)
+
+        if isinstance(switch_status, (bytes, bytearray)):
+            updated_at = cache.get(f"device_{device_id}_switch_status_updated_at")
+            version = cache.get(f"device_{device_id}_switch_status_version") or "v4"
+            return Response(
+                {
+                    "timestamp": updated_at,
+                    "version": version,
+                    "hex": bytes(switch_status).hex().upper(),
+                },
+                status=status.HTTP_200_OK,
+            )
+
         return Response(switch_status, status=status.HTTP_200_OK)

@@ -22,6 +22,8 @@ services:
       - "256"
     networks:
       - sy_nms_network
+    tmpfs:
+      - /data:rw,mode=1777,size=268435456
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -50,6 +52,8 @@ services:
       - "256"
     ports:
       - "36380:6379"
+    tmpfs:
+      - /data:rw,mode=1777,size=268435456
     networks:
       - sy_nms_network
       - sy_kafka_network
@@ -71,6 +75,11 @@ services:
       - sy_nms_postgres_data0:/var/lib/postgresql/data
     networks:
       - sy_nms_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser -d mydatabase"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   web:
@@ -81,6 +90,8 @@ services:
       - ./sy_backend:/app
     ports:
       - "8001:8000"
+    tmpfs:
+      - /tmp:rw,mode=1777,size=268435456
     environment:
       - DEBUG=True
       - DJANGO_SETTINGS_MODULE=myproject.settings
@@ -104,9 +115,22 @@ services:
       - UDP_COMMAND_STREAM=udp-commands
       - UDP_COMMAND_STREAM_MAXLEN=200000
     depends_on:
-      - redis
-      - redis_stream
-      - db
+      redis:
+        condition: service_healthy
+      redis_stream:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/admin/', timeout=2); print('ok')\" || exit 1"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     networks:
       - sy_nms_network
       - sy_kafka_network
@@ -118,23 +142,33 @@ services:
     command: python sy_receiver.py
     volumes:
       - ./sy_backend:/app
+    tmpfs:
+      - /tmp:rw,mode=1777,size=268435456
     environment:
       - DEBUG=True
       - DJANGO_SETTINGS_MODULE=myproject.settings
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - CELERY_BROKER_URL=redis://redis:6379/0
       - STREAM_REDIS_HOST=redis_stream
       - STREAM_REDIS_PORT=6379
       - SY_STREAM_DB=0
       - SY_RAW_STREAM=sy.raw
       - SY_RAW_GROUP=sy-receiver-0
       - SY_RAW_CONSUMER=sy-receiver-0
-      - SY_RAW_STREAM_MAXLEN=200000
+      - SY_RAW_READ_COUNT=200
+      - SY_RAW_BLOCK_MS=1000
+      - INGEST_BATCH_MS=200
+      - INGEST_MAX_BATCH=500
+      - INGEST_LOG_INTERVAL_SEC=1
+      - A1_HEARTBEAT_SECONDS=60
+      - PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL=60
     depends_on:
-      - redis
-      - redis_stream
-      - web
+      redis:
+        condition: service_healthy
+      redis_stream:
+        condition: service_healthy
+      web:
+        condition: service_healthy
     networks:
       - sy_nms_network
       - sy_kafka_network
@@ -147,13 +181,18 @@ services:
     volumes:
       - ./sy_backend:/app
     working_dir: /app
+    tmpfs:
+      - /tmp:rw,mode=1777,size=268435456
     environment:
       - DEBUG=True
       - DJANGO_SETTINGS_MODULE=myproject.settings
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - SUMMARY_INTERVAL_SEC=1
+      - SUMMARY_DEVICE_CACHE_REFRESH_SEC=30
     depends_on:
-      - web
+      web:
+        condition: service_healthy
     networks:
       - sy_nms_network
     restart: unless-stopped

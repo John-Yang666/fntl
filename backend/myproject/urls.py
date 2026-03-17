@@ -14,6 +14,7 @@ router.register(r'devices', views.DeviceViewSet)
 router.register(r'switch-data', views.SwitchDataViewSet)
 router.register(r'analog-data', views.AnalogDataViewSet)
 router.register(r'relay-actions', views.RelayActionViewSet)
+router.register(r'user-operations', views.UserOperationViewSet)
 router.register(r'alerts', views.AlarmDataViewSet)
 router.register(r'uploaded-files', views.UploadedFileViewSet, basename='uploadedfile')
 

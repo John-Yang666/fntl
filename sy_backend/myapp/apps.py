@@ -32,7 +32,10 @@ class MyappConfig(AppConfig):
         post_migrate.connect(self.setup_periodic_tasks, sender=self)
 
     def setup_periodic_tasks(self, **kwargs):
-        from django_celery_beat.models import PeriodicTask, CrontabSchedule
+        try:
+            from django_celery_beat.models import PeriodicTask, CrontabSchedule
+        except ModuleNotFoundError:
+            return
         import json
 
         # 创建或获取调度时间表，每天凌晨3点运行

@@ -1,6 +1,6 @@
 <template>
   <div class="tabs-container" :class="{ 'has-alerts': hasAlerts }">
-    <div class="tabs-text">FNTL-MS100 BT / SY 统一云网管系统</div>
+    <div class="tabs-text">FNTL-MS100 贝通云网管系统</div>
 
     <el-tabs type="card" @tab-click="handleClick" v-model="activeName">
       <el-tab-pane label="设备监控" name="main"></el-tab-pane>

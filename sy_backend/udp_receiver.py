@@ -1,3 +1,10 @@
+"""
+历史兼容入口。
+
+生产 SY ingestion 已统一切换到 sy_receiver.py + Redis Streams 批处理架构，
+本文件仅保留作回溯参考，不再纳入 docker-compose-sy-prod.yml 的生产编排。
+"""
+
 import os
 import sys
 import json

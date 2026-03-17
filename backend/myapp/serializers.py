@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from myapp.models import Device, SwitchData, AlarmActive, AnalogData, RelayAction, AlarmData, UploadedFile
+from django.utils import timezone
+from myapp.models import Device, SwitchData, AlarmActive, AnalogData, RelayAction, AlarmData, UserOperation, UploadedFile
 
 class DeviceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -35,10 +36,48 @@ class RelayActionSerializer(serializers.ModelSerializer):
         model = RelayAction
         fields = '__all__'
 
+class UserOperationSerializer(serializers.ModelSerializer):
+    device_id = serializers.IntegerField(source='device.device_id', read_only=True)
+    device_name = serializers.CharField(source='device.name', read_only=True)
+
+    class Meta:
+        model = UserOperation
+        fields = [
+            'id',
+            'device_id',
+            'device_name',
+            'function_code',
+            'operation',
+            'username',
+            'timestamp',
+        ]
+
 class AlarmDataSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True)
+    device_id = serializers.IntegerField(source='device.device_id', read_only=True)
+    device_name = serializers.CharField(source='device.name', read_only=True)
+    alarm_meaning = serializers.CharField(read_only=True)
+    timestamp = serializers.DateTimeField(source='timestamp_start')
+    duration_seconds = serializers.SerializerMethodField()
+
     class Meta:
         model = AlarmData
-        fields = ['device_id', 'alarm_code', 'timestamp']
+        fields = [
+            'id',
+            'device_id',
+            'device_name',
+            'alarm_code',
+            'alarm_meaning',
+            'timestamp',
+            'timestamp_end',
+            'is_confirmed',
+            'duration_seconds',
+        ]
+
+    def get_duration_seconds(self, obj):
+        end_time = obj.timestamp_end or timezone.now()
+        duration = (end_time - obj.timestamp_start).total_seconds()
+        return max(int(duration), 0)
 
 class UploadedFileSerializer(serializers.ModelSerializer):
     class Meta:

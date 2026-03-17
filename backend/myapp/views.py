@@ -6,7 +6,7 @@ from rest_framework.views import APIView # type: ignore
 from rest_framework.pagination import PageNumberPagination # type: ignore
 from rest_framework import viewsets # type: ignore
 from myapp.models import Device, SwitchData, AnalogData, AlarmActive, AlarmData, UserOperation, RelayAction, UploadedFile
-from myapp.serializers import DeviceSerializer, SwitchDataSerializer, AlarmActiveSerializer, AnalogDataSerializer, AlarmDataSerializer, RelayActionSerializer, UploadedFileSerializer
+from myapp.serializers import DeviceSerializer, SwitchDataSerializer, AlarmActiveSerializer, AnalogDataSerializer, AlarmDataSerializer, RelayActionSerializer, UserOperationSerializer, UploadedFileSerializer
 from django.http import JsonResponse, FileResponse, Http404 # type: ignore
 from django.views import View # type: ignore
 from django.views.decorators.csrf import csrf_exempt # type: ignore
@@ -224,7 +224,8 @@ class RelayActionViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = {
         'timestamp': ['gte', 'lte'],
-        'device': ['exact']
+        'device': ['exact'],
+        'device__line': ['exact'],
     }
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -233,6 +234,24 @@ class RelayActionViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(device_id=device_id)
         queryset = queryset.order_by('-timestamp')
         return queryset
+
+class UserOperationViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = UserOperation.objects.all()
+    serializer_class = UserOperationSerializer
+    pagination_class = CustomPageNumberPagination
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = {
+        'timestamp': ['gte', 'lte'],
+        'device': ['exact'],
+        'device__line': ['exact'],
+    }
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        device_id = self.request.query_params.get('device')
+        if device_id is not None:
+            queryset = queryset.filter(device_id=device_id)
+        return queryset.order_by('-timestamp')
 
 class ActiveAlarmListView(APIView):
     def get(self, request):
@@ -253,6 +272,26 @@ class ConfirmAlarmView(APIView):
 class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AlarmData.objects.all()
     serializer_class = AlarmDataSerializer
+    pagination_class = CustomPageNumberPagination
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = {
+        'timestamp_start': ['gte', 'lte'],
+        'device': ['exact'],
+        'device__line': ['exact'],
+        'alarm_code': ['exact'],
+        'is_confirmed': ['exact'],
+    }
+
+    def get_queryset(self):
+        return super().get_queryset().order_by('-timestamp_start')
+
+    @action(detail=True, methods=['post'], url_path='confirm')
+    def confirm(self, request, pk=None):
+        alarm = self.get_object()
+        if not alarm.is_confirmed:
+            alarm.is_confirmed = True
+            alarm.save(update_fields=['is_confirmed'])
+        return Response({'message': '历史告警已确认'}, status=status.HTTP_200_OK)
 
 '''class AlertsAmountView(APIView):
     def get(self, request):

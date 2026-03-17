@@ -44,14 +44,11 @@ def sy_postprocess_status_task(self, device_id: int, status_hex: str, ver: str, 
 
     # 2) latest_switch cache（异步）
     if not now_str:
-        now_str = timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S")
+        now_str = timezone.now().isoformat()
 
-    latest_switch = {
-        "timestamp": now_str,
-        "version": ver,
-        "hex": status_hex,
-    }
-    cache.set(f"device_{device_id}_switch_status", latest_switch, timeout=None)
+    cache.set(f"device_{device_id}_switch_status", status_bytes, timeout=None)
+    cache.set(f"device_{device_id}_switch_status_updated_at", now_str, timeout=None)
+    cache.set(f"device_{device_id}_switch_status_version", ver, timeout=None)
 
 
 def _save_a1_frame_sync(*, device_id: int, frame_bytes: bytes) -> None:
