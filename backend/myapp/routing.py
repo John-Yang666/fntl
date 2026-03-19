@@ -3,4 +3,5 @@ from . import consumers
 
 websocket_urlpatterns = [
     re_path(r'ws/topology/$', consumers.TopologyConsumer.as_asgi()),
+    re_path(r'ws/device-monitor/(?P<device_id>\d+)/$', consumers.DeviceMonitorConsumer.as_asgi()),
 ]

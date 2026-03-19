@@ -389,4 +389,4 @@ networks:
     driver: bridge
 
 volumes:
-  static_data:
+  static_data: #不存数据库内容，也不存 Redis 数据，只存静态资源

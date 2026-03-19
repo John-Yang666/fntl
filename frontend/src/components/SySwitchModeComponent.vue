@@ -25,6 +25,8 @@
         <!-- ✅ 监听 DeviceNameComponent 的 loaded 事件，避免重复请求 -->
         <device-name-component @loaded="onDeviceLoaded" />
 
+        <h3>发送切换模式命令</h3>
+
         <!-- 本站方向选择 -->
         <div class="direction-buttons">
           本站方向选择：
@@ -58,8 +60,6 @@
             自动
           </el-button>
         </div>
-
-        <h3>发送切换模式命令</h3>
         <div class="send-buttons">
           <el-button type="success" @click="sendModeToLocal">
             向本站发送
@@ -112,7 +112,7 @@
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useRoute } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import DeviceNameComponent from '@/components/DeviceNameComponent.vue';
 import { useUserStore } from '@/stores/userStore';
 import { getApiBase, getSystemFromRoute } from '@/utils/systems';
@@ -311,6 +311,23 @@ const sendRemoteStart = async () => {
  */
 const sendDisableCurrent = async () => {
   const bbName = isBackupDevice.value ? 'FORCE_B_DROP' : 'FORCE_A_DROP';
+  const deviceLabel = currentDeviceName.value || `设备 ${device_id}`;
+  const actionLabel = isBackupDevice.value ? '停用备机（B落下）' : '停用主机（A落下）';
+
+  try {
+    await ElMessageBox.confirm(
+      `确认对 ${deviceLabel} 执行“${actionLabel}”吗？`,
+      '确认停用当前设备',
+      {
+        confirmButtonText: '确认发送',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    );
+  } catch {
+    ElMessage.info('已取消发送');
+    return;
+  }
 
   await sendBbByName(device_id, bbName, {
     device_name: currentDeviceName.value,

@@ -46,19 +46,28 @@ const emit = defineEmits(['device-selected']);
 
 const fetchDevices = async () => {
   try {
-    const responses = await Promise.all(
-      SYSTEMS.map(async (system) => ({
-        system,
-        data: (await axios.get(`${getApiBase(system)}/devices-list/`)).data as Record<string, Array<{
-          device_id: number;
-          name: string;
-          ip_address: string;
-        }>>,
-      })),
+    const responses = await Promise.allSettled(
+      SYSTEMS.map(async (system) => {
+        const response = await axios.get(`${getApiBase(system)}/devices-list/`);
+        return {
+          system,
+          data: response.data as Record<string, Array<{
+            device_id: number;
+            name: string;
+            ip_address: string;
+          }>>,
+        };
+      }),
     );
 
     const mergedDevices: GroupedDevices = {};
-    responses.forEach(({ system, data }) => {
+    responses.forEach((result, index) => {
+      if (result.status !== 'fulfilled') {
+        console.error(`获取 ${SYSTEMS[index].toUpperCase()} 侧边栏设备列表失败`, result.reason);
+        return;
+      }
+
+      const { system, data } = result.value;
       Object.entries(data).forEach(([line, stations]) => {
         if (!mergedDevices[line]) {
           mergedDevices[line] = [];

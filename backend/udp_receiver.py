@@ -545,6 +545,8 @@ def process_packet_batch(messages: list[PacketMessage]):
             )
             cache_updates_analog[f"device_{msg.device_id}_analog_status"] = analog_json
 
+    monitor_updates_by_device: dict[int, dict[str, list[dict]]] = {}
+
     db_begin = time.monotonic()
     with transaction.atomic():
         if switch_rows:
@@ -555,15 +557,51 @@ def process_packet_batch(messages: list[PacketMessage]):
             RelayAction.objects.bulk_create(relay_rows, batch_size=1000)
     metrics["db_ms"] = (time.monotonic() - db_begin) * 1000
 
+    for row in analog_rows:
+        payload = monitor_updates_by_device.setdefault(row.device_id, {"device_id": row.device_id, "analog": [], "relay": []})
+        payload["analog"].append(
+            {
+                "id": str(row.pk) if row.pk else "",
+                "device": row.device_id,
+                "timestamp": row.timestamp.isoformat(),
+                "voltage_1": row.voltage_1,
+                "current_1": row.current_1,
+                "voltage_2": row.voltage_2,
+                "current_2": row.current_2,
+            }
+        )
+
+    for row in relay_rows:
+        payload = monitor_updates_by_device.setdefault(row.device_id, {"device_id": row.device_id, "analog": [], "relay": []})
+        payload["relay"].append(
+            {
+                "id": str(row.pk) if row.pk else "",
+                "device": row.device_id,
+                "timestamp": row.timestamp.isoformat(),
+                "relay": row.relay,
+                "action": row.action,
+            }
+        )
+
     if cache_updates_no_ttl:
         cache.set_many(cache_updates_no_ttl, timeout=None)
     if cache_updates_analog:
         cache.set_many(cache_updates_analog, timeout=5)
+    if monitor_updates_by_device:
+        _push_device_monitor_updates(monitor_updates_by_device)
 
     metrics["switch_rows"] = len(switch_rows)
     metrics["analog_rows"] = len(analog_rows)
     metrics["relay_rows"] = len(relay_rows)
     return metrics
+
+
+def _push_device_monitor_updates(updates_by_device: dict[int, dict[str, list[dict]]]):
+    for device_id, payload in updates_by_device.items():
+        redis_client.publish(
+            f"device_monitor:{device_id}",
+            json.dumps(payload, ensure_ascii=False),
+        )
 
 
 def ensure_stream_group(r: redis.Redis, stream_key: str, group_name: str):

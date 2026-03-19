@@ -62,9 +62,9 @@ def build_analog_packet():
     frame_footer = b"\xf7\xf7"
     address = b"\x01"
     function_code = b"\x01"
-    voltage_1 = random.randint(22000, 24000)
+    voltage_1 = random.randint(-24000, 24000)
     current_1 = random.randint(-500, 500)
-    voltage_2 = random.randint(22000, 24000)
+    voltage_2 = random.randint(-24000, 24000)
     current_2 = random.randint(-500, 500)
     reserved = random.getrandbits(32).to_bytes(4, byteorder="big")
     analog_data = struct.pack(">hhhh", voltage_1, current_1, voltage_2, current_2) + reserved

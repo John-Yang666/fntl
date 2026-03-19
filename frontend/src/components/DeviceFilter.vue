@@ -12,36 +12,29 @@
           @change="handleDeviceChange"
         >
           <template #default="{ option }">
-            <span class="option-text">
-              <span class="line-group">{{ option.line }}</span>
-              <span class="device-name">{{ option.name }}</span>
+            <span class="transfer-option-row">
+              <span class="option-text">
+                <span class="line-group">{{ option.line }}</span>
+                <span class="device-name">{{ option.name }}</span>
+              </span>
+              <span
+                v-if="isSelected(option.key)"
+                class="pin-checkbox-inline"
+                @click.stop
+                @mousedown.stop
+              >
+                <el-checkbox
+                  :model-value="isPinned(option.key)"
+                  @change="(checked) => handlePinnedChange(option.key, checked)"
+                >
+                  置顶
+                </el-checkbox>
+              </span>
             </span>
           </template>
         </el-transfer>
         <div class="button-container">
           <el-button type="primary" @click="refreshPage">确认</el-button>
-        </div>
-        <div class="pinned-panel">
-          <div class="pinned-panel-title">已选设备置顶</div>
-          <div v-if="selectedDeviceList.length > 0" class="pinned-device-list">
-            <label
-              v-for="device in selectedDeviceList"
-              :key="device.key"
-              class="pinned-device-item"
-            >
-              <el-checkbox
-                :model-value="isPinned(device.key)"
-                @change="(checked) => handlePinnedChange(device.key, checked)"
-              />
-              <span class="selected-device-name">
-                {{ device.name }}
-                <span class="device-system-tag" :class="`system-${device.system}`">
-                  {{ device.system.toUpperCase() }}
-                </span>
-              </span>
-            </label>
-          </div>
-          <div v-else class="empty-selected-devices">请先在右侧选择设备。</div>
         </div>
         <div class="pin-tip">勾选“置顶”后，该设备会在拓扑图中显示在更上层。</div>
       </el-collapse-item>
@@ -89,25 +82,32 @@ const deviceOptions = computed(() => {
     }));
 });
 
-const selectedDeviceList = computed(() => {
-  const selectedSet = new Set(selectedDevices.value);
-  return allDevices.value.filter((device) => selectedSet.has(device.key));
-});
-
 const fetchDevices = async () => {
   try {
-    const responses = await Promise.all(
-      SYSTEMS.map(async (system) => ({
-        system,
-        data: (await axios.get(`${getApiBase(system)}/devices-list/`)).data as Record<string, Array<{
-          device_id: number;
-          name: string;
-        }>>,
-      })),
+    const responses = await Promise.allSettled(
+      SYSTEMS.map(async (system) => {
+        const response = await axios.get(`${getApiBase(system)}/devices-list/`);
+        return {
+          system,
+          data: response.data as Record<string, Array<{
+            device_id: number;
+            name: string;
+          }>>,
+        };
+      }),
     );
 
+    const successfulResponses = responses.flatMap((result, index) => {
+      if (result.status === 'fulfilled') {
+        return [result.value];
+      }
+
+      console.error(`获取 ${SYSTEMS[index].toUpperCase()} 设备列表失败`, result.reason);
+      return [];
+    });
+
     const mergedDevices: Device[] = [];
-    responses.forEach(({ system, data }) => {
+    successfulResponses.forEach(({ system, data }) => {
       Object.entries(data).forEach(([line, devices]) => {
         devices.forEach((device) => {
           mergedDevices.push({
@@ -148,6 +148,7 @@ const handlePinnedChange = async (deviceKey: string, checked: string | number | 
 };
 
 const isPinned = (deviceKey: string) => pinnedDevices.value.includes(deviceKey);
+const isSelected = (deviceKey: string) => selectedDevices.value.includes(deviceKey);
 
 const refreshPage = () => {
   location.reload();
@@ -190,9 +191,17 @@ onMounted(() => {
   margin-right: 8px;
 }
 
+.transfer-option-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .option-text {
-  display: inline-block;
-  max-width: 100%;
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -202,83 +211,23 @@ onMounted(() => {
   color: #606266;
 }
 
+.pin-checkbox-inline {
+  flex: 0 0 auto;
+}
+
+.pin-checkbox-inline :deep(.el-checkbox__label) {
+  font-size: 13px;
+  color: #606266;
+}
+
 .button-container {
   margin-top: 20px;
   text-align: center;
 }
 
-.selected-device-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.selected-device-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .pin-tip {
   margin-top: 12px;
   color: #606266;
-  font-size: 13px;
-}
-
-.pinned-panel {
-  margin-top: 16px;
-  padding: 14px 16px;
-  border: 1px solid #dcdfe6;
-  border-radius: 8px;
-  background: #fafafa;
-}
-
-.pinned-panel-title {
-  margin-bottom: 12px;
-  font-weight: 600;
-  color: #303133;
-}
-
-.pinned-device-list {
-  display: grid;
-  gap: 10px;
-}
-
-.pinned-device-item {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: #fff;
-}
-
-.device-system-tag {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.system-bt {
-  color: #06b6d4;
-  background: rgba(6, 182, 212, 0.12);
-}
-
-.system-sy {
-  color: #2563eb;
-  background: rgba(37, 99, 235, 0.12);
-}
-
-.empty-selected-devices {
-  color: #909399;
   font-size: 13px;
 }
 </style>

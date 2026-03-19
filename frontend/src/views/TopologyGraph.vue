@@ -175,23 +175,35 @@ const restoreCanvasState = () => {
 
 const fetchDevices = async () => {
   try {
-    const responses = await Promise.all(
-      SYSTEMS.map(async (system) => ({
-        system,
-        data: (await axios.get(`${getApiBase(system)}/devices-list/`)).data as Record<string, Array<{
-          device_id: number;
-          name: string;
-          ip_address: string;
-          x_coordinate: number;
-          y_coordinate: number;
-          direction1_neighbor_id: number | null;
-          direction2_neighbor_id: number | null;
-          direction3_neighbor_id?: number | null;
-        }>>,
-      })),
+    const responses = await Promise.allSettled(
+      SYSTEMS.map(async (system) => {
+        const response = await axios.get(`${getApiBase(system)}/devices-list/`);
+        return {
+          system,
+          data: response.data as Record<string, Array<{
+            device_id: number;
+            name: string;
+            ip_address: string;
+            x_coordinate: number;
+            y_coordinate: number;
+            direction1_neighbor_id: number | null;
+            direction2_neighbor_id: number | null;
+            direction3_neighbor_id?: number | null;
+          }>>,
+        };
+      }),
     );
 
-    const allAvailableKeys = responses.flatMap(({ system, data }) =>
+    const successfulResponses = responses.flatMap((result, index) => {
+      if (result.status === 'fulfilled') {
+        return [result.value];
+      }
+
+      console.error(`获取 ${SYSTEMS[index].toUpperCase()} 设备列表失败`, result.reason);
+      return [];
+    });
+
+    const allAvailableKeys = successfulResponses.flatMap(({ system, data }) =>
       Object.values(data).flatMap((devices) =>
         devices.map((device) => makeDeviceKey(system, device.device_id)),
       ),
@@ -203,7 +215,7 @@ const fetchDevices = async () => {
 
     const mergedDevices: GroupedDevices = {};
     const occupiedCoordinates = new Map<string, number>();
-    responses.forEach(({ system, data }) => {
+    successfulResponses.forEach(({ system, data }) => {
       Object.entries(data).forEach(([line, devices]) => {
         if (!mergedDevices[line]) {
           mergedDevices[line] = [];

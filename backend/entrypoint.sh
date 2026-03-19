@@ -33,5 +33,5 @@ if not User.objects.filter(username=username).exists():
     User.objects.create_superuser(username, email, password)
 " | python manage.py shell
 
-echo "==== [ENTRYPOINT] 启动 Django 开发服务器 ===="
-exec python manage.py runserver 0.0.0.0:8000
+echo "==== [ENTRYPOINT] 启动 Uvicorn ASGI 开发服务器 ===="
+exec uvicorn myproject.asgi:application --host 0.0.0.0 --port 8000 --reload

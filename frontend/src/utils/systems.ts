@@ -51,7 +51,12 @@ export function getApiBase(system: SystemType): string {
 
 export function getWsBase(system: SystemType): string {
   const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${wsScheme}://${window.location.hostname}:${getWsPort(system)}`;
+  const configuredPort = getWsPort(system);
+  const currentPort = window.location.port;
+  if (!configuredPort || configuredPort === currentPort) {
+    return `${wsScheme}://${window.location.host}`;
+  }
+  return `${wsScheme}://${window.location.hostname}:${configuredPort}`;
 }
 
 export function makeDeviceKey(system: SystemType, deviceId: number | string): string {

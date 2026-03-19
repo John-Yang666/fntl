@@ -476,13 +476,24 @@ class AnalogDataResource(resources.ModelResource):
 class AnalogDataAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = AnalogDataResource
-    list_display = ('timestamp_with_seconds', 'device', 'voltage_1', 'current_1', 'voltage_2', 'current_2')
+    list_display = ('timestamp_with_seconds', 'device', 'voltage_1', 'current_1_display', 'voltage_2', 'current_2_display')
     list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id')
     search_fields = ('device__device_id', 'device__ip_address', 'device__name')
     actions = [batch_delete, truncate_table]
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
+
+    def current_1_display(self, obj):
+        return obj.current_1
+
+    def current_2_display(self, obj):
+        return obj.current_2
+
+    current_1_display.admin_order_field = 'current_1'
+    current_1_display.short_description = format_html('<span style="text-transform:none;">电流1(mA)</span>')
+    current_2_display.admin_order_field = 'current_2'
+    current_2_display.short_description = format_html('<span style="text-transform:none;">电流2(mA)</span>')
 
 
 # ========================

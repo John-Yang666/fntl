@@ -9,9 +9,8 @@
         <el-button v-if="isBt" @click="toggleAnalogDataChart">
           {{ showAnalogDataChart ? '关闭闭塞电压监测图' : '加载闭塞电压监测图' }}
         </el-button>
-        <el-button v-if="isBt" @click="openRestartCommandWindow">发送重启网管板命令</el-button>
         <el-button class="right-button2" @click="openSwitchModeWindow">
-          {{ isBt ? '发送变更切换模式命令' : '发送远程控制命令' }}
+          发送远程控制命令
         </el-button>
         <el-button class="right-button" @click="openInNewWindow">打开新窗口</el-button>
         <div v-if="isBt && showAnalogDataChart">
@@ -58,12 +57,6 @@ const openInNewWindow = () => {
 const openSwitchModeWindow = () => {
   const idStr = route.params.index as string;
   const url = `${window.location.origin}/${system.value}/switch-mode/${idStr}`;
-  window.open(url, '_blank', isBt.value ? 'width=500,height=400' : 'width=500,height=420');
-};
-
-const openRestartCommandWindow = () => {
-  const idStr = route.params.index as string;
-  const url = `${window.location.origin}/${system.value}/restart-command/${idStr}`;
   window.open(url, '_blank', 'width=500,height=400');
 };
 </script>
