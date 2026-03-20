@@ -33,7 +33,7 @@ class CustomUser(AbstractUser):
 
     class Meta:
         verbose_name = "用户"
-        verbose_name_plural = "4 用户"
+        verbose_name_plural = "用户"
 
 
 # -------------------------
@@ -88,7 +88,7 @@ class Device(models.Model):
 
     class Meta:
         verbose_name = "设备信息"
-        verbose_name_plural = "5 设备信息"
+        verbose_name_plural = "设备信息"
         ordering = ['device_id']
 
     def __str__(self):
@@ -111,7 +111,7 @@ class RawFrameLog(models.Model):
     class Meta:
         ordering = ["-timestamp"]
         verbose_name = "原始协议帧"
-        verbose_name_plural = "7 原始协议帧"
+        verbose_name_plural = "原始协议帧"
 
 
 # ---------------------------------------
@@ -139,7 +139,7 @@ class SwitchData(models.Model):
     class Meta:
         ordering = ['-timestamp']
         verbose_name = "状态字快照"
-        verbose_name_plural = "8 状态字快照"
+        verbose_name_plural = "状态字快照"
 
     # ====== 通用 bit 工具 ======
     def _byte_at(self, idx: int) -> int:
@@ -327,7 +327,7 @@ class ChangeBitEvent(models.Model):
         indexes = [models.Index(fields=["device", "timestamp"])]
         ordering = ["-timestamp"]
         verbose_name = "变化量事件"
-        verbose_name_plural = "9 变化量事件"
+        verbose_name_plural = "变化量事件"
 
 # -------------------------
 # 5) 模拟量（保留）
@@ -362,7 +362,7 @@ class AlarmActive(models.Model):
 
     class Meta:
         verbose_name = "当前告警信息"
-        verbose_name_plural = "0 当前告警"
+        verbose_name_plural = "当前告警"
         unique_together = ('device', 'alarm_code')
         ordering = ['-timestamp_start']
 
@@ -388,7 +388,7 @@ class AlarmData(models.Model):
     class Meta:
         ordering = ['-timestamp_start']
         verbose_name = '历史告警记录'
-        verbose_name_plural = '1 历史告警'
+        verbose_name_plural = '历史告警'
 
     @property
     def alarm_meaning(self):
@@ -413,7 +413,7 @@ class RelayAction(models.Model):
 
     class Meta:
         verbose_name = "继电器动作记录"
-        verbose_name_plural = "2 继电器动作"
+        verbose_name_plural = "继电器动作"
         ordering = ['-timestamp']
 
     def __str__(self):
@@ -430,7 +430,7 @@ class UserOperation(models.Model):
 
     class Meta:
         verbose_name = "用户操作记录"
-        verbose_name_plural = "3 用户操作"
+        verbose_name_plural = "用户操作"
         ordering = ['-timestamp']
 
     def __str__(self):
@@ -476,7 +476,7 @@ class UploadedFile(models.Model):
 
     class Meta:
         verbose_name = "文件"
-        verbose_name_plural = "6 文件管理"
+        verbose_name_plural = "文件管理"
         ordering = ['-upload_time']
 
     def __str__(self):
