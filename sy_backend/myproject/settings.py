@@ -273,12 +273,14 @@ CORS_ALLOWED_ORIGINS = [ # 确保只有授权的前端应用能够访问你的�
 ]'''
 CORS_ALLOW_ALL_ORIGINS = True
 
-'''
-#已在MIDDLEWARE配置中注释掉CSRF中间件，因为前端使用JWT认证，不需要CSRF
 CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8001",
+    "http://127.0.0.1:8001",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
     "http://localhost:38173",
     "http://127.0.0.1:38173",
+    "http://192.168.31.243:8001", #替换为你的局域网IP地址
     "http://192.168.31.243:38173", #替换为你的局域网IP地址
     "http://192.168.31.74:38173", #继续添加其它需要信任的域名
 ]
-'''

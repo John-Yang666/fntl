@@ -23,20 +23,28 @@
                 @click.stop
                 @mousedown.stop
               >
-                <el-checkbox
-                  :model-value="isPinned(option.key)"
-                  @change="(checked) => handlePinnedChange(option.key, checked)"
-                >
-                  置顶
-                </el-checkbox>
+                <label class="pin-toggle" @click.stop @mousedown.stop>
+                  <input
+                    class="pin-toggle-input"
+                    type="checkbox"
+                    :checked="isPinned(option.key)"
+                    @click.stop
+                    @mousedown.stop
+                    @change="(event) => handlePinnedChange(option.key, (event.target as HTMLInputElement).checked)"
+                  />
+                  <span class="pin-toggle-label">置顶</span>
+                </label>
               </span>
             </span>
           </template>
         </el-transfer>
+        <div class="transfer-tip-row">
+          <div class="transfer-tip-spacer"></div>
+          <div class="pin-tip">勾选“置顶”后，该设备会在拓扑图中显示在更上层。</div>
+        </div>
         <div class="button-container">
           <el-button type="primary" @click="refreshPage">确认</el-button>
         </div>
-        <div class="pin-tip">勾选“置顶”后，该设备会在拓扑图中显示在更上层。</div>
       </el-collapse-item>
     </el-collapse>
   </div>
@@ -215,7 +223,20 @@ onMounted(() => {
   flex: 0 0 auto;
 }
 
-.pin-checkbox-inline :deep(.el-checkbox__label) {
+.pin-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pin-toggle-input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.pin-toggle-label {
   font-size: 13px;
   color: #606266;
 }
@@ -225,9 +246,22 @@ onMounted(() => {
   text-align: center;
 }
 
-.pin-tip {
+.transfer-tip-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   margin-top: 12px;
+}
+
+.transfer-tip-spacer,
+.pin-tip {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.pin-tip {
   color: #606266;
   font-size: 13px;
+  text-align: right;
 }
 </style>

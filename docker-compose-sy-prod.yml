@@ -1,5 +1,11 @@
 name: bt_nms_sy_prod
 
+x-sy-django-image: &sy_django_image
+  image: my_django:v5.0.6-sy-prod
+  build:
+    context: ./sy_backend
+    dockerfile: Dockerfile.prod
+
 services:
   redis:
     image: redis:7.4.1
@@ -83,7 +89,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: my_django:v5.0.6-sy-prod # 镜像构建指令：docker build -t my_django:v5.0.6-sy-prod -f sy_backend/Dockerfile.prod sy_backend
+    <<: *sy_django_image
     container_name: bt_nms_sy_django_app0
     command: ["bash", "/app/entrypoint-prod.sh"]
     expose:
@@ -165,7 +171,7 @@ services:
     restart: unless-stopped
 
   sy_receiver:
-    image: my_django:v5.0.6-sy-prod
+    <<: *sy_django_image
     container_name: bt_nms_sy_receiver0
     command: python sy_receiver.py
     volumes:
@@ -203,7 +209,7 @@ services:
     restart: unless-stopped
 
   summarize_alarms_container:
-    image: my_django:v5.0.6-sy-prod
+    <<: *sy_django_image
     container_name: bt_nms_sy_summarize_alarms_container0
     command: python sy_summarize_alarms_container.py
     volumes:
@@ -226,7 +232,7 @@ services:
     restart: unless-stopped
 
   celery:
-    image: my_django:v5.0.6-sy-prod
+    <<: *sy_django_image
     container_name: bt_nms_sy_celery_worker0
     command: celery -A myproject worker --loglevel=info --pool=threads --concurrency=2 --without-gossip --without-mingle --without-heartbeat
     volumes:
@@ -245,7 +251,7 @@ services:
     restart: unless-stopped
 
   celery-beat:
-    image: my_django:v5.0.6-sy-prod
+    <<: *sy_django_image
     container_name: bt_nms_sy_celery_beat0
     command: celery -A myproject beat --loglevel=info
     volumes:

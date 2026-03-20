@@ -49,6 +49,9 @@ REDIS_STREAM_COUNT = 100
 REDIS_PACKET_MAXLEN = 200000   # packet stream 近似裁剪
 REDIS_CMD_MAXLEN = 50000       # cmd stream 近似裁剪（够用了）
 
+# 启动阶段：Redis 未就绪时的等待重试
+REDIS_STARTUP_RETRY_SEC = 2.0
+
 
 # =======================
 # 日志配置
@@ -459,7 +462,22 @@ class RedisCmdSubscriber(threading.Thread):
 async def main():
     logger.info("启动主程序...")
 
-    bus = MessageBus()
+    while True:
+        try:
+            bus = MessageBus()
+            break
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.warning(
+                "Redis Streams 未就绪，%ss 后重试: host=%s port=%s err=%s",
+                REDIS_STARTUP_RETRY_SEC,
+                REDIS_STREAM_HOST,
+                REDIS_STREAM_PORT,
+                e,
+            )
+            await asyncio.sleep(REDIS_STARTUP_RETRY_SEC)
+
     logger.info("MessageBus backend = redis")
 
     send_queue: queue.Queue = queue.Queue()

@@ -1,4 +1,11 @@
+x-bt-django-image: &bt_django_image
+  image: my_django:v5.0.6-prod
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.prod
+
 services:
+
   vue:
     #build:
     #  context: ./frontend
@@ -100,7 +107,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: my_django:v5.0.6-prod #镜像构建指令：docker build -t my_django:v5.0.6-prod -f backend/Dockerfile.prod backend
+    <<: *bt_django_image
     container_name: bt_nms_django_app0
     command: ["bash", "/app/entrypoint-prod.sh"]
     expose:
@@ -186,7 +193,7 @@ services:
     restart: unless-stopped
 
   udp_receiver:
-    image: my_django:v5.0.6-prod
+    <<: *bt_django_image
     container_name: bt_nms_udp_receiver0
     command: python udp_receiver.py
     working_dir: /app
@@ -235,7 +242,7 @@ services:
     restart: unless-stopped
 
   summarize_alarms_container:
-    image: my_django:v5.0.6-prod
+    <<: *bt_django_image
     container_name: bt_nms_summarize_alarms_container0
     command: python summarize_alarms_container.py
     working_dir: /app

@@ -179,8 +179,8 @@ _apply_env_tuning()
 # ============================================================
 # Redis Streams 配置（仍可用环境变量覆盖）
 # ============================================================
-REDIS_HOST = os.getenv("SY_STREAM_HOST", os.getenv("REDIS_HOST", "localhost"))
-REDIS_PORT = int(os.getenv("SY_STREAM_PORT", os.getenv("REDIS_PORT", "36379")))
+REDIS_HOST = os.getenv("SY_STREAM_HOST", os.getenv("STREAM_REDIS_HOST", "localhost"))
+REDIS_PORT = int(os.getenv("SY_STREAM_PORT", os.getenv("STREAM_REDIS_PORT", "36380")))
 SY_STREAM_DB = int(os.getenv("SY_STREAM_DB", "0"))
 
 SY_RAW_STREAM = os.getenv("SY_RAW_STREAM", "sy.raw")
@@ -873,12 +873,12 @@ class RedisConn:
 
             self._set_state(True)
             if DEBUG_TUNING["LOG_REDIS_STATE"]:
-                print(f"[Redis] CONNECTED {self.host}:{self.port}/{self.db}")
+                print(f"[Redis] CONNECTED target={self.host}:{self.port}/{self.db}")
             return True
         except Exception as e:
             self._set_state(False, err=str(e))
             if DEBUG_TUNING["LOG_REDIS_STATE"]:
-                print(f"[Redis] connect failed: {e}")
+                print(f"[Redis] CONNECT FAILED target={self.host}:{self.port}/{self.db} err={e}")
             return False
 
     def mark_down(self, reason: str):
@@ -2303,6 +2303,10 @@ def redis_command_thread(redis_conn: RedisConn):
 # 主函数
 # ============================================================
 def main():
+    print("=" * 72)
+    print(f"[sy_agent] REDIS TARGET => host={REDIS_HOST} port={REDIS_PORT} db={SY_STREAM_DB}")
+    print(f"[sy_agent] STREAMS => raw={SY_RAW_STREAM} cmd={SY_CMD_STREAM} group={SY_CMD_GROUP}")
+    print("=" * 72)
     print(
         f"[sy_agent] starting, redis={REDIS_HOST}:{REDIS_PORT}/{SY_STREAM_DB}, raw_stream={SY_RAW_STREAM}, cmd_stream={SY_CMD_STREAM}"
     )
