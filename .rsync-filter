@@ -1,5 +1,4 @@
 .git/
-.env
 udp_agent/.env
 node_modules/
 __pycache__/

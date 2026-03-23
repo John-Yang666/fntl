@@ -27,7 +27,10 @@ logger = logging.getLogger("receiver")
 # Redis Stream 配置
 REDIS_STREAM_HOST = os.getenv("REDIS_STREAM_HOST", "redis_stream")
 REDIS_STREAM_PORT = int(os.getenv("REDIS_STREAM_PORT", "6379"))
-REDIS_PACKET_STREAM_KEY = os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets")
+REDIS_PACKET_RAW_STREAM_KEY = os.getenv(
+    "REDIS_PACKET_RAW_STREAM_KEY",
+    os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets"),
+)
 stream_redis = redis.Redis(host=REDIS_STREAM_HOST, port=REDIS_STREAM_PORT, decode_responses=False)
 
 # Kafka 配置
@@ -78,10 +81,13 @@ def get_device_id_by_ip(ip_address):
 # === 发送数据包到 Redis Stream（由 udp_receiver 统一处理） ===
 def send_packet_to_stream(ip_address, data):
     try:
+        ts_ms = int(time.time() * 1000)
         stream_redis.xadd(
-            REDIS_PACKET_STREAM_KEY,
+            REDIS_PACKET_RAW_STREAM_KEY,
             {
                 b"type": b"packet",
+                b"src": b"udp_ip_receiver",
+                b"ts": str(ts_ms).encode(),
                 b"ip": ip_address.encode(),
                 b"data_hex": data.hex().encode(),
             },

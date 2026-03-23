@@ -31,7 +31,10 @@ REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_STREAM_HOST = os.getenv("REDIS_STREAM_HOST", "redis_stream")
 REDIS_STREAM_PORT = int(os.getenv("REDIS_STREAM_PORT", "6379"))
-REDIS_PACKET_STREAM_KEY = os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets")
+REDIS_PACKET_RAW_STREAM_KEY = os.getenv(
+    "REDIS_PACKET_RAW_STREAM_KEY",
+    os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets"),
+)
 
 # 连接 Redis
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=1, decode_responses=False)  # 缓存
@@ -74,10 +77,13 @@ def periodic_device_cache_refresher(interval=PERIODIC_DEVICE_CACHE_REFRESH_INTER
 # === 发送数据包到 Redis Stream（由 udp_receiver 统一处理） ===
 def send_packet_to_stream(data):
     try:
+        ts_ms = int(time.time() * 1000)
         stream_redis.xadd(
-            REDIS_PACKET_STREAM_KEY,
+            REDIS_PACKET_RAW_STREAM_KEY,
             {
                 b"type": b"packet",
+                b"src": b"udp_id_receiver",
+                b"ts": str(ts_ms).encode(),
                 b"ip": b"0.0.0.0",
                 b"data_hex": data.hex().encode(),
             },

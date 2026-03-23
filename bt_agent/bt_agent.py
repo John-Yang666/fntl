@@ -30,11 +30,11 @@ if TYPE_CHECKING:
 HOST_IP = "0.0.0.0"
 HOST_PORT = 38315
 
-# Redis Stream（双 stream）
+# Redis Stream（packet/cmd）
 REDIS_STREAM_HOST = "127.0.0.1"
 REDIS_STREAM_PORT = 36379
 
-REDIS_PACKET_STREAM_KEY = "stream:udp:packets"
+REDIS_PACKET_STREAM_KEY = os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets")
 REDIS_CMD_STREAM_KEY = "stream:udp:cmd"
 
 # cmd stream 的消费组/consumer
@@ -168,6 +168,7 @@ class MessageBus:
 
         ts_ms = int(time.time() * 1000)
         fields = {
+            b"type": b"packet",
             b"src": b"udp_agent",
             b"ts": str(ts_ms).encode(),
             b"ip": source_ip.encode(),

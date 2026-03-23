@@ -74,12 +74,15 @@ const isAdmin = computed(() => {
 
 const currentFiles = computed(() => files.value[activeSystem.value]);
 
-const fetchFiles = async (system: SystemType) => {
+const fetchFiles = async (system: SystemType, options?: { silent?: boolean }) => {
   try {
     const res = await axios.get(`${getSystemOrigin(system)}/api/uploaded-files/`);
     files.value[system] = res.data.results;
   } catch (error) {
-    ElMessage.error(`${system.toUpperCase()} 文件列表加载失败`);
+    if (!options?.silent) {
+      ElMessage.error(`${system.toUpperCase()} 文件列表加载失败`);
+    }
+    console.error(`${system.toUpperCase()} 文件列表加载失败`, error);
   }
 };
 
@@ -131,6 +134,6 @@ const deleteFile = async (id: number) => {
 };
 
 onMounted(async () => {
-  await Promise.all(SYSTEMS.map((system) => fetchFiles(system)));
+  await Promise.allSettled(SYSTEMS.map((system) => fetchFiles(system, { silent: true })));
 });
 </script>

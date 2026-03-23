@@ -102,6 +102,7 @@ services:
     environment:
       - DEBUG=${DEBUG:-false}
       - DJANGO_SETTINGS_MODULE=myproject.settings
+      - DEPLOY_HOST_IP=${DEPLOY_HOST_IP:-}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - STREAM_REDIS_HOST=redis_stream

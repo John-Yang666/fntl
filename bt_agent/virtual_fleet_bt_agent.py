@@ -17,7 +17,10 @@ SCHEDULER_MIN_SLEEP = float(os.getenv("SIM_MIN_SLEEP", "0.001"))
 # Redis Stream 配置（与 udp_receiver 对齐）
 REDIS_STREAM_HOST = os.getenv("REDIS_STREAM_HOST", "127.0.0.1")
 REDIS_STREAM_PORT = int(os.getenv("REDIS_STREAM_PORT", "36379"))
-REDIS_PACKET_STREAM_KEY = os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets")
+REDIS_PACKET_RAW_STREAM_KEY = os.getenv(
+    "REDIS_PACKET_RAW_STREAM_KEY",
+    os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets"),
+)
 REDIS_STREAM_MAXLEN = int(os.getenv("REDIS_STREAM_MAXLEN", "100000"))
 
 # 固定的 IP 地址列表，用于模拟下位机
@@ -42,7 +45,7 @@ def publish_packet_to_stream(pipe, source_ip, packet):
         b"data_hex": packet.hex().encode(),
     }
     pipe.xadd(
-        name=REDIS_PACKET_STREAM_KEY,
+        name=REDIS_PACKET_RAW_STREAM_KEY,
         fields=fields,
         maxlen=REDIS_STREAM_MAXLEN,
         approximate=True,
@@ -118,7 +121,7 @@ def render_status(start_time, stats, switch_heap, analog_heap):
         ),
         (
             f"redis={REDIS_STREAM_HOST}:{REDIS_STREAM_PORT} "
-            f"stream={REDIS_PACKET_STREAM_KEY} maxlen={REDIS_STREAM_MAXLEN}"
+            f"stream={REDIS_PACKET_RAW_STREAM_KEY} maxlen={REDIS_STREAM_MAXLEN}"
         ),
         (
             f"elapsed={elapsed:8.1f}s total={total_packets:10d} "

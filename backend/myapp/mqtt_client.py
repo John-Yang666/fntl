@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 
 import paho.mqtt.client as mqtt
 import redis
@@ -17,15 +18,21 @@ MQTT_TOPIC_ANALOG = "devices/analog"
 # 与 udp_receiver 一致：写入 packet stream，由 ingest 热路径统一处理
 REDIS_STREAM_HOST = os.getenv("REDIS_STREAM_HOST", "redis_stream")
 REDIS_STREAM_PORT = int(os.getenv("REDIS_STREAM_PORT", "6379"))
-REDIS_PACKET_STREAM_KEY = os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets")
+REDIS_PACKET_RAW_STREAM_KEY = os.getenv(
+    "REDIS_PACKET_RAW_STREAM_KEY",
+    os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets"),
+)
 stream_redis = redis.Redis(host=REDIS_STREAM_HOST, port=REDIS_STREAM_PORT, decode_responses=False)
 
 
 def enqueue_packet(ip_address: str, data_hex: str):
+    ts_ms = int(time.time() * 1000)
     stream_redis.xadd(
-        REDIS_PACKET_STREAM_KEY,
+        REDIS_PACKET_RAW_STREAM_KEY,
         {
             b"type": b"packet",
+            b"src": b"mqtt_client",
+            b"ts": str(ts_ms).encode(),
             b"ip": ip_address.encode(),
             b"data_hex": data_hex.encode(),
         },

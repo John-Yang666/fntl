@@ -656,6 +656,7 @@ def _read_stream_entries(stream_id: str, count: int, block_ms: int):
 
 def sy_stream_listener():
     batch_entries = []
+    batch_entry_ids: set[str] = set()
     batch_start = 0.0
     stats = {
         "received": 0,
@@ -678,20 +679,27 @@ def sy_stream_listener():
         remaining = max(1, INGEST_MAX_BATCH - len(batch_entries))
         elapsed_ms = int((time.monotonic() - batch_start) * 1000)
         window_left_ms = max(1, INGEST_BATCH_MS - elapsed_ms)
+        pending_entries = []
 
-        try:
-            pending_entries = _read_stream_entries("0", min(remaining, SY_RAW_READ_COUNT), 1)
-        except Exception as exc:
-            if "NOGROUP" in str(exc):
-                ensure_group(redis_stream, SY_RAW_STREAM, SY_RAW_GROUP)
+        if not batch_entries:
+            try:
+                pending_entries = _read_stream_entries("0", min(remaining, SY_RAW_READ_COUNT), 1)
+            except Exception as exc:
+                if "NOGROUP" in str(exc):
+                    ensure_group(redis_stream, SY_RAW_STREAM, SY_RAW_GROUP)
+                    continue
+                logger.error("[stream] read pending failed: %s", exc)
+                time.sleep(0.2)
                 continue
-            logger.error("[stream] read pending failed: %s", exc)
-            time.sleep(0.2)
-            continue
 
         if pending_entries:
-            batch_entries.extend(pending_entries)
-        else:
+            for entry_id, fields in pending_entries:
+                if entry_id in batch_entry_ids:
+                    continue
+                batch_entries.append((entry_id, fields))
+                batch_entry_ids.add(entry_id)
+
+        if not pending_entries:
             try:
                 new_entries = _read_stream_entries(">", min(remaining, SY_RAW_READ_COUNT), min(SY_RAW_BLOCK_MS, window_left_ms))
             except Exception as exc:
@@ -702,7 +710,11 @@ def sy_stream_listener():
                 time.sleep(0.2)
                 continue
             if new_entries:
-                batch_entries.extend(new_entries)
+                for entry_id, fields in new_entries:
+                    if entry_id in batch_entry_ids:
+                        continue
+                    batch_entries.append((entry_id, fields))
+                    batch_entry_ids.add(entry_id)
 
         if not batch_entries:
             now = time.monotonic()
@@ -752,6 +764,7 @@ def sy_stream_listener():
                 time.sleep(0.2)
 
         batch_entries = []
+        batch_entry_ids.clear()
 
         now = time.monotonic()
         if now - last_log_time >= INGEST_LOG_INTERVAL_SEC:

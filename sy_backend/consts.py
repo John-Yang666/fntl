@@ -1,3 +1,5 @@
+from alarm_delay_switch_sy import SY_ALARM_DELAY_SWITCH
+
 #extract_sy_alarms_task.py中使用的告警代码
 SY_ALARM_CODES = {42, 43, 52, 53, 62, 63, 66, 67, 70, 71, 73, 75}
 
@@ -43,6 +45,26 @@ SY_ALARM_DELAY = {
     75: 5,
 }
 
+SY_ALARM_DELAY2 = {
+    42: 5,
+    43: 5,
+    52: 5,
+    53: 5,
+    62: 5,
+    63: 5,
+    66: 5,
+    67: 5,
+    70: 5,
+    71: 5,
+    73: 5,
+    75: 5,
+}
+
+if SY_ALARM_DELAY_SWITCH == 2:
+    SY_ALARM_DELAY = SY_ALARM_DELAY2.copy()
+else:
+    SY_ALARM_DELAY = SY_ALARM_DELAY.copy()
+
 #拓扑图相关参数
 TOPOLOGY_TIMEOUT = 10 # 拓扑状态缓存时长（秒）
 
@@ -51,4 +73,3 @@ LAST_COMMUNICATION_TIME_TIMEOUT = None # 最后通信时间缓存保存时长，
 SWITCH_DATA_TIMEOUT = 60  # 开关量数据缓存时长，单位秒，即使数据包内容不变也在这个时间间隔发一次数据包给 Celery 避免意外故障。（redis_client.set(f"device_{device_id}_last_switch_packet_hash", packet_hash.encode(), ex=SWITCH_DATA_TIMEOUT)）
 HEARTBEAT_TIMEOUT = 3600 # 收到的数据包作为心跳包，如果超过就重启udp_receiver程序
 PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL= 60 #周期性设备刷新时间间隔（秒）生产环境可以设置为60秒
-

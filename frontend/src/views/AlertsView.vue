@@ -74,41 +74,46 @@ const alarmMeanings = ref<string[]>([]);
 const selectedDeviceKeys = ref<string[]>([]);
 
 const fetchAlerts = async () => {
-  try {
-    const responses = await Promise.all(
-      SYSTEMS.map(async (system) => ({
-        system,
-        alerts: (await axios.get(`${getApiBase(system)}/active-alarms/`)).data as Array<{
-          device_id: number;
-          device_name: string;
-          alarm_code: number;
-          alarm_meaning: string;
-          timestamp: string;
-          confirmed: boolean;
-        }>,
-      })),
-    );
+  const settledResponses = await Promise.allSettled(
+    SYSTEMS.map(async (system) => ({
+      system,
+      alerts: (await axios.get(`${getApiBase(system)}/active-alarms/`)).data as Array<{
+        device_id: number;
+        device_name: string;
+        alarm_code: number;
+        alarm_meaning: string;
+        timestamp: string;
+        confirmed: boolean;
+      }>,
+    })),
+  );
 
-    alerts.value = responses.flatMap(({ system, alerts: systemAlerts }) =>
-      systemAlerts.map((alert) => ({
-        system,
-        uniqueKey: `${system}:${alert.device_id}:${alert.alarm_code}:${alert.timestamp}`,
-        ...alert,
-      })),
-    );
-
-    const devicesSet = new Set<string>();
-    const alarmMeaningsSet = new Set<string>();
-    alerts.value.forEach((alert) => {
-      devicesSet.add(alert.device_name);
-      alarmMeaningsSet.add(alert.alarm_meaning);
+  const responses = settledResponses
+    .flatMap((result) => {
+      if (result.status === 'fulfilled') {
+        return [result.value];
+      }
+      console.error('Failed to fetch alerts:', result.reason);
+      return [];
     });
 
-    deviceNames.value = Array.from(devicesSet);
-    alarmMeanings.value = Array.from(alarmMeaningsSet);
-  } catch (error) {
-    console.error('Failed to fetch alerts:', error);
-  }
+  alerts.value = responses.flatMap(({ system, alerts: systemAlerts }) =>
+    systemAlerts.map((alert) => ({
+      system,
+      uniqueKey: `${system}:${alert.device_id}:${alert.alarm_code}:${alert.timestamp}`,
+      ...alert,
+    })),
+  );
+
+  const devicesSet = new Set<string>();
+  const alarmMeaningsSet = new Set<string>();
+  alerts.value.forEach((alert) => {
+    devicesSet.add(alert.device_name);
+    alarmMeaningsSet.add(alert.alarm_meaning);
+  });
+
+  deviceNames.value = Array.from(devicesSet);
+  alarmMeanings.value = Array.from(alarmMeaningsSet);
 };
 
 const filteredAlerts = computed(() => {

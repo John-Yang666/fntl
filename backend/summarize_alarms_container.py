@@ -28,6 +28,7 @@ redis_client = redis.StrictRedis(host='redis', port=6379, db=2, decode_responses
 
 SUMMARY_INTERVAL_SEC = float(os.getenv("SUMMARY_INTERVAL_SEC", "1"))
 SUMMARY_DEVICE_CACHE_REFRESH_SEC = float(os.getenv("SUMMARY_DEVICE_CACHE_REFRESH_SEC", "30"))
+NON_ZERO_ALARM_CODES = [code for code in ALARM_CODES if code != 0]
 
 # ---------- 工具函数 ----------
 def parse_iso_aware(s: str):
@@ -85,35 +86,41 @@ def build_comm_status_map(device_ids: list[int], now: datetime, now_monotonic: f
 
     return comm_status_map
 
-def hydrate_cache_from_db(device_id: int):
+def hydrate_cache_from_db_many(device_ids: list[int]):
     """
-    当缓存缺失时，从 AlarmActive 回灌完整 0/1 状态到缓存（不含 0 号）
-    - 处于活跃的非0号告警：bit=1, starttime=active.timestamp_start
-    - 其余 ALARM_CODES（排除 0）写 bit=0
-    返回 alarms_state 字典
+    批量从 AlarmActive 回灌完整 0/1 状态到缓存（不含 0 号）。
+    返回 {device_id: alarms_state}
     """
-    alarms_state = {}
-    actives = (AlarmActive.objects
-               .filter(device_id=device_id)
-               .values('alarm_code', 'timestamp_start'))
-    active_codes = set()
-    for a in actives:
-        code = a['alarm_code']
-        if code == 0:
-            continue  # 0 号不用写在位图缓存里
-        active_codes.add(code)
-        alarms_state[code] = {
-            'bit_value': 1,
-            'starttime': a['timestamp_start']  # 通常是 aware
-        }
-    # 其余写 0
-    for code in ALARM_CODES:
+    if not device_ids:
+        return {}
+
+    alarms_state_by_device = {
+        device_id: {code: {'bit_value': 0} for code in NON_ZERO_ALARM_CODES}
+        for device_id in device_ids
+    }
+    actives = (
+        AlarmActive.objects
+        .filter(device_id__in=device_ids)
+        .values('device_id', 'alarm_code', 'timestamp_start')
+    )
+    for active in actives:
+        code = active['alarm_code']
         if code == 0:
             continue
-        if code not in alarms_state:
-            alarms_state[code] = {'bit_value': 0}
-    cache.set(f'device_{device_id}_alarms', alarms_state, timeout=None)
-    return alarms_state
+        alarms_state_by_device[active['device_id']][code] = {
+            'bit_value': 1,
+            'starttime': active['timestamp_start'],
+        }
+
+    cache.set_many(
+        {f'device_{device_id}_alarms': alarms_state for device_id, alarms_state in alarms_state_by_device.items()},
+        timeout=None,
+    )
+    return alarms_state_by_device
+
+
+def hydrate_cache_from_db(device_id: int):
+    return hydrate_cache_from_db_many([device_id]).get(device_id, {})
 
 
 def safe_alarm_end_time(timestamp_start: datetime):
@@ -128,10 +135,22 @@ def safe_alarm_end_time(timestamp_start: datetime):
         return timestamp_start
     return timestamp_end
 
+
+def _active_alarm_dict_from_model(active_alarm: AlarmActive):
+    return {
+        "id": active_alarm.id,
+        "device_id": active_alarm.device_id,
+        "alarm_code": active_alarm.alarm_code,
+        "timestamp_start": active_alarm.timestamp_start,
+        "is_confirmed": active_alarm.is_confirmed,
+    }
+
 # ---------- 主逻辑 ----------
 def summarize_alarms():
     device_ids_cache: list[int] = []
     next_device_cache_refresh = 0.0
+    last_comm_ok_by_device: dict[int, bool | None] = {}
+    last_alarm_updated_at_by_device: dict[int, str | None] = {}
 
     while True:
         current_time = timezone.now()
@@ -142,23 +161,71 @@ def summarize_alarms():
             next_device_cache_refresh = current_monotonic + SUMMARY_DEVICE_CACHE_REFRESH_SEC
 
         comm_status_map = build_comm_status_map(device_ids_cache, current_time, current_monotonic)
-        active_alarms = list(AlarmActive.objects.all())
-        active_alarm_by_key = {(active_alarm.device_id, active_alarm.alarm_code): active_alarm for active_alarm in active_alarms}
+        active_alarm_rows = list(
+            AlarmActive.objects.values(
+                "id",
+                "device_id",
+                "alarm_code",
+                "timestamp_start",
+                "is_confirmed",
+            )
+        )
+        active_alarm_by_key = {
+            (active_alarm["device_id"], active_alarm["alarm_code"]): active_alarm
+            for active_alarm in active_alarm_rows
+        }
+        alarm_cache_keys = {device_id: f'device_{device_id}_alarms' for device_id in device_ids_cache}
+        alarm_updated_at_keys = {device_id: f'device_{device_id}_alarms_updated_at' for device_id in device_ids_cache}
+        cache_snapshot = cache.get_many([*alarm_cache_keys.values(), *alarm_updated_at_keys.values()]) if alarm_cache_keys else {}
+        alarm_cache_snapshot = {cache_key: cache_snapshot.get(cache_key) for cache_key in alarm_cache_keys.values()}
+        missing_alarm_cache_ids = [
+            device_id
+            for device_id, cache_key in alarm_cache_keys.items()
+            if alarm_cache_snapshot.get(cache_key) is None
+        ]
+        hydrated_alarm_cache = hydrate_cache_from_db_many(missing_alarm_cache_ids)
+        alarm_state_by_device = {
+            device_id: (alarm_cache_snapshot.get(cache_key) or hydrated_alarm_cache.get(device_id, {}))
+            for device_id, cache_key in alarm_cache_keys.items()
+        }
+        alarm_updated_at_by_device = {
+            device_id: cache_snapshot.get(cache_key)
+            for device_id, cache_key in alarm_updated_at_keys.items()
+        }
+        active_device_ids = {device_id for device_id, _alarm_code in active_alarm_by_key}
+        if not last_comm_ok_by_device and not last_alarm_updated_at_by_device:
+            devices_to_process = set(device_ids_cache)
+        else:
+            devices_to_process = set(active_device_ids)
+            for device_id in device_ids_cache:
+                comm_ok = comm_status_map.get(device_id, (None, None))[0]
+                if last_comm_ok_by_device.get(device_id) != comm_ok:
+                    devices_to_process.add(device_id)
+                if last_alarm_updated_at_by_device.get(device_id) != alarm_updated_at_by_device.get(device_id):
+                    devices_to_process.add(device_id)
+
+        alarm_data_to_create: list[AlarmData] = []
+        active_alarms_to_create: list[AlarmActive] = []
+        active_alarm_ids_to_delete: set[str] = set()
 
         # ------- 每台设备：生成 0 号/非 0 号告警 -------
         for device_id in device_ids_cache:
+            if device_id not in devices_to_process:
+                continue
+
             comm_ok, last_comm_time = comm_status_map.get(device_id, (None, None))
             if comm_ok is None:
                 continue
 
             if not comm_ok:
                 if (device_id, 0) not in active_alarm_by_key:
-                    active_alarm = AlarmActive.objects.create(
+                    active_alarm = AlarmActive(
                         device_id=device_id,
                         alarm_code=0,
-                        timestamp_start=last_comm_time
+                        timestamp_start=last_comm_time,
                     )
-                    active_alarm_by_key[(device_id, 0)] = active_alarm
+                    active_alarms_to_create.append(active_alarm)
+                    active_alarm_by_key[(device_id, 0)] = _active_alarm_dict_from_model(active_alarm)
                     cache.delete(f'device_{device_id}_switch_status')
                     redis_client.delete(f'device_{device_id}_last_communication_time')
                     redis_client.delete(f'device_{device_id}_last_communication_monotonic')
@@ -166,27 +233,23 @@ def summarize_alarms():
             else:
                 active0 = active_alarm_by_key.get((device_id, 0))
                 if active0:
-                    alarm_end_time = safe_alarm_end_time(active0.timestamp_start)
-                    AlarmData.objects.create(
+                    alarm_end_time = safe_alarm_end_time(active0["timestamp_start"])
+                    alarm_data_to_create.append(AlarmData(
                         device_id=device_id,
                         alarm_code=0,
-                        timestamp_start=active0.timestamp_start,
+                        timestamp_start=active0["timestamp_start"],
                         timestamp_end=alarm_end_time,
-                        is_confirmed=active0.is_confirmed
-                    )
-                    active0.delete()
+                        is_confirmed=active0["is_confirmed"],
+                    ))
+                    if active0["id"] is not None:
+                        active_alarm_ids_to_delete.add(str(active0["id"]))
                     active_alarm_by_key.pop((device_id, 0), None)
 
-                alarm_key = f'device_{device_id}_alarms'
-                current_alarms = cache.get(alarm_key, None)
-                if current_alarms is None:
-                    current_alarms = hydrate_cache_from_db(device_id)
+                current_alarms = alarm_state_by_device.get(device_id) or {}
 
                 alarms_of_this_device = {}
 
-                for alarm_code in ALARM_CODES:
-                    if alarm_code == 0:
-                        continue
+                for alarm_code in NON_ZERO_ALARM_CODES:
                     alarm_status = current_alarms.get(alarm_code)
                     if not alarm_status:
                         continue
@@ -220,12 +283,13 @@ def summarize_alarms():
 
                     alarms_of_this_device[alarm_code] = {'bit_value': 1}
                     if (device_id, alarm_code) not in active_alarm_by_key:
-                        active_alarm = AlarmActive.objects.create(
+                        active_alarm = AlarmActive(
                             device_id=device_id,
                             alarm_code=alarm_code,
-                            timestamp_start=alarm_start_time
+                            timestamp_start=alarm_start_time,
                         )
-                        active_alarm_by_key[(device_id, alarm_code)] = active_alarm
+                        active_alarms_to_create.append(active_alarm)
+                        active_alarm_by_key[(device_id, alarm_code)] = _active_alarm_dict_from_model(active_alarm)
 
                 process_topology_status(device_id, alarms_of_this_device)
 
@@ -246,41 +310,56 @@ def summarize_alarms():
 
             if alarm_code == 0:
                 if comm_ok:
-                    alarm_end_time = safe_alarm_end_time(active_alarm.timestamp_start)
-                    AlarmData.objects.create(
+                    alarm_end_time = safe_alarm_end_time(active_alarm["timestamp_start"])
+                    alarm_data_to_create.append(AlarmData(
                         device_id=device_id,
                         alarm_code=0,
-                        timestamp_start=active_alarm.timestamp_start,
+                        timestamp_start=active_alarm["timestamp_start"],
                         timestamp_end=alarm_end_time,
-                        is_confirmed=active_alarm.is_confirmed
-                    )
-                    active_alarm.delete()
+                        is_confirmed=active_alarm["is_confirmed"],
+                    ))
+                    if active_alarm["id"] is not None:
+                        active_alarm_ids_to_delete.add(str(active_alarm["id"]))
                     active_alarm_by_key.pop((device_id, 0), None)
                 continue
 
             if not comm_ok:
                 continue
 
-            alarm_key = f'device_{device_id}_alarms'
-            current_alarms = cache.get(alarm_key, None)
-            if current_alarms is None:
-                current_alarms = hydrate_cache_from_db(device_id)
+            current_alarms = alarm_state_by_device.get(device_id) or {}
 
             bit_info = current_alarms.get(alarm_code)
             if not bit_info:
                 continue
 
             if bit_info.get('bit_value') == 0:
-                alarm_end_time = safe_alarm_end_time(active_alarm.timestamp_start)
-                AlarmData.objects.create(
+                alarm_end_time = safe_alarm_end_time(active_alarm["timestamp_start"])
+                alarm_data_to_create.append(AlarmData(
                     device_id=device_id,
                     alarm_code=alarm_code,
-                    timestamp_start=active_alarm.timestamp_start,
+                    timestamp_start=active_alarm["timestamp_start"],
                     timestamp_end=alarm_end_time,
-                    is_confirmed=active_alarm.is_confirmed
-                )
-                active_alarm.delete()
+                    is_confirmed=active_alarm["is_confirmed"],
+                ))
+                if active_alarm["id"] is not None:
+                    active_alarm_ids_to_delete.add(str(active_alarm["id"]))
                 active_alarm_by_key.pop((device_id, alarm_code), None)
+
+        if alarm_data_to_create:
+            AlarmData.objects.bulk_create(alarm_data_to_create, batch_size=1000)
+        if active_alarms_to_create:
+            AlarmActive.objects.bulk_create(active_alarms_to_create, batch_size=1000)
+        if active_alarm_ids_to_delete:
+            AlarmActive.objects.filter(id__in=active_alarm_ids_to_delete).delete()
+
+        last_comm_ok_by_device = {
+            device_id: comm_status_map.get(device_id, (None, None))[0]
+            for device_id in device_ids_cache
+        }
+        last_alarm_updated_at_by_device = {
+            device_id: alarm_updated_at_by_device.get(device_id)
+            for device_id in device_ids_cache
+        }
 
         logger.info('Alarms summarized')
         time.sleep(SUMMARY_INTERVAL_SEC)

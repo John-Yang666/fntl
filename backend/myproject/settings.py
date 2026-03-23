@@ -16,6 +16,72 @@ from consts import *
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = BASE_DIR.parent
+
+
+def _load_project_root_env():
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+def _get_env_list(*names: str):
+    values: list[str] = []
+    for name in names:
+        raw_value = os.getenv(name, "")
+        if not raw_value:
+            continue
+        for item in raw_value.replace(";", ",").split(","):
+            item = item.strip()
+            if item:
+                values.append(item)
+    return values
+
+
+def _get_deploy_host_list():
+    deploy_host_file = BASE_DIR / "deploy_host_ip.txt"
+    if deploy_host_file.exists():
+        raw_lines: list[str] = []
+        for raw_line in deploy_host_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.split("#", 1)[0].strip()
+            if line:
+                raw_lines.append(line)
+        if raw_lines:
+            file_values = ",".join(raw_lines)
+            return [
+                item.strip()
+                for item in file_values.replace(";", ",").split(",")
+                if item.strip()
+            ]
+    return _get_env_list("DEPLOY_HOST_IP", "DEPLOY_HOST_IPS")
+
+
+def _build_csrf_trusted_origins(*ports: int):
+    origins = {
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:38173",
+        "http://127.0.0.1:38173",
+    }
+    for host in _get_deploy_host_list():
+        if host.startswith("http://") or host.startswith("https://"):
+            origins.add(host.rstrip("/"))
+            continue
+        for port in ports:
+            origins.add(f"http://{host}:{port}")
+    return sorted(origins)
+
+
+_load_project_root_env()
 
 
 # Quick-start development settings - unsuitable for production
@@ -263,15 +329,6 @@ CORS_ALLOWED_ORIGINS = [ # 确保只有授权的前端应用能够访问你的�
 ]'''
 CORS_ALLOW_ALL_ORIGINS = True #跨域 AJAX 请求（浏览器 JS 去调接口）
 
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "http://localhost:38173",
-    "http://127.0.0.1:38173",
-    "http://192.168.0.88:8000", #替换为你的局域网IP地址
-    "http://192.168.0.88:38173", 
-    "http://192.168.0.82:8000", #继续添加其它需要信任的域名
-    "http://192.168.0.82:38173",
-]
+CSRF_TRUSTED_ORIGINS = _build_csrf_trusted_origins(8000, 38173)
 
 #CSRF_COOKIE_SECURE = False  # 如果使用 HTTPS，则设置为 True

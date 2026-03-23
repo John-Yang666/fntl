@@ -134,51 +134,55 @@ let intervalId: number;
 let previousAlertSnapshot = '';
 
 const checkAlerts = async () => {
-  try {
-    const responses = await Promise.all(
-      SYSTEMS.map(async (system) => ({
+  const settledResponses = await Promise.allSettled(
+    SYSTEMS.map(async (system) => ({
+      system,
+      alerts: (await axios.get(`${getApiBase(system)}/active-alarms/`)).data as Array<{
+        device_id: number;
+        alarm_code: number;
+      }>,
+    })),
+  );
+
+  const responses = settledResponses.flatMap((result) => {
+    if (result.status === 'fulfilled') {
+      return [result.value];
+    }
+    console.error('获取告警失败:', result.reason);
+    return [];
+  });
+
+  const selectedSet = new Set(selectedDevices.value);
+  const filteredAlerts = responses.flatMap(({ system, alerts }) =>
+    alerts
+      .filter((alert) =>
+        selectedSet.size === 0 || selectedSet.has(makeDeviceKey(system, alert.device_id)),
+      )
+      .map((alert) => ({
         system,
-        alerts: (await axios.get(`${getApiBase(system)}/active-alarms/`)).data as Array<{
-          device_id: number;
-          alarm_code: number;
-        }>,
+        ...alert,
       })),
-    );
+  );
 
-    const selectedSet = new Set(selectedDevices.value);
-    const filteredAlerts = responses.flatMap(({ system, alerts }) =>
-      alerts
-        .filter((alert) =>
-          selectedSet.size === 0 || selectedSet.has(makeDeviceKey(system, alert.device_id)),
-        )
-        .map((alert) => ({
-          system,
-          ...alert,
-        })),
-    );
+  const currentSnapshot = filteredAlerts
+    .map(a => `${a.system}:${a.device_id}-${a.alarm_code}`)
+    .sort()
+    .join('|');
 
-    const currentSnapshot = filteredAlerts
-      .map(a => `${a.system}:${a.device_id}-${a.alarm_code}`)
-      .sort()
-      .join('|');
+  if (currentSnapshot !== previousAlertSnapshot) {
+    ssDel('alertSoundPaused');
+  }
+  previousAlertSnapshot = currentSnapshot;
 
-    if (currentSnapshot !== previousAlertSnapshot) {
-      ssDel('alertSoundPaused');
-    }
-    previousAlertSnapshot = currentSnapshot;
-
-    const count = filteredAlerts.length;
-    if (count > 0) {
-      activeAlertsTabLabel.value = `当前告警 (${count})`;
-      hasAlerts.value = true;
-      if (soundEnabled.value) playAlertSound();
-    } else {
-      activeAlertsTabLabel.value = '当前告警';
-      hasAlerts.value = false;
-      ssDel('alertSoundPaused');
-    }
-  } catch (error) {
-    console.error('获取告警失败:', error);
+  const count = filteredAlerts.length;
+  if (count > 0) {
+    activeAlertsTabLabel.value = `当前告警 (${count})`;
+    hasAlerts.value = true;
+    if (soundEnabled.value) playAlertSound();
+  } else {
+    activeAlertsTabLabel.value = '当前告警';
+    hasAlerts.value = false;
+    ssDel('alertSoundPaused');
   }
 };
 
