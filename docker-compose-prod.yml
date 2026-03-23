@@ -17,7 +17,7 @@ services:
     #    VITE_SY_BACKEND_PORT: 8001
     image: my_vue:prod # 镜像构建指令：docker build -t my_vue:prod -f frontend/Dockerfile.prod --build-arg VITE_BT_BACKEND_PORT=8000 --build-arg VITE_SY_BACKEND_PORT=8001 frontend
     # 离线修改镜像：docker build --pull=false -t my_vue:prod -f frontend/Dockerfile.prod --build-arg VITE_BT_BACKEND_PORT=8000 --build-arg VITE_SY_BACKEND_PORT=8001 frontend
-    # 单独构建vue容器：docker compose -p bt_nms_prod -f docker-compose-prod.yml up -d --no-deps --force-recreate vue
+    # 单独构建vue容器：docker compose -f docker-compose-prod.yml up -d --no-deps --force-recreate vue
     container_name: bt_nms_vue_prod0
     ports:
       - "38173:80"
@@ -122,7 +122,6 @@ services:
     environment:
       DEBUG: ${DEBUG:-false}
       DJANGO_SETTINGS_MODULE: myproject.settings
-      DEPLOY_HOST_IP: ${DEPLOY_HOST_IP:-}
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       DJANGO_SUPERUSER_USERNAME: admin

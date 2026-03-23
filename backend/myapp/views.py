@@ -5,8 +5,8 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.views import APIView # type: ignore
 from rest_framework.pagination import PageNumberPagination # type: ignore
 from rest_framework import viewsets # type: ignore
-from myapp.models import Device, SwitchData, AnalogData, AlarmActive, AlarmData, UserOperation, RelayAction, UploadedFile
-from myapp.serializers import DeviceSerializer, SwitchDataSerializer, AlarmActiveSerializer, AnalogDataSerializer, AlarmDataSerializer, RelayActionSerializer, UserOperationSerializer, UploadedFileSerializer
+from myapp.models import Device, SwitchData, AnalogData, AlarmActive, AlarmData, UserOperation, RelayAction, UploadedFile, HelpFaqEntry
+from myapp.serializers import DeviceSerializer, SwitchDataSerializer, AlarmActiveSerializer, AnalogDataSerializer, AlarmDataSerializer, RelayActionSerializer, UserOperationSerializer, UploadedFileSerializer, HelpFaqEntrySerializer, HelpFaqEntryWriteSerializer
 from django.http import JsonResponse, FileResponse, Http404 # type: ignore
 from django.views import View # type: ignore
 from django.views.decorators.csrf import csrf_exempt # type: ignore
@@ -24,6 +24,7 @@ from django_filters.rest_framework import DjangoFilterBackend # type: ignore
 from rest_framework.permissions import IsAuthenticated, AllowAny # type: ignore
 from rest_framework import status
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 User = get_user_model()
 
@@ -42,6 +43,55 @@ class UserDetailView(APIView):
             'is_superuser': user.is_superuser,
             'permissions': list(permissions)
         })
+
+
+class HelpFaqView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        items = HelpFaqEntry.objects.all().order_by('display_order', 'id')
+        serializer = HelpFaqEntrySerializer(items, many=True)
+        return Response(serializer.data)
+
+    def put(self, request):
+        if request.user.username != 'admin':
+            return Response({'detail': '只有 admin 用户可以编辑 FAQ。'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = HelpFaqEntryWriteSerializer(data=request.data, many=True)
+        serializer.is_valid(raise_exception=True)
+
+        payload = serializer.validated_data
+        existing_items = {item.id: item for item in HelpFaqEntry.objects.all()}
+        keep_ids = set()
+
+        with transaction.atomic():
+            for index, item_data in enumerate(payload, start=1):
+                item_id = item_data.get('id')
+                title = item_data['title']
+                content = item_data['content']
+
+                if item_id and item_id in existing_items:
+                    faq_item = existing_items[item_id]
+                    faq_item.title = title
+                    faq_item.content = content
+                    faq_item.display_order = index
+                    faq_item.save(update_fields=['title', 'content', 'display_order', 'updated_at'])
+                    keep_ids.add(faq_item.id)
+                else:
+                    faq_item = HelpFaqEntry.objects.create(
+                        title=title,
+                        content=content,
+                        display_order=index,
+                    )
+                    keep_ids.add(faq_item.id)
+
+            if keep_ids:
+                HelpFaqEntry.objects.exclude(id__in=keep_ids).delete()
+            else:
+                HelpFaqEntry.objects.all().delete()
+
+        items = HelpFaqEntry.objects.all().order_by('display_order', 'id')
+        return Response(HelpFaqEntrySerializer(items, many=True).data)
     
 def pgadmin_link_view(request):
     return render(request, 'pgadmin_link.html')

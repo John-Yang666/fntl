@@ -101,7 +101,6 @@ services:
     environment:
       - DEBUG=True
       - DJANGO_SETTINGS_MODULE=myproject.settings
-      - DEPLOY_HOST_IP=${DEPLOY_HOST_IP:-}
 
       # Django 业务 Redis
       - REDIS_HOST=redis

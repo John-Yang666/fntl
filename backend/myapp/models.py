@@ -224,3 +224,19 @@ class UploadedFile(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.upload_time.strftime('%Y-%m-%d %H:%M:%S')})"
+
+
+class HelpFaqEntry(models.Model):
+    title = models.CharField(max_length=200, verbose_name="标题")
+    content = models.TextField(verbose_name="内容")
+    display_order = models.PositiveIntegerField(default=0, db_index=True, verbose_name="排序")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    class Meta:
+        verbose_name = "帮助页常见问题"
+        verbose_name_plural = "帮助页常见问题"
+        ordering = ["display_order", "id"]
+
+    def __str__(self):
+        return f"{self.display_order}. {self.title}"

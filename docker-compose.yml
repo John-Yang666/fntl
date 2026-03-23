@@ -93,7 +93,6 @@ services:
     environment:
       - DEBUG=True
       - DJANGO_SETTINGS_MODULE=myproject.settings
-      - DEPLOY_HOST_IP=${DEPLOY_HOST_IP:-}
 
       # Django/Celery 用老 redis
       - REDIS_HOST=redis

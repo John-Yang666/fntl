@@ -26,7 +26,7 @@ from import_export.widgets import JSONWidget, BooleanWidget, ManyToManyWidget
 
 from .models import (
     Device, SwitchData, AlarmActive, AnalogData, AlarmData,
-    RelayAction, UserOperation, UploadedFile
+    RelayAction, UserOperation, UploadedFile, HelpFaqEntry
 )
 
 logger = logging.getLogger(__name__)
@@ -90,6 +90,12 @@ class DepotScopedAdmin(admin.ModelAdmin):
                         return response
                     return HttpResponseRedirect(request.get_full_path())
         return super().changelist_view(request, extra_context=extra_context)
+
+
+@admin.register(HelpFaqEntry)
+class HelpFaqEntryAdmin(admin.ModelAdmin):
+    list_display = ("display_order", "title", "updated_at")
+    ordering = ("display_order", "id")
 
 
 # ========================

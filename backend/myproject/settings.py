@@ -62,7 +62,7 @@ def _get_deploy_host_list():
                 for item in file_values.replace(";", ",").split(",")
                 if item.strip()
             ]
-    return _get_env_list("DEPLOY_HOST_IP", "DEPLOY_HOST_IPS")
+    return []
 
 
 def _build_csrf_trusted_origins(*ports: int):

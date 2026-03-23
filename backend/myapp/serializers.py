@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from myapp.models import Device, SwitchData, AlarmActive, AnalogData, RelayAction, AlarmData, UserOperation, UploadedFile
+from myapp.models import Device, SwitchData, AlarmActive, AnalogData, RelayAction, AlarmData, UserOperation, UploadedFile, HelpFaqEntry
 
 class DeviceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -83,3 +83,15 @@ class UploadedFileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UploadedFile
         fields = '__all__'
+
+
+class HelpFaqEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HelpFaqEntry
+        fields = ['id', 'title', 'content', 'display_order', 'updated_at']
+
+
+class HelpFaqEntryWriteSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    title = serializers.CharField(max_length=200)
+    content = serializers.CharField(allow_blank=True)
