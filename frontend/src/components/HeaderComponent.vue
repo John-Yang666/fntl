@@ -43,7 +43,7 @@
 <script lang="ts" setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import type { TabsPaneContext } from 'element-plus';
+import type { MessageHandler, TabsPaneContext } from 'element-plus';
 import axios from 'axios';
 import { useUserStore } from '@/stores/userStore';
 import { ElMessage } from 'element-plus';
@@ -65,6 +65,10 @@ const activeAlertsTabLabel = ref('当前告警');
 
 const soundEnabled = ref<boolean>(false);
 const alertAudio = ref<HTMLAudioElement | null>(null);
+const isAudioPrimed = ref(false);
+const pendingAlertPlayback = ref(false);
+const hasShownAutoplayWarning = ref(false);
+let autoplayWarningMessage: MessageHandler | null = null;
 
 const isTestingSound = ref(false);
 
@@ -72,6 +76,8 @@ const isTestingSound = ref(false);
 const ssGet = (k: string) => sessionStorage.getItem(k);
 const ssSet = (k: string, v: string) => sessionStorage.setItem(k, v);
 const ssDel = (k: string) => sessionStorage.removeItem(k);
+const soundPrefGet = () => localStorage.getItem('soundEnabled');
+const soundPrefSet = (value: boolean) => localStorage.setItem('soundEnabled', JSON.stringify(value));
 
 // -------- 标签切换 --------
 const handleClick = (tab: TabsPaneContext) => {
@@ -86,6 +92,106 @@ const handleClick = (tab: TabsPaneContext) => {
 };
 
 // -------- 声音控制 --------
+const ensureAlertAudio = () => {
+  if (!alertAudio.value) {
+    const audio = new Audio('/audio/alert.mp3');
+    audio.loop = true;
+    audio.preload = 'auto';
+    alertAudio.value = audio;
+  }
+
+  return alertAudio.value;
+};
+
+const isAlertAudioPlaying = () => {
+  const audio = alertAudio.value;
+  return !!audio && !audio.paused && !audio.ended;
+};
+
+const primeAudioPlayback = async () => {
+  const audio = ensureAlertAudio();
+  if (isAlertAudioPlaying()) {
+    isAudioPrimed.value = true;
+    return true;
+  }
+  const previousMuted = audio.muted;
+
+  audio.muted = true;
+  try {
+    await audio.play();
+    audio.pause();
+    audio.currentTime = 0;
+    isAudioPrimed.value = true;
+    return true;
+  } catch (error) {
+    console.error('告警音频预热失败:', error);
+    isAudioPrimed.value = false;
+    return false;
+  } finally {
+    audio.muted = previousMuted;
+  }
+};
+
+const ensureAutoplayPrepared = async () => {
+  if (!soundEnabled.value) {
+    closeAutoplayWarning();
+    return false;
+  }
+
+  const primed = await primeAudioPlayback();
+  if (primed) {
+    closeAutoplayWarning();
+    return true;
+  }
+
+  if (!hasShownAutoplayWarning.value) {
+    hasShownAutoplayWarning.value = true;
+    openAutoplayWarning();
+  }
+  return false;
+};
+
+const handleAudioInteraction = async () => {
+  if (!pendingAlertPlayback.value && isAudioPrimed.value) {
+    return;
+  }
+
+  const primed = await primeAudioPlayback();
+  if (primed) {
+    closeAutoplayWarning();
+  }
+
+  if (primed && pendingAlertPlayback.value && soundEnabled.value && hasAlerts.value) {
+    pendingAlertPlayback.value = false;
+    void playAlertSound();
+  }
+};
+
+const openAutoplayWarning = () => {
+  if (autoplayWarningMessage) {
+    return;
+  }
+
+  autoplayWarningMessage = ElMessage({
+    type: 'warning',
+    message: '请先在页面内点击任意位置启用告警声，否则刷新后新增告警可能没有声音',
+    duration: 0,
+    showClose: true,
+    onClose: () => {
+      autoplayWarningMessage = null;
+      hasShownAutoplayWarning.value = false;
+    },
+  });
+};
+
+const closeAutoplayWarning = () => {
+  if (autoplayWarningMessage) {
+    autoplayWarningMessage.close();
+    autoplayWarningMessage = null;
+  }
+  hasShownAutoplayWarning.value = false;
+};
+
 const pauseAlerts = async () => {
   stopAlertSound();
   ssSet('alertSoundPaused', 'true');
@@ -93,20 +199,28 @@ const pauseAlerts = async () => {
 
 const playAlertSound = async () => {
   const paused = ssGet('alertSoundPaused');
-  if (paused !== 'true') {
-    if (!alertAudio.value) {
-      alertAudio.value = new Audio('/audio/alert.mp3');
-      alertAudio.value.loop = true;
-    }
-    try {
-      await alertAudio.value.play();
-      ssSet('alertPlaying', 'true');
-    } catch (err) {
-      console.error('自动播放失败，需要用户点击:', err);
-      const playOnClick = () => {
-        alertAudio.value?.play().then(() => ssSet('alertPlaying', 'true'));
-      };
-      document.body.addEventListener('click', playOnClick, { once: true });
+  if (paused === 'true') {
+    return;
+  }
+
+  const audio = ensureAlertAudio();
+  if (isAlertAudioPlaying()) {
+    pendingAlertPlayback.value = false;
+    closeAutoplayWarning();
+    ssSet('alertPlaying', 'true');
+    return;
+  }
+  try {
+    await audio.play();
+    pendingAlertPlayback.value = false;
+    closeAutoplayWarning();
+    ssSet('alertPlaying', 'true');
+  } catch (err) {
+    pendingAlertPlayback.value = true;
+    console.error('自动播放失败，等待用户交互后重试:', err);
+    if (!hasShownAutoplayWarning.value) {
+      hasShownAutoplayWarning.value = true;
+      openAutoplayWarning();
     }
   }
 };
@@ -117,15 +231,21 @@ const stopAlertSound = () => {
     alertAudio.value.currentTime = 0;
     ssSet('alertPlaying', 'false');
   }
+  pendingAlertPlayback.value = false;
+  closeAutoplayWarning();
 };
 
 const toggleSound = () => {
-  ssSet('soundEnabled', JSON.stringify(soundEnabled.value));
+  soundPrefSet(soundEnabled.value);
   if (!soundEnabled.value) {
     stopAlertSound();
     ssDel('alertSoundPaused');
-  } else if (hasAlerts.value) {
-    playAlertSound();
+  } else {
+    void ensureAutoplayPrepared().then((primed) => {
+      if (primed && hasAlerts.value) {
+        void playAlertSound();
+      }
+    });
   }
 };
 
@@ -178,11 +298,14 @@ const checkAlerts = async () => {
   if (count > 0) {
     activeAlertsTabLabel.value = `当前告警 (${count})`;
     hasAlerts.value = true;
-    if (soundEnabled.value) playAlertSound();
+    if (soundEnabled.value) {
+      void playAlertSound();
+    }
   } else {
     activeAlertsTabLabel.value = '当前告警';
     hasAlerts.value = false;
     ssDel('alertSoundPaused');
+    stopAlertSound();
   }
 };
 
@@ -192,24 +315,19 @@ const toggleTestSound = async () => {
     ElMessage.warning('请先打开声音开关再测试告警声');
     return;
   }
-  if (!alertAudio.value) {
-    alertAudio.value = new Audio('/audio/alert.mp3');
-    alertAudio.value.loop = true;
-  }
+  const audio = ensureAlertAudio();
   if (isTestingSound.value) {
-    alertAudio.value.pause();
-    alertAudio.value.currentTime = 0;
+    audio.pause();
+    audio.currentTime = 0;
     isTestingSound.value = false;
   } else {
     try {
-      await alertAudio.value.play();
+      await audio.play();
       isTestingSound.value = true;
+      closeAutoplayWarning();
     } catch (err) {
       console.error('测试播放失败:', err);
-      const playOnClick = () => {
-        alertAudio.value?.play().then(() => { isTestingSound.value = true; });
-      };
-      document.body.addEventListener('click', playOnClick, { once: true });
+      ElMessage.warning('浏览器限制了播放，请先在页面内点击一次后再试音');
     }
   }
 };
@@ -225,13 +343,21 @@ const cancelLogout = () => console.log('Logout canceled');
 onMounted(async () => {
   selectedDevices.value = await loadSelectedDeviceKeys();
 
-  const storedSoundEnabled = ssGet('soundEnabled');
+  const storedSoundEnabled = soundPrefGet();
   soundEnabled.value = storedSoundEnabled ? JSON.parse(storedSoundEnabled) : false;
-  ssSet('soundEnabled', JSON.stringify(soundEnabled.value));
+  soundPrefSet(soundEnabled.value);
+  ensureAlertAudio();
+  window.addEventListener('pointerdown', handleAudioInteraction, true);
+  window.addEventListener('keydown', handleAudioInteraction, true);
+  window.addEventListener('focus', handleAudioInteraction);
+
+  if (soundEnabled.value) {
+    await ensureAutoplayPrepared();
+  }
 
   await checkAlerts();
   if (hasAlerts.value && soundEnabled.value) {
-    playAlertSound();
+    void playAlertSound();
   }
   intervalId = window.setInterval(checkAlerts, 3000);
 });
@@ -239,12 +365,12 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearInterval(intervalId);
   stopAlertSound();
+  closeAutoplayWarning();
   alertAudio.value = null;
-});
-
-window.addEventListener('beforeunload', () => {
-  soundEnabled.value = false;
-  ssSet('soundEnabled', 'false');
+  isAudioPrimed.value = false;
+  window.removeEventListener('pointerdown', handleAudioInteraction, true);
+  window.removeEventListener('keydown', handleAudioInteraction, true);
+  window.removeEventListener('focus', handleAudioInteraction);
 });
 </script>
 
@@ -296,7 +422,7 @@ window.addEventListener('beforeunload', () => {
 .action-buttons {
   position: absolute;
   top: 10px;
-  right: 10px;
+  right: 132px;
   display: flex;
   align-items: center;
   gap: 12px;

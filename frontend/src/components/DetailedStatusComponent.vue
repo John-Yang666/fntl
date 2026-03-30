@@ -21,7 +21,7 @@
       <div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
           <h3>一方向信息</h3>
-          <el-button @click="showDirection1 = !showDirection1">
+          <el-button @click="toggleDirectionVisibility(1)">
             {{ showDirection1 ? '隐藏一方向信息' : '显示一方向信息' }}
           </el-button>
         </div>
@@ -31,7 +31,7 @@
           <BoardStatusComponent :boards="boards1" />
           <el-divider />
           <h3>一方向设备主要状态信息</h3>
-          <el-button @click="showNeighbor = !showNeighbor">
+          <el-button @click="toggleNeighborVisibility">
             {{ showNeighbor ? '隐藏邻站信息' : '显示邻站信息' }}
           </el-button>
           <el-table :data="direction1MainStatus" border style="width:100%">
@@ -86,7 +86,7 @@
       <div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
           <h3>二方向信息</h3>
-          <el-button @click="showDirection2 = !showDirection2">
+          <el-button @click="toggleDirectionVisibility(2)">
             {{ showDirection2 ? '隐藏二方向信息' : '显示二方向信息' }}
           </el-button>
         </div>
@@ -96,7 +96,7 @@
           <BoardStatusComponent :boards="boards2" />
           <el-divider />
           <h3>二方向设备主要状态信息</h3>
-          <el-button @click="showNeighbor = !showNeighbor">
+          <el-button @click="toggleNeighborVisibility">
             {{ showNeighbor ? '隐藏邻站信息' : '显示邻站信息' }}
           </el-button>
           <el-table :data="direction2MainStatus" border style="width:100%">
@@ -172,9 +172,10 @@ import { useRoute } from 'vue-router';
 import axios from 'axios';
 import { parseSwitchStatus } from '@/utils/statusParser';
 import type { Board, DeviceStatus, RelayStatus } from '@/utils/types';
+import { getFromDB, saveToDB } from '@/utils/indexedDB';
 import BoardStatusComponent from './BoardStatusComponent.vue';
 import CustomTableColumn from './CustomTableColumn.vue';
-import { getApiBase, getSystemFromRoute } from '@/utils/systems';
+import { getApiBase, getSystemFromRoute, makeDeviceKey, type SystemType } from '@/utils/systems';
 
 /* ---------------- 参数 & 路由 ---------------- */
 const route       = useRoute();
@@ -188,9 +189,116 @@ const device_id   = ref<number>(
   )
 );
 
+type DeviceDisplayPreferences = {
+  showDirection1: boolean;
+  showDirection2: boolean;
+  showNeighbor: boolean;
+};
+
+const DEVICE_DISPLAY_PREFERENCES_PREFIX = 'deviceDisplayPreferencesV1';
+
 // 控制一、二方向整体展开/折叠
 const showDirection1 = ref(true);
 const showDirection2 = ref(true);
+const showNeighbor = ref(true);
+
+const displayPreferencesByDevice = ref<Record<string, DeviceDisplayPreferences>>({});
+
+function getDefaultDisplayPreferences(): DeviceDisplayPreferences {
+  return {
+    showDirection1: true,
+    showDirection2: true,
+    showNeighbor: true,
+  };
+}
+
+function parseRouteDeviceId(value: string | string[] | undefined): number {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  return parseInt(rawValue ?? '', 10);
+}
+
+function getRouteSystem(value: unknown): SystemType {
+  return getSystemFromRoute(value);
+}
+
+function getDisplayPreferencesStorageKey(system: SystemType, id: number): string | null {
+  if (Number.isNaN(id)) {
+    return null;
+  }
+
+  return `${DEVICE_DISPLAY_PREFERENCES_PREFIX}:${makeDeviceKey(system, id)}`;
+}
+
+function getCurrentDisplayPreferences(): DeviceDisplayPreferences {
+  return {
+    showDirection1: showDirection1.value,
+    showDirection2: showDirection2.value,
+    showNeighbor: showNeighbor.value,
+  };
+}
+
+function applyDisplayPreferences(preferences: DeviceDisplayPreferences) {
+  showDirection1.value = preferences.showDirection1;
+  showDirection2.value = preferences.showDirection2;
+  showNeighbor.value = preferences.showNeighbor;
+}
+
+async function persistDisplayPreferences(system: SystemType, id: number) {
+  const storageKey = getDisplayPreferencesStorageKey(system, id);
+  if (!storageKey) {
+    return;
+  }
+
+  const preferences = getCurrentDisplayPreferences();
+  displayPreferencesByDevice.value[storageKey] = preferences;
+
+  try {
+    await saveToDB(storageKey, preferences);
+  } catch (e) {
+    console.error('Error saving device display preferences', e);
+  }
+}
+
+async function restoreDisplayPreferences(system: SystemType, id: number) {
+  const storageKey = getDisplayPreferencesStorageKey(system, id);
+  const defaults = getDefaultDisplayPreferences();
+
+  if (!storageKey) {
+    applyDisplayPreferences(defaults);
+    return;
+  }
+
+  const cachedPreferences = displayPreferencesByDevice.value[storageKey];
+  if (cachedPreferences) {
+    applyDisplayPreferences(cachedPreferences);
+    return;
+  }
+
+  try {
+    const storedPreferences = await getFromDB<DeviceDisplayPreferences>(storageKey);
+    const preferences = storedPreferences ?? defaults;
+    displayPreferencesByDevice.value[storageKey] = preferences;
+    applyDisplayPreferences(preferences);
+  } catch (e) {
+    console.error('Error loading device display preferences', e);
+    applyDisplayPreferences(defaults);
+  }
+}
+
+function toggleDirectionVisibility(direction: 1 | 2) {
+  if (direction === 1) {
+    showDirection1.value = !showDirection1.value;
+  } else {
+    showDirection2.value = !showDirection2.value;
+  }
+
+  void persistDisplayPreferences(getRouteSystem(route.params.system), device_id.value);
+}
+
+function toggleNeighborVisibility() {
+  showNeighbor.value = !showNeighbor.value;
+  void persistDisplayPreferences(getRouteSystem(route.params.system), device_id.value);
+}
 
 /* ---------------- 方向开关（来自后端） ---------------- */
 const direction1Enabled = ref<boolean>(true);
@@ -208,9 +316,6 @@ const fetchDirectionFlags = async () => {
     console.error('Error fetching device flags', e);
   }
 };
-
-/* ---------------- 邻站开关 ---------------- */
-const showNeighbor = ref(true);
 
 /* ---------------- 响应式数据 ---------------- */
 const boards1                = ref<Board[]>([]);
@@ -301,6 +406,7 @@ const fetchSwitchStatus = async () => {
 /* ---------------- 生命周期 ---------------- */
 let timer: ReturnType<typeof setInterval>;
 onMounted(async () => {
+  await restoreDisplayPreferences(getRouteSystem(route.params.system), device_id.value);
   clearAllStatuses();
   await fetchDirectionFlags();  // 先拿到开关
   await fetchSwitchStatus();    // 再刷状态
@@ -311,8 +417,13 @@ onUnmounted(() => {
 });
 
 /* ---------------- 路由变化 ---------------- */
-watch(() => route.params.index, async (val) => {
-  device_id.value = parseInt(Array.isArray(val)?val[0]:(val as string), 10);
+watch(() => [route.params.system, route.params.index], async ([system, index], [oldSystem, oldIndex]) => {
+  await persistDisplayPreferences(
+    getRouteSystem(oldSystem),
+    parseRouteDeviceId(oldIndex as string | string[] | undefined),
+  );
+  device_id.value = parseRouteDeviceId(index as string | string[] | undefined);
+  await restoreDisplayPreferences(getRouteSystem(system), device_id.value);
   clearAllStatuses();
   await fetchDirectionFlags();
   await fetchSwitchStatus();

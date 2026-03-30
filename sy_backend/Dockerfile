@@ -1,16 +1,26 @@
+# syntax=docker/dockerfile:1.7
+
 FROM python:3.12
 
 # 设置工作目录
 WORKDIR /app
 
-# 安装系统依赖
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends netcat-openbsd gcc && \
-    rm -rf /var/lib/apt/lists/*
+ARG APT_MIRROR_HOST=mirrors.ustc.edu.cn
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
 
-# 复制 requirements.txt 并安装依赖
+# 安装系统依赖（使用 BuildKit 缓存提升重复构建速度）
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    sed -i "s|deb.debian.org|${APT_MIRROR_HOST}|g; s|security.debian.org|${APT_MIRROR_HOST}|g" /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends netcat-openbsd gcc
+
+# 复制依赖清单和锁文件并安装依赖（使用 BuildKit 缓存提升重复构建速度）
 COPY requirements.txt /app/
-RUN pip install -r requirements.txt
+COPY requirements.lock.txt /app/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install -i ${PIP_INDEX_URL} --trusted-host ${PIP_TRUSTED_HOST} -r requirements.txt -c requirements.lock.txt
 
 # 复制项目文件和脚本到容器中
 COPY . /app
@@ -31,4 +41,3 @@ RUN chmod +x /app/entrypoint.sh
 
 # 默认启动命令，运行Django服务
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
-

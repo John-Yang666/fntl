@@ -24,9 +24,53 @@ from django_filters.rest_framework import DjangoFilterBackend # type: ignore
 from rest_framework.permissions import IsAuthenticated, AllowAny # type: ignore
 from rest_framework import status
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import connection, transaction
 
 User = get_user_model()
+
+FAST_COUNT_CACHE_TTL = 30
+
+
+def _is_truthy_query_param(value):
+    return str(value).lower() not in {"0", "false", "no", "off"}
+
+
+def _query_is_unfiltered(queryset):
+    query = queryset.query
+    return (
+        len(query.where.children) == 0
+        and not query.group_by
+        and not query.distinct
+        and query.combinator is None
+        and not query.annotations
+    )
+
+
+def _estimated_queryset_count(queryset):
+    if connection.vendor != "postgresql":
+        return None
+    if not _query_is_unfiltered(queryset):
+        return None
+
+    table_name = queryset.model._meta.db_table
+    cache_key = f"estimated_count:{table_name}"
+    cached_count = cache.get(cache_key)
+    if isinstance(cached_count, int) and cached_count >= 0:
+        return cached_count
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT GREATEST(reltuples::bigint, 0) FROM pg_class WHERE oid = %s::regclass",
+            [table_name],
+        )
+        row = cursor.fetchone()
+
+    if not row:
+        return None
+
+    estimated_count = int(row[0])
+    cache.set(cache_key, estimated_count, FAST_COUNT_CACHE_TTL)
+    return estimated_count
 
 class UserDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -333,7 +377,48 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
     }
 
     def get_queryset(self):
-        return super().get_queryset().order_by('-timestamp_start')
+        return (
+            super()
+            .get_queryset()
+            .select_related("device")
+            .only(
+                "id",
+                "device",
+                "device__device_id",
+                "device__name",
+                "alarm_code",
+                "timestamp_start",
+                "timestamp_end",
+                "is_confirmed",
+            )
+            .order_by("-timestamp_start")
+        )
+
+    def list(self, request, *args, **kwargs):
+        if _is_truthy_query_param(request.query_params.get("include_count", "1")):
+            return super().list(request, *args, **kwargs)
+
+        queryset = self.filter_queryset(self.get_queryset())
+        paginator = self.paginator
+        page_size = paginator.get_page_size(request) if paginator else None
+        page_size = page_size or 20
+
+        try:
+            page_number = max(int(request.query_params.get("page", "1")), 1)
+        except (TypeError, ValueError):
+            page_number = 1
+
+        offset = (page_number - 1) * page_size
+        serializer = self.get_serializer(queryset[offset:offset + page_size], many=True)
+        return Response({"count": None, "results": serializer.data})
+
+    @action(detail=False, methods=["get"], url_path="count")
+    def count(self, request):
+        queryset = self.filter_queryset(AlarmData.objects.all())
+        estimated_count = _estimated_queryset_count(queryset)
+        approximate = estimated_count is not None
+        total_count = estimated_count if approximate else queryset.count()
+        return Response({"count": total_count, "approximate": approximate})
 
     @action(detail=True, methods=['post'], url_path='confirm')
     def confirm(self, request, pk=None):

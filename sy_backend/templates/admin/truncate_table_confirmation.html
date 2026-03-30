@@ -1,0 +1,25 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block content %}
+<div id="content-main">
+  <h1>{{ title }}</h1>
+
+  <p style="color:#b30000;font-weight:700;">此操作将直接 TRUNCATE 整张表，无法恢复。</p>
+  <p>模型：{{ model_label }}</p>
+  <p>数据表：<code>{{ table_name }}</code></p>
+  <p>注意：此操作与当前勾选条目无关，会清空该模型对应的全部数据。</p>
+
+  <form method="post">{% csrf_token %}
+    {% for obj_id in selected_ids %}
+      <input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj_id }}">
+    {% endfor %}
+    <input type="hidden" name="action" value="{{ action_name }}">
+    <input type="hidden" name="select_across" value="{{ select_across }}">
+    <input type="hidden" name="confirm_truncate" value="yes">
+
+    <input type="submit" value="确认清空整表(慎用)" class="default" style="background:#b30000;border-color:#b30000;">
+    <a href="{% url opts|admin_urlname:'changelist' %}" class="button cancel-link">取消</a>
+  </form>
+</div>
+{% endblock %}

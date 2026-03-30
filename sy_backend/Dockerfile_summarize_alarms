@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 安装 Python 依赖
 COPY requirements_summarize_alarms.txt /app/requirements_summarize_alarms.txt
-RUN pip install --no-cache-dir -r /app/requirements_summarize_alarms.txt
+RUN python -m pip install --no-cache-dir -r /app/requirements_summarize_alarms.txt
 
 # 设置默认环境变量
 ENV PYTHONUNBUFFERED=1

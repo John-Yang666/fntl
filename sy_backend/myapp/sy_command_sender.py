@@ -86,7 +86,7 @@ def send_sy_frame_via_redis_stream(
         raise
 
 
-# 兼容旧名字：如果你其他地方还在 import / 调用 send_sy_frame_via_kafka，就不用改调用点
+# 兼容旧调用入口：统一保留 Redis Streams 发送函数
 def send_sy_frame_via_redis(*, device_id: int, addr: int, frame: bytes, command: str, extra_meta: dict | None = None):
     return send_sy_frame_via_redis_stream(
         device_id=device_id,

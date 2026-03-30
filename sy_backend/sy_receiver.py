@@ -7,10 +7,12 @@ import os
 import signal
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import redis
+from psycopg2.extras import execute_values
 
 sys.path.append("/app")
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myproject.settings")
@@ -19,7 +21,7 @@ import django  # noqa: E402
 django.setup()
 
 from django.core.cache import cache  # noqa: E402
-from django.db import transaction  # noqa: E402
+from django.db import connection, transaction  # noqa: E402
 from django.utils import timezone  # noqa: E402
 
 from consts import (  # noqa: E402
@@ -29,13 +31,13 @@ from consts import (  # noqa: E402
 )
 from myapp.models import (  # noqa: E402
     ChangeBitEvent,
-    Device,
     RawFrameLog,
     RelayAction,
     SwitchData,
 )
-from myapp.tasks.extract_sy_alarms_task import (  # noqa: E402
-    build_sy_alarm_state,
+from myapp.tasks.sy_device_context import (  # noqa: E402
+    hash_sy_device_context_cache,
+    load_sy_device_context_cache,
 )
 
 
@@ -69,6 +71,12 @@ SY_LOG_RAW_FRAMES = str(os.getenv("SY_LOG_RAW_FRAMES", "0")).strip().lower() in 
 }
 
 SWITCH_STATUS_VERSION_DEFAULT = "v4"
+SQL_INSERT_PAGE_SIZE = int(os.getenv("SQL_INSERT_PAGE_SIZE", "1000"))
+
+SWITCH_TABLE = SwitchData._meta.db_table
+CHANGE_TABLE = ChangeBitEvent._meta.db_table
+RELAY_TABLE = RelayAction._meta.db_table
+RAW_FRAME_TABLE = RawFrameLog._meta.db_table
 
 redis_client2 = redis.StrictRedis(
     host=REDIS_HOST,
@@ -87,6 +95,12 @@ RUNNING = True
 last_packet_monotonic = time.monotonic()
 
 device_context_map: dict[int, dict] = {}
+worker_state = {
+    "switch_status_by_device": {},
+    "loaded_switch": set(),
+    "last_a1_by_device": {},
+    "loaded_a1": set(),
+}
 
 
 SY_RELAY_BITS = {
@@ -167,39 +181,21 @@ def _coerce_bytes(raw_value):
     return None
 
 
+def _parse_iso(raw_value: str | None):
+    if not raw_value:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw_value)
+    except ValueError:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_current_timezone())
+    return dt
+
+
 def load_device_context_cache():
     try:
-        rows = Device.objects.all().values(
-            "device_id",
-            "name",
-            "alarm_filters",
-            "direction1_enabled",
-            "direction2_enabled",
-            "direction3_enabled",
-            "direction1_neighbor_id",
-            "direction1_neighbor_direction",
-            "direction2_neighbor_id",
-            "direction2_neighbor_direction",
-            "direction1_cable_alarm_linkage",
-            "direction2_cable_alarm_linkage",
-        )
-        new_cache = {}
-        for row in rows:
-            new_cache[row["device_id"]] = {
-                "device_id": row["device_id"],
-                "name": row["name"] or "",
-                "alarm_filters": set(row["alarm_filters"] or []),
-                "direction1_enabled": bool(row["direction1_enabled"]),
-                "direction2_enabled": bool(row["direction2_enabled"]),
-                "direction3_enabled": bool(row["direction3_enabled"]),
-                "direction1_neighbor_id": row["direction1_neighbor_id"] or 0,
-                "direction1_neighbor_direction": row["direction1_neighbor_direction"],
-                "direction2_neighbor_id": row["direction2_neighbor_id"] or 0,
-                "direction2_neighbor_direction": row["direction2_neighbor_direction"],
-                "direction1_cable_alarm_linkage": bool(row["direction1_cable_alarm_linkage"]),
-                "direction2_cable_alarm_linkage": bool(row["direction2_cable_alarm_linkage"]),
-            }
-        return new_cache
+        return load_sy_device_context_cache()
     except Exception as exc:
         logger.error("[device_cache] load failed: %s", exc)
         return None
@@ -211,25 +207,7 @@ def refresh_device_context_cache():
     while RUNNING:
         snapshot = load_device_context_cache()
         if snapshot is not None:
-            new_hash = hash(
-                frozenset(
-                    (
-                        device_id,
-                        row["name"],
-                        tuple(sorted(row["alarm_filters"])),
-                        row["direction1_enabled"],
-                        row["direction2_enabled"],
-                        row["direction3_enabled"],
-                        row["direction1_neighbor_id"],
-                        row["direction1_neighbor_direction"],
-                        row["direction2_neighbor_id"],
-                        row["direction2_neighbor_direction"],
-                        row["direction1_cable_alarm_linkage"],
-                        row["direction2_cable_alarm_linkage"],
-                    )
-                    for device_id, row in snapshot.items()
-                )
-            )
+            new_hash = hash_sy_device_context_cache(snapshot)
             if new_hash != last_hash:
                 device_context_map = snapshot
                 last_hash = new_hash
@@ -346,18 +324,6 @@ def normalize_stream_message(entry_id: str, fields: dict[str, str]):
     )
 
 
-def _parse_iso(raw_value: str | None):
-    if not raw_value:
-        return None
-    try:
-        dt = datetime.fromisoformat(raw_value)
-    except ValueError:
-        return None
-    if timezone.is_naive(dt):
-        dt = timezone.make_aware(dt, timezone.get_current_timezone())
-    return dt
-
-
 def _relay_actions_for_status_change(device_context: dict, previous_status: bytes | None, current_status: bytes):
     previous_status = previous_status or b"\x00\x00\x00\x00"
     if len(previous_status) < len(current_status):
@@ -413,17 +379,60 @@ def _apply_a2_change(previous_status: bytes | None, payload: bytes):
 
 def _hydrate_switch_status_from_db(device_ids):
     hydrated = {}
-    for device_id in device_ids:
-        last_row = (
-            SwitchData.objects.filter(device_id=device_id)
-            .order_by("-timestamp")
-            .values_list("switch_status", flat=True)
-            .first()
-        )
-        status_bytes = _coerce_bytes(last_row)
+    if not device_ids:
+        return hydrated
+
+    rows = (
+        SwitchData.objects.filter(device_id__in=device_ids)
+        .order_by("device_id", "-timestamp")
+        .values_list("device_id", "switch_status")
+    )
+    for device_id, raw_status in rows:
+        if device_id in hydrated:
+            continue
+        status_bytes = _coerce_bytes(raw_status)
         if status_bytes is not None:
             hydrated[device_id] = status_bytes
     return hydrated
+
+
+def ensure_local_device_state(device_ids: list[int]):
+    missing_switch = [device_id for device_id in device_ids if device_id not in worker_state["loaded_switch"]]
+    missing_a1 = [device_id for device_id in device_ids if device_id not in worker_state["loaded_a1"]]
+
+    cache_keys = []
+    for device_id in missing_switch:
+        cache_keys.append(_switch_status_key(device_id))
+    cache_snapshot = cache.get_many(cache_keys) if cache_keys else {}
+
+    for device_id in missing_switch:
+        worker_state["switch_status_by_device"][device_id] = _coerce_bytes(cache_snapshot.get(_switch_status_key(device_id)))
+        worker_state["loaded_switch"].add(device_id)
+
+    unresolved_switch_ids = [
+        device_id
+        for device_id in missing_switch
+        if worker_state["switch_status_by_device"].get(device_id) is None
+    ]
+    if unresolved_switch_ids:
+        hydrated = _hydrate_switch_status_from_db(unresolved_switch_ids)
+        for device_id, status_bytes in hydrated.items():
+            worker_state["switch_status_by_device"][device_id] = status_bytes
+
+    if missing_a1:
+        a1_keys = []
+        for device_id in missing_a1:
+            a1_keys.append(_last_a1_bytes_key(device_id))
+            a1_keys.append(_last_a1_log_ts_key(device_id))
+        a1_values = redis_client2.mget(a1_keys)
+        for idx, device_id in enumerate(missing_a1):
+            last_bytes = a1_values[idx * 2] if idx * 2 < len(a1_values) else None
+            last_log_ts_raw = a1_values[idx * 2 + 1] if idx * 2 + 1 < len(a1_values) else None
+            worker_state["last_a1_by_device"][device_id] = {
+                "last_bytes": last_bytes,
+                "last_log_ts": _parse_iso(last_log_ts_raw),
+            }
+            worker_state["loaded_a1"].add(device_id)
 
 
 def process_message_batch(messages: list[SyFrameMessage]):
@@ -439,11 +448,13 @@ def process_message_batch(messages: list[SyFrameMessage]):
         "raw_rows": 0,
         "dedup": 0,
         "hb_devices": 0,
+        "db_ms": 0.0,
     }
     if not messages:
         return metrics
 
     unique_device_ids = list(dict.fromkeys(msg.nms_id for msg in messages))
+    ensure_local_device_state(unique_device_ids)
 
     latest_hb_by_device = {}
     for msg in messages:
@@ -461,47 +472,8 @@ def process_message_batch(messages: list[SyFrameMessage]):
     metrics["hb_devices"] = len(latest_hb_by_device)
     last_packet_monotonic = max(last_packet_monotonic, max(msg.received_monotonic for msg in latest_hb_by_device.values()))
 
-    a1_device_ids = list(dict.fromkeys(msg.nms_id for msg in messages if msg.cmd == "A1"))
-    last_bytes_raw = []
-    last_log_ts_raw = []
-    if a1_device_ids:
-        a1_keys = []
-        for device_id in a1_device_ids:
-            a1_keys.append(_last_a1_bytes_key(device_id))
-            a1_keys.append(_last_a1_log_ts_key(device_id))
-        a1_values = redis_client2.mget(a1_keys)
-        last_bytes_raw = a1_values[::2]
-        last_log_ts_raw = a1_values[1::2]
-    a1_state = {
-        device_id: {
-            "last_bytes": last_bytes_raw[idx] if idx < len(last_bytes_raw) else None,
-            "last_log_ts": _parse_iso(last_log_ts_raw[idx]) if idx < len(last_log_ts_raw) else None,
-        }
-        for idx, device_id in enumerate(a1_device_ids)
-    }
-
-    cache_keys = []
-    for device_id in unique_device_ids:
-        cache_keys.extend(
-            [
-                _switch_status_key(device_id),
-                _alarm_key(device_id),
-            ]
-        )
-    cache_snapshot = cache.get_many(cache_keys) if cache_keys else {}
-
-    switch_status_state = {
-        device_id: _coerce_bytes(cache_snapshot.get(_switch_status_key(device_id)))
-        for device_id in unique_device_ids
-    }
-    previous_alarm_state = {
-        device_id: cache_snapshot.get(_alarm_key(device_id), {}) or {}
-        for device_id in unique_device_ids
-    }
-
-    missing_switch_ids = [device_id for device_id, value in switch_status_state.items() if value is None]
-    if missing_switch_ids:
-        switch_status_state.update(_hydrate_switch_status_from_db(missing_switch_ids))
+    switch_status_state = worker_state["switch_status_by_device"]
+    a1_state = worker_state["last_a1_by_device"]
 
     switch_rows = []
     change_rows = []
@@ -515,11 +487,13 @@ def process_message_batch(messages: list[SyFrameMessage]):
 
         if SY_LOG_RAW_FRAMES and msg.cmd != "NO_CHANGE":
             raw_rows.append(
-                RawFrameLog(
-                    device_id=msg.nms_id,
-                    raw_frame=msg.frame_bytes,
-                    cmd=msg.cmd,
-                    note=f"serial_id={msg.serial_id}; line_id={msg.line_id}; port={msg.port}",
+                (
+                    uuid.uuid4(),
+                    msg.nms_id,
+                    msg.frame_bytes,
+                    msg.cmd,
+                    f"serial_id={msg.serial_id}; line_id={msg.line_id}; port={msg.port}",
+                    msg.received_at,
                 )
             )
 
@@ -548,6 +522,7 @@ def process_message_batch(messages: list[SyFrameMessage]):
                 metrics["dedup"] += 1
                 if previous_status != status_bytes:
                     switch_status_state[msg.nms_id] = status_bytes
+                    switch_status_state[msg.nms_id] = status_bytes
                     cache_updates[_switch_status_key(msg.nms_id)] = status_bytes
                     cache_updates[_switch_status_updated_at_key(msg.nms_id)] = msg.received_at.isoformat()
                     cache_updates[_switch_status_version_key(msg.nms_id)] = SWITCH_STATUS_VERSION_DEFAULT
@@ -565,11 +540,13 @@ def process_message_batch(messages: list[SyFrameMessage]):
                 continue
             if changed:
                 change_rows.append(
-                    ChangeBitEvent(
-                        device_id=msg.nms_id,
-                        bit_index=bit_index_flat,
-                        value=((next_status[bit_index_flat // 8] >> (bit_index_flat % 8)) & 0x01) == 1,
-                        source="A2",
+                    (
+                        uuid.uuid4(),
+                        msg.nms_id,
+                        bit_index_flat,
+                        ((next_status[bit_index_flat // 8] >> (bit_index_flat % 8)) & 0x01) == 1,
+                        "A2",
+                        msg.received_at,
                     )
                 )
             else:
@@ -583,49 +560,54 @@ def process_message_batch(messages: list[SyFrameMessage]):
 
         switch_status_state[msg.nms_id] = next_status
         switch_rows.append(
-            SwitchData(
-                device_id=msg.nms_id,
-                switch_status=next_status,
-                version=SWITCH_STATUS_VERSION_DEFAULT,
-                timestamp=msg.received_at,
+            (
+                uuid.uuid4(),
+                msg.nms_id,
+                next_status,
+                SWITCH_STATUS_VERSION_DEFAULT,
+                msg.received_at,
             )
         )
 
         for relay_label, action_label in _relay_actions_for_status_change(device_context, previous_status, next_status):
-            relay_rows.append(
-                RelayAction(
-                    device_id=msg.nms_id,
-                    relay=relay_label,
-                    action=action_label,
-                    timestamp=msg.received_at,
-                )
-            )
-
-        alarms_state = build_sy_alarm_state(
-            device_id=msg.nms_id,
-            status_bytes=next_status,
-            previous_alarms=previous_alarm_state.get(msg.nms_id, {}),
-            current_time=msg.received_at,
-            device_context=device_context,
-        )
-        if alarms_state:
-            previous_alarm_state[msg.nms_id] = alarms_state
-            cache_updates[_alarm_key(msg.nms_id)] = alarms_state
-            cache_updates[_alarm_updated_at_key(msg.nms_id)] = msg.received_at.isoformat()
+            relay_rows.append((uuid.uuid4(), msg.nms_id, relay_label, action_label, msg.received_at))
 
         cache_updates[_switch_status_key(msg.nms_id)] = next_status
         cache_updates[_switch_status_updated_at_key(msg.nms_id)] = msg.received_at.isoformat()
         cache_updates[_switch_status_version_key(msg.nms_id)] = SWITCH_STATUS_VERSION_DEFAULT
 
+    db_begin = time.monotonic()
     with transaction.atomic():
-        if switch_rows:
-            SwitchData.objects.bulk_create(switch_rows, batch_size=1000)
-        if change_rows:
-            ChangeBitEvent.objects.bulk_create(change_rows, batch_size=1000)
-        if relay_rows:
-            RelayAction.objects.bulk_create(relay_rows, batch_size=1000)
-        if raw_rows:
-            RawFrameLog.objects.bulk_create(raw_rows, batch_size=500)
+        with connection.cursor() as cursor:
+            if switch_rows:
+                execute_values(
+                    cursor,
+                    f"INSERT INTO {SWITCH_TABLE} (id, device_id, switch_status, version, timestamp) VALUES %s",
+                    switch_rows,
+                    page_size=SQL_INSERT_PAGE_SIZE,
+                )
+            if change_rows:
+                execute_values(
+                    cursor,
+                    f"INSERT INTO {CHANGE_TABLE} (id, device_id, bit_index, value, source, timestamp) VALUES %s",
+                    change_rows,
+                    page_size=SQL_INSERT_PAGE_SIZE,
+                )
+            if relay_rows:
+                execute_values(
+                    cursor,
+                    f"INSERT INTO {RELAY_TABLE} (id, device_id, relay, action, timestamp) VALUES %s",
+                    relay_rows,
+                    page_size=SQL_INSERT_PAGE_SIZE,
+                )
+            if raw_rows:
+                execute_values(
+                    cursor,
+                    f"INSERT INTO {RAW_FRAME_TABLE} (id, device_id, raw_frame, cmd, note, timestamp) VALUES %s",
+                    raw_rows,
+                    page_size=min(SQL_INSERT_PAGE_SIZE, 500),
+                )
+    metrics["db_ms"] = (time.monotonic() - db_begin) * 1000
 
     if cache_updates:
         cache.set_many(cache_updates, timeout=None)
@@ -654,6 +636,18 @@ def _read_stream_entries(stream_id: str, count: int, block_ms: int):
     return entries
 
 
+def _get_pending_count() -> int:
+    try:
+        pending = redis_stream.xpending(SY_RAW_STREAM, SY_RAW_GROUP)
+        if isinstance(pending, dict):
+            return int(pending.get("pending", 0))
+        if isinstance(pending, (list, tuple)) and pending:
+            return int(pending[0])
+    except Exception:
+        return -1
+    return -1
+
+
 def sy_stream_listener():
     batch_entries = []
     batch_entry_ids: set[str] = set()
@@ -669,6 +663,7 @@ def sy_stream_listener():
         "raw_rows": 0,
         "dedup": 0,
         "hb_devices": 0,
+        "db_ms": 0.0,
     }
     last_log_time = time.monotonic()
 
@@ -719,7 +714,11 @@ def sy_stream_listener():
         if not batch_entries:
             now = time.monotonic()
             if now - last_log_time >= INGEST_LOG_INTERVAL_SEC:
-                logger.info("[ingest] recv=0 valid=0 invalid=0 switch=0 change=0 relay=0 dedup=0")
+                pending = _get_pending_count()
+                logger.info(
+                    "[ingest] recv=0 valid=0 invalid=0 dedup=0 switch=0 change=0 relay=0 acked=0 db_ms=0.0 pending=%s",
+                    pending,
+                )
                 last_log_time = now
             continue
 
@@ -759,6 +758,7 @@ def sy_stream_listener():
                 stats["raw_rows"] += metrics["raw_rows"]
                 stats["dedup"] += metrics["dedup"]
                 stats["hb_devices"] += metrics["hb_devices"]
+                stats["db_ms"] += metrics["db_ms"]
             except Exception as exc:
                 logger.error("[ingest] batch failed, messages kept pending: %s", exc, exc_info=True)
                 time.sleep(0.2)
@@ -768,18 +768,19 @@ def sy_stream_listener():
 
         now = time.monotonic()
         if now - last_log_time >= INGEST_LOG_INTERVAL_SEC:
+            pending = _get_pending_count()
             logger.info(
-                "[ingest] recv=%s valid=%s invalid=%s ack=%s switch=%s change=%s relay=%s raw=%s dedup=%s hb_dev=%s",
+                "[ingest] recv=%s valid=%s invalid=%s dedup=%s switch=%s change=%s relay=%s acked=%s db_ms=%.1f pending=%s",
                 stats["received"],
                 stats["valid"],
                 stats["invalid"],
-                stats["acked"],
+                stats["dedup"],
                 stats["switch_rows"],
                 stats["change_rows"],
                 stats["relay_rows"],
-                stats["raw_rows"],
-                stats["dedup"],
-                stats["hb_devices"],
+                stats["acked"],
+                stats["db_ms"],
+                pending,
             )
             for key in stats:
                 stats[key] = 0

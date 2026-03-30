@@ -39,6 +39,7 @@ sy_agent.py (Redis Streams) - Receiver Threads + Frame Queues (生产版：最�
 """
 
 import os
+import importlib.util
 import sys
 import time
 import json
@@ -48,6 +49,9 @@ import queue
 import socket
 from typing import Dict, List, Optional, Tuple, Deque, Callable
 from collections import deque
+from pathlib import Path
+import copy
+import tomllib
 
 import serial
 from serial import SerialException
@@ -125,113 +129,196 @@ DEBUG_TUNING = {
     "PENDING_CLAIM_COUNT": 20,
 }
 
+CONFIG_PY_PATH = Path(__file__).with_name("config.py")
+CONFIG_TOML_PATH = Path(__file__).with_name("config.toml")
+CONFIG_PATH: Path
 
-def _env_bool(k: str, default: bool) -> bool:
-    v = os.getenv(k)
-    if v is None:
-        return bool(default)
-    return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
+DEFAULT_CONFIG = {
+    "redis": {
+        "host": "localhost",
+        "port": 36380,
+        "db": 0,
+    },
+    "stream": {
+        "raw_stream": "sy.raw",
+        "raw_stream_maxlen": 200000,
+        "cmd_stream": "sy-serial-commands",
+        "cmd_group": "sy_agent_cmd_group",
+        "cmd_consumer": "sy-agent-1",
+        "cmd_block_ms": 1000,
+        "cmd_count": 10,
+    },
+    "cmd": {
+        "dlq_stream": "sy-serial-commands.dlq",
+        "dlq_maxlen": 50000,
+        "done_key_prefix": "sy:cmd_done:",
+        "done_ttl_sec": 3600,
+        "done_local_ttl_sec": 600,
+        "dlq_dedupe_prefix": "sy:cmd_dlq:",
+        "dlq_dedupe_ttl_sec": 600,
+        "try_key_prefix": "sy:cmd_try:",
+        "try_ttl_sec": 3600,
+        "max_tries": 20,
+        "inflight_ttl_sec": 3.0,
+        "no_resp_enable": True,
+        "confirm_delay_sec": 0.08,
+        "confirm_timeout_sec": 0.25,
+        "confirm_a1": True,
+        "no_resp_cmds": ["BB", "CC"],
+    },
+    "time_sync": {
+        "enable": False,
+        "interval_sec": 3600,
+    },
+    "a2_burst": {
+        "enable": True,
+        "max": 3,
+        "timeout_sec": 0.06,
+        "budget_sec": 0.16,
+    },
+    "serial": {
+        "default_baudrate": 19200,
+        "timeout": 0.0,
+    },
+    "lines": [
+        {
+            "line_id": 1,
+            "name": "Line-1",
+            "head_port": "COM3",
+            "tail_port": "NONE",
+            "baudrate": 19200,
+            "timeout": 0.0,
+            "devices": [
+                {"serial_id": 0x01, "nms_id": 1, "a1_interval": 5.0},
+                {"serial_id": 0x02, "nms_id": 2, "a1_interval": 5.0},
+            ],
+        },
+        {
+            "line_id": 2,
+            "name": "Line-2",
+            "head_port": "COM5",
+            "tail_port": "NONE",
+            "baudrate": 19200,
+            "timeout": 0.0,
+            "devices": [
+                {"serial_id": 0x02, "nms_id": 4, "a1_interval": 5.0},
+                {"serial_id": 0x03, "nms_id": 5, "a1_interval": 5.0},
+                {"serial_id": 0x04, "nms_id": 6, "a1_interval": 5.0},
+            ],
+        },
+    ],
+    "debug_tuning": DEBUG_TUNING,
+}
 
 
-def _env_int(k: str, default: int) -> int:
-    v = os.getenv(k)
-    if v is None:
-        return int(default)
-    try:
-        return int(str(v).strip())
-    except Exception:
-        return int(default)
-
-
-def _env_float(k: str, default: float) -> float:
-    v = os.getenv(k)
-    if v is None:
-        return float(default)
-    try:
-        return float(str(v).strip())
-    except Exception:
-        return float(default)
-
-
-def _apply_env_tuning():
-    """
-    可选：通过环境变量覆盖 DEBUG_TUNING（不改变你原有“顶部调参区”习惯）
-    示例：
-      SY_TUNE_LOG_SEND=1
-      SY_TUNE_STALL_NOFRAME_SEC=8
-    """
-    prefix = "SY_TUNE_"
-    for k in list(DEBUG_TUNING.keys()):
-        envk = prefix + k
-        if envk not in os.environ:
-            continue
-        old = DEBUG_TUNING[k]
-        if isinstance(old, bool):
-            DEBUG_TUNING[k] = _env_bool(envk, old)
-        elif isinstance(old, int):
-            DEBUG_TUNING[k] = _env_int(envk, old)
+def _deep_merge(base: dict, override: dict) -> dict:
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_merge(base[key], value)
         else:
-            DEBUG_TUNING[k] = _env_float(envk, float(old))
+            base[key] = value
+    return base
 
 
-_apply_env_tuning()
+def _load_py_config(path: Path) -> dict:
+    spec = importlib.util.spec_from_file_location("sy_agent_runtime_config", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load config module: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    loaded = getattr(module, "CONFIG", None)
+    if not isinstance(loaded, dict):
+        raise TypeError(f"{path} must define CONFIG = {{...}}")
+    return loaded
+
+
+def _load_config() -> dict:
+    global CONFIG_PATH
+
+    if CONFIG_PY_PATH.exists():
+        CONFIG_PATH = CONFIG_PY_PATH
+        loaded = _load_py_config(CONFIG_PATH)
+    elif CONFIG_TOML_PATH.exists():
+        CONFIG_PATH = CONFIG_TOML_PATH
+        with CONFIG_PATH.open("rb") as f:
+            loaded = tomllib.load(f)
+    else:
+        raise FileNotFoundError(
+            f"missing config file: {CONFIG_PY_PATH} or {CONFIG_TOML_PATH}"
+        )
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    return _deep_merge(config, loaded)
+
+
+CONFIG = _load_config()
+DEBUG_TUNING = CONFIG["debug_tuning"]
+REDIS_CONFIG = CONFIG["redis"]
+STREAM_CONFIG = CONFIG["stream"]
+CMD_CONFIG = CONFIG["cmd"]
+TIME_SYNC_CONFIG = CONFIG["time_sync"]
+A2_BURST_CONFIG = CONFIG["a2_burst"]
+SERIAL_CONFIG = CONFIG["serial"]
 
 # ============================================================
-# Redis Streams 配置（仍可用环境变量覆盖）
+# Redis Streams 配置（由 TOML 提供）
 # ============================================================
-REDIS_HOST = os.getenv("SY_STREAM_HOST", os.getenv("STREAM_REDIS_HOST", "localhost"))
-REDIS_PORT = int(os.getenv("SY_STREAM_PORT", os.getenv("STREAM_REDIS_PORT", "36380")))
-SY_STREAM_DB = int(os.getenv("SY_STREAM_DB", "0"))
+REDIS_HOST = str(REDIS_CONFIG["host"])
+REDIS_PORT = int(REDIS_CONFIG["port"])
+SY_STREAM_DB = int(REDIS_CONFIG["db"])
 
-SY_RAW_STREAM = os.getenv("SY_RAW_STREAM", "sy.raw")
-SY_RAW_STREAM_MAXLEN = int(os.getenv("SY_RAW_STREAM_MAXLEN", "200000"))
+SY_RAW_STREAM = str(STREAM_CONFIG["raw_stream"])
+SY_RAW_STREAM_MAXLEN = int(STREAM_CONFIG["raw_stream_maxlen"])
 
-SY_CMD_STREAM = os.getenv("SY_CMD_STREAM", "sy-serial-commands")
-SY_CMD_GROUP = os.getenv("SY_CMD_GROUP", "sy_agent_cmd_group")
-SY_CMD_CONSUMER = os.getenv("SY_CMD_CONSUMER", f"sy-agent-{os.getpid()}")
+SY_CMD_STREAM = str(STREAM_CONFIG["cmd_stream"])
+SY_CMD_GROUP = str(STREAM_CONFIG["cmd_group"])
+SY_CMD_CONSUMER = str(STREAM_CONFIG["cmd_consumer"])
 
-SY_CMD_BLOCK_MS = int(os.getenv("SY_CMD_BLOCK_MS", "1000"))
-SY_CMD_COUNT = int(os.getenv("SY_CMD_COUNT", "10"))
+SY_CMD_BLOCK_MS = int(STREAM_CONFIG["cmd_block_ms"])
+SY_CMD_COUNT = int(STREAM_CONFIG["cmd_count"])
 
 # ✅ 生产：DLQ + 去重配置
-SY_CMD_DLQ_STREAM = os.getenv("SY_CMD_DLQ_STREAM", "sy-serial-commands.dlq")
-SY_CMD_DLQ_MAXLEN = int(os.getenv("SY_CMD_DLQ_MAXLEN", "50000"))
+SY_CMD_DLQ_STREAM = str(CMD_CONFIG["dlq_stream"])
+SY_CMD_DLQ_MAXLEN = int(CMD_CONFIG["dlq_maxlen"])
 
-SY_CMD_DONE_KEY_PREFIX = os.getenv("SY_CMD_DONE_KEY_PREFIX", "sy:cmd_done:")
-SY_CMD_DONE_TTL_SEC = int(os.getenv("SY_CMD_DONE_TTL_SEC", "3600"))
-SY_CMD_DONE_LOCAL_TTL_SEC = int(os.getenv("SY_CMD_DONE_LOCAL_TTL_SEC", "600"))
+SY_CMD_DONE_KEY_PREFIX = str(CMD_CONFIG["done_key_prefix"])
+SY_CMD_DONE_TTL_SEC = int(CMD_CONFIG["done_ttl_sec"])
+SY_CMD_DONE_LOCAL_TTL_SEC = int(CMD_CONFIG["done_local_ttl_sec"])
 
 # (可选) DLQ 去重：同一个坏消息/原因短时间只记录一次
-SY_CMD_DLQ_DEDUPE_PREFIX = os.getenv("SY_CMD_DLQ_DEDUPE_PREFIX", "sy:cmd_dlq:")
-SY_CMD_DLQ_DEDUPE_TTL_SEC = int(os.getenv("SY_CMD_DLQ_DEDUPE_TTL_SEC", "600"))
+SY_CMD_DLQ_DEDUPE_PREFIX = str(CMD_CONFIG["dlq_dedupe_prefix"])
+SY_CMD_DLQ_DEDUPE_TTL_SEC = int(CMD_CONFIG["dlq_dedupe_ttl_sec"])
 
 # ✅ 新增：命令重试次数上限（避免 pending 永久堆积）
-SY_CMD_TRY_KEY_PREFIX = os.getenv("SY_CMD_TRY_KEY_PREFIX", "sy:cmd_try:")
-SY_CMD_TRY_TTL_SEC = int(os.getenv("SY_CMD_TRY_TTL_SEC", "3600"))
-SY_CMD_MAX_TRIES = int(os.getenv("SY_CMD_MAX_TRIES", "20"))
+SY_CMD_TRY_KEY_PREFIX = str(CMD_CONFIG["try_key_prefix"])
+SY_CMD_TRY_TTL_SEC = int(CMD_CONFIG["try_ttl_sec"])
+SY_CMD_MAX_TRIES = int(CMD_CONFIG["max_tries"])
+SY_CMD_INFLIGHT_TTL_SEC = float(CMD_CONFIG["inflight_ttl_sec"])
 
 # ============================================================
 # ✅ 新增：无回帧命令（BB/CC）适配配置
 # ============================================================
-SY_CMD_NO_RESP_ENABLE = os.getenv("SY_CMD_NO_RESP_ENABLE", "1") == "1"
-SY_CMD_CONFIRM_DELAY_SEC = float(os.getenv("SY_CMD_CONFIRM_DELAY_SEC", "0.08"))
-SY_CMD_CONFIRM_TIMEOUT_SEC = float(os.getenv("SY_CMD_CONFIRM_TIMEOUT_SEC", "0.25"))
-SY_CMD_CONFIRM_A1 = os.getenv("SY_CMD_CONFIRM_A1", "1") == "1"
+SY_CMD_NO_RESP_ENABLE = bool(CMD_CONFIG["no_resp_enable"])
+SY_CMD_CONFIRM_DELAY_SEC = float(CMD_CONFIG["confirm_delay_sec"])
+SY_CMD_CONFIRM_TIMEOUT_SEC = float(CMD_CONFIG["confirm_timeout_sec"])
+SY_CMD_CONFIRM_A1 = bool(CMD_CONFIG["confirm_a1"])
 
 
-def _parse_hex_cmd_list(s: str) -> List[int]:
+def _parse_hex_cmd_list(values) -> List[int]:
     """
-    支持："BB,CC" / "0xBB 0xCC" / "187,204"
+    支持："BB,CC" / "0xBB 0xCC" / "187,204" / ["BB", "CC"] / [187, 204]
     """
     out: List[int] = []
-    if not s:
+    if values is None:
         return out
     parts = []
-    for p in str(s).replace(";", ",").replace("|", ",").split(","):
-        p = p.strip()
-        if not p:
-            continue
-        parts.append(p)
+    if isinstance(values, (list, tuple, set)):
+        parts = [str(item).strip() for item in values if str(item).strip()]
+    else:
+        for p in str(values).replace(";", ",").replace("|", ",").split(","):
+            p = p.strip()
+            if not p:
+                continue
+            parts.append(p)
     for p in parts:
         pp = p.strip().lower()
         try:
@@ -247,58 +334,32 @@ def _parse_hex_cmd_list(s: str) -> List[int]:
 
 
 # ============================================================
-# 时间同步（AA）配置（默认关闭，避免干扰调试）
+# 时间同步（AA）配置
 # ============================================================
-TIME_SYNC_ENABLE = os.getenv("SY_TIME_SYNC_ENABLE", "0") == "1"
-TIME_SYNC_INTERVAL = float(os.getenv("SY_TIME_SYNC_INTERVAL", "3600"))
+TIME_SYNC_ENABLE = bool(TIME_SYNC_CONFIG["enable"])
+TIME_SYNC_INTERVAL = float(TIME_SYNC_CONFIG["interval_sec"])
 
 # ============================================================
 # A2 Burst（保留）
 # ============================================================
-A2_BURST_ENABLE = os.getenv("SY_A2_BURST_ENABLE", "1") == "1"
-A2_BURST_MAX = int(os.getenv("SY_A2_BURST_MAX", "3"))
-A2_BURST_TIMEOUT = float(os.getenv("SY_A2_BURST_TIMEOUT", "0.06"))
-A2_BURST_BUDGET = float(os.getenv("SY_A2_BURST_BUDGET", "0.16"))
+A2_BURST_ENABLE = bool(A2_BURST_CONFIG["enable"])
+A2_BURST_MAX = int(A2_BURST_CONFIG["max"])
+A2_BURST_TIMEOUT = float(A2_BURST_CONFIG["timeout_sec"])
+A2_BURST_BUDGET = float(A2_BURST_CONFIG["budget_sec"])
 
 # ============================================================
 # 串口参数（保留：ODD/2 stop/19200/timeout=0）
 # ============================================================
-DEFAULT_BAUDRATE = int(os.getenv("SY_DEFAULT_BAUDRATE", "19200"))
+DEFAULT_BAUDRATE = int(SERIAL_CONFIG["default_baudrate"])
 DEFAULT_BYTESIZE = serial.EIGHTBITS
 DEFAULT_PARITY = serial.PARITY_ODD
 DEFAULT_STOPBITS = serial.STOPBITS_TWO
-DEFAULT_TIMEOUT = float(os.getenv("SY_SERIAL_TIMEOUT", "0.0"))
+DEFAULT_TIMEOUT = float(SERIAL_CONFIG["timeout"])
 
 # ============================================================
 # 多线路配置（示例）
 # ============================================================
-LINES_CONFIG = [
-    {
-        "line_id": 1,
-        "name": "Line-1",
-        "head_port": os.getenv("SY_LINE1_HEAD", "COM3"),
-        "tail_port": os.getenv("SY_LINE1_TAIL", "NONE"),
-        "baudrate": DEFAULT_BAUDRATE,
-        "timeout": DEFAULT_TIMEOUT,
-        "devices": [
-            {"serial_id": 0x01, "nms_id": 1, "a1_interval": 5.0},
-            {"serial_id": 0x02, "nms_id": 2, "a1_interval": 5.0},
-        ],
-    },
-    {
-        "line_id": 2,
-        "name": "Line-2",
-        "head_port": os.getenv("SY_LINE2_HEAD", "COM5"),
-        "tail_port": os.getenv("SY_LINE2_TAIL", "NONE"),
-        "baudrate": DEFAULT_BAUDRATE,
-        "timeout": DEFAULT_TIMEOUT,
-        "devices": [
-            {"serial_id": 0x02, "nms_id": 4, "a1_interval": 5.0},
-            {"serial_id": 0x03, "nms_id": 5, "a1_interval": 5.0},
-            {"serial_id": 0x04, "nms_id": 6, "a1_interval": 5.0},
-        ],
-    },
-]
+LINES_CONFIG = CONFIG["lines"]
 
 # ============================================================
 # 帧常量
@@ -318,9 +379,9 @@ CMD_NOCHANGE = 0x05
 CMD_BB = 0xBB
 CMD_CC = 0xCC
 
-# ✅ 无回帧命令集合（可用环境变量覆盖）
-_NO_RESP_FROM_ENV = _parse_hex_cmd_list(os.getenv("SY_CMD_NO_RESP_CMDS", "BB,CC"))
-NO_RESP_REQ_CMDS = set(_NO_RESP_FROM_ENV or [CMD_BB, CMD_CC])
+# ✅ 无回帧命令集合
+_NO_RESP_FROM_CONFIG = _parse_hex_cmd_list(CMD_CONFIG.get("no_resp_cmds", ["BB", "CC"]))
+NO_RESP_REQ_CMDS = set(_NO_RESP_FROM_CONFIG or [CMD_BB, CMD_CC])
 
 ESCAPE_MAP = {
     0x7F: bytes([0x10, 0x81]),
@@ -2152,7 +2213,7 @@ def redis_command_thread(redis_conn: RedisConn):
 
     # ✅ in-flight 去重：同一 msg_id 短时间只 enqueue 一次（避免 pending 反复入队）
     inflight: Dict[str, float] = {}
-    inflight_ttl = float(os.getenv("SY_CMD_INFLIGHT_TTL_SEC", "3.0"))  # 秒，覆盖一次发送+等待
+    inflight_ttl = SY_CMD_INFLIGHT_TTL_SEC  # 秒，覆盖一次发送+等待
 
     def inflight_allow(msg_id) -> bool:
         mid = _b2s(msg_id)
@@ -2335,7 +2396,7 @@ def main():
         f"DLQ={SY_CMD_DLQ_STREAM} maxlen={SY_CMD_DLQ_MAXLEN} dlq_dedupe_ttl={SY_CMD_DLQ_DEDUPE_TTL_SEC}s"
     )
     print(
-        f"[sy_agent] CMD TRY LIMIT: prefix={SY_CMD_TRY_KEY_PREFIX} ttl={SY_CMD_TRY_TTL_SEC}s max_tries={SY_CMD_MAX_TRIES} inflight_ttl={float(os.getenv('SY_CMD_INFLIGHT_TTL_SEC','3.0'))}s"
+        f"[sy_agent] CMD TRY LIMIT: prefix={SY_CMD_TRY_KEY_PREFIX} ttl={SY_CMD_TRY_TTL_SEC}s max_tries={SY_CMD_MAX_TRIES} inflight_ttl={SY_CMD_INFLIGHT_TTL_SEC}s"
     )
     print(
         f"[sy_agent] NO_RESP: enable={int(SY_CMD_NO_RESP_ENABLE)} cmds={[hex(x) for x in sorted(NO_RESP_REQ_CMDS)]} "

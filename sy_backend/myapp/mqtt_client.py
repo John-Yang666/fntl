@@ -4,7 +4,6 @@
 #=================================================================
 import paho.mqtt.client as mqtt
 from myapp.models import Device
-from myapp.tasks import process_switch_data, process_analog_data
 import logging
 import json
 from django.core.cache import cache
@@ -18,13 +17,11 @@ logger = logging.getLogger(__name__)
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC_SWITCH = "devices/switch"
-MQTT_TOPIC_ANALOG = "devices/analog"
 
 def on_connect(client, userdata, flags, rc):#在客户端连接到MQTT broker时调用，订阅相关主题。
     if rc == 0:
         logger.info("Connected to MQTT Broker!")
         client.subscribe(MQTT_TOPIC_SWITCH)
-        client.subscribe(MQTT_TOPIC_ANALOG)
     else:
         logger.error(f"Failed to connect, return code {rc}")
 
@@ -48,12 +45,11 @@ def on_message(client, userdata, msg):#在接收到消息时调用，解析消�
         if frame_head == b'\x7F\x7F' and frame_tail == b'\xF7\xF7':
             # 记录最新一次接收数据时间
             cache.set(f"device_{device_id}_last_communication_time", timezone.now(), timeout=60*5)#此处决定设备网络连接中断告警最长持续时间
-            if len(data) == 54:
-                process_switch_data.delay(device_id, data)
-            elif len(data) == 20:
-                process_analog_data.delay(device_id, data)
-            else:
-                logger.error(f"Unknown data length ({len(data)}) from IP address {ip_address}")
+            logger.warning(
+                "Legacy MQTT ingress is disabled; ignoring packet from %s with length %s",
+                ip_address,
+                len(data),
+            )
         else:
             logger.error(f"Unknown packet type from IP address {ip_address}")
     except Exception as e:

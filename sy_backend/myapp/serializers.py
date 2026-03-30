@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from myapp.models import Device, SwitchData, AlarmActive, AnalogData, RelayAction, AlarmData, UserOperation, UploadedFile, ChangeBitEvent
+from myapp.models import Device, SwitchData, AlarmActive, RelayAction, AlarmData, UserOperation, UploadedFile, ChangeBitEvent
 
 class DeviceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -25,11 +25,6 @@ class AlarmActiveSerializer(serializers.ModelSerializer):
 
     def get_alarm_meaning(self, obj):
         return obj.alarm_meaning
-    
-class AnalogDataSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = AnalogData
-        fields = '__all__'
 
 class RelayActionSerializer(serializers.ModelSerializer):
     class Meta:

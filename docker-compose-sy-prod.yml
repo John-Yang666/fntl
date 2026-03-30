@@ -62,7 +62,6 @@ services:
       - /data:rw,mode=1777,size=268435456
     networks:
       - sy_nms_network
-      - sy_kafka_network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -140,7 +139,6 @@ services:
       start_period: 30s
     networks:
       - sy_nms_network
-      - sy_kafka_network
     restart: unless-stopped
 
   nginx:
@@ -205,7 +203,6 @@ services:
         condition: service_healthy
     networks:
       - sy_nms_network
-      - sy_kafka_network
     restart: unless-stopped
 
   summarize_alarms_container:
@@ -294,8 +291,6 @@ services:
 
 networks:
   sy_nms_network:
-    driver: bridge
-  sy_kafka_network:
     driver: bridge
 
 volumes:

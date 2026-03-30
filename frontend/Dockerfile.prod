@@ -1,22 +1,30 @@
-# syntax=docker/dockerfile:1.7
-
 ########################################
 # ============ 构建阶段 ================
 ########################################
-FROM node:22-alpine AS build
+ARG NODE_IMAGE=node:22
+ARG NGINX_IMAGE=nginx:1.27-alpine-slim
+FROM ${NODE_IMAGE} AS build
 
 WORKDIR /app
 
 # 仅复制依赖清单，最大化命中缓存
-COPY package.json npm-shrinkwrap.json ./
+COPY package.json package-lock.json ./
+COPY npm-cache/ /opt/npm-cache/
 
-# （可选）国内网络可临时换源；若不需要请注释掉
-# RUN npm config set registry https://registry.npmmirror.com
-
-# 使用 BuildKit 缓存 + npm ci（更快、更可重复）
-# 有锁用 ci；无锁回退 install（带缓存）
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --no-audit --no-fund
+# 离线构建时：
+# 1. NODE_IMAGE / NGINX_IMAGE 必须已经存在于本地 Docker
+# 2. frontend/npm-cache 必须预热过一次
+ARG NPM_INSTALL_MODE=online
+RUN if [ "$NPM_INSTALL_MODE" = "offline" ]; then \
+      if [ ! -d /opt/npm-cache/_cacache ]; then \
+        echo "offline npm cache not found in frontend/npm-cache" >&2; \
+        echo "warm it once with: npm ci --cache ./npm-cache" >&2; \
+        exit 1; \
+      fi; \
+      npm ci --offline --cache /opt/npm-cache --no-audit --no-fund; \
+    else \
+      npm ci --no-audit --no-fund; \
+    fi
 
 # 透传 Vite 的构建期环境变量（BT / SY 双后端端口）
 # docker build/compose 用 --build-arg VITE_BT_BACKEND_PORT=8000 --build-arg VITE_SY_BACKEND_PORT=8001 传入
@@ -35,7 +43,7 @@ RUN npm run build
 ########################################
 # ============ 运行阶段 ================
 ########################################
-FROM nginx:1.27-alpine-slim AS prod
+FROM ${NGINX_IMAGE} AS prod
 
 # 可选：安全基线
 # 关闭服务器版本暴露（配合自定义 nginx.conf 更好）

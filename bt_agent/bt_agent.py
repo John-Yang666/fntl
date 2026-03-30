@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import os
 import threading
 import logging
@@ -8,9 +9,9 @@ import socket
 import queue
 import time
 from typing import TYPE_CHECKING
-
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+from pathlib import Path
+import copy
+import tomllib
 
 # Redis 依赖：宿主机跑 redis_stream 时需要
 try:
@@ -22,35 +23,103 @@ if TYPE_CHECKING:
     from redis import Redis as RedisClient
 
 
-# =======================
-# ✅ 宿主机固定配置（不使用环境变量）
-# =======================
+CONFIG_PY_PATH = Path(__file__).with_name("config.py")
+CONFIG_TOML_PATH = Path(__file__).with_name("config.toml")
+CONFIG_PATH: Path
 
-# UDP
-HOST_IP = "0.0.0.0"
-HOST_PORT = 38315
+DEFAULT_CONFIG = {
+    "udp": {
+        "host": "0.0.0.0",
+        "port": 38315,
+    },
+    "redis": {
+        "host": "127.0.0.1",
+        "port": 36379,
+        "packet_stream_key": "stream:udp:packets",
+        "cmd_stream_key": "stream:udp:cmd",
+        "cmd_group": "udp-agent-cmd",
+        "cmd_consumer": "udp-agent-cmd-0",
+        "startup_retry_sec": 2.0,
+    },
+    "stream": {
+        "block_ms": 2000,
+        "count": 100,
+        "packet_maxlen": 200000,
+        "cmd_maxlen": 50000,
+    },
+    "filters": {
+        "blocked_ips": [],
+    },
+}
 
-# Redis Stream（packet/cmd）
-REDIS_STREAM_HOST = "127.0.0.1"
-REDIS_STREAM_PORT = 36379
 
-REDIS_PACKET_STREAM_KEY = os.getenv("REDIS_PACKET_STREAM_KEY", "stream:udp:packets")
-REDIS_CMD_STREAM_KEY = "stream:udp:cmd"
+def _deep_merge(base: dict, override: dict) -> dict:
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base
 
-# cmd stream 的消费组/consumer
-REDIS_CMD_GROUP = "udp-agent-cmd"
-REDIS_CMD_CONSUMER = "udp-agent-cmd-0"
 
-# 性能参数
-REDIS_STREAM_BLOCK_MS = 2000
-REDIS_STREAM_COUNT = 100
+def _load_py_config(path: Path) -> dict:
+    spec = importlib.util.spec_from_file_location("bt_agent_runtime_config", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load config module: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    loaded = getattr(module, "CONFIG", None)
+    if not isinstance(loaded, dict):
+        raise TypeError(f"{path} must define CONFIG = {{...}}")
+    return loaded
 
-# 裁剪：packet 高频，cmd 低频
-REDIS_PACKET_MAXLEN = 200000   # packet stream 近似裁剪
-REDIS_CMD_MAXLEN = 50000       # cmd stream 近似裁剪（够用了）
 
-# 启动阶段：Redis 未就绪时的等待重试
-REDIS_STARTUP_RETRY_SEC = 2.0
+def _load_config() -> dict:
+    global CONFIG_PATH
+
+    if CONFIG_PY_PATH.exists():
+        CONFIG_PATH = CONFIG_PY_PATH
+        loaded = _load_py_config(CONFIG_PATH)
+    elif CONFIG_TOML_PATH.exists():
+        CONFIG_PATH = CONFIG_TOML_PATH
+        with CONFIG_PATH.open("rb") as f:
+            loaded = tomllib.load(f)
+    else:
+        raise FileNotFoundError(
+            f"missing config file: {CONFIG_PY_PATH} or {CONFIG_TOML_PATH}"
+        )
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    return _deep_merge(config, loaded)
+
+
+CONFIG = _load_config()
+
+UDP_CONFIG = CONFIG["udp"]
+REDIS_CONFIG = CONFIG["redis"]
+STREAM_CONFIG = CONFIG["stream"]
+FILTERS_CONFIG = CONFIG.get("filters", {})
+
+HOST_IP = str(UDP_CONFIG["host"])
+HOST_PORT = int(UDP_CONFIG["port"])
+
+REDIS_STREAM_HOST = str(REDIS_CONFIG["host"])
+REDIS_STREAM_PORT = int(REDIS_CONFIG["port"])
+REDIS_PACKET_STREAM_KEY = str(REDIS_CONFIG["packet_stream_key"])
+REDIS_CMD_STREAM_KEY = str(REDIS_CONFIG["cmd_stream_key"])
+REDIS_CMD_GROUP = str(REDIS_CONFIG["cmd_group"])
+REDIS_CMD_CONSUMER = str(REDIS_CONFIG["cmd_consumer"])
+REDIS_STARTUP_RETRY_SEC = float(REDIS_CONFIG["startup_retry_sec"])
+
+REDIS_STREAM_BLOCK_MS = int(STREAM_CONFIG["block_ms"])
+REDIS_STREAM_COUNT = int(STREAM_CONFIG["count"])
+REDIS_PACKET_MAXLEN = int(STREAM_CONFIG["packet_maxlen"])
+REDIS_CMD_MAXLEN = int(STREAM_CONFIG["cmd_maxlen"])
+
+BLOCKED_IPS = frozenset(
+    str(ip).strip()
+    for ip in FILTERS_CONFIG.get("blocked_ips", [])
+    if str(ip).strip()
+)
 
 
 # =======================
@@ -68,33 +137,6 @@ logger = logging.getLogger(__name__)
 # 全局变量
 # =======================
 udp_packet_count = 0
-
-
-def load_blocked_ips():
-    blocked_ips = set()
-    try:
-        with open("blocked_ips.txt", "r") as f:
-            for line in f:
-                ip = line.strip()
-                if ip and not ip.startswith("#"):
-                    blocked_ips.add(ip)
-    except FileNotFoundError:
-        logger.warning("blocked_ips.txt 未找到，已创建空文件")
-        open("blocked_ips.txt", "w").close()
-    except Exception as e:
-        logger.error(f"加载屏蔽IP文件失败: {e}")
-    return blocked_ips
-
-
-blocked_ips = load_blocked_ips()
-
-
-class BlockedIPsHandler(FileSystemEventHandler):
-    def on_modified(self, event):
-        if event.src_path.endswith("blocked_ips.txt"):
-            global blocked_ips
-            blocked_ips = load_blocked_ips()
-            logger.info("检测到 blocked_ips.txt 更新，已重新加载 IP 列表")
 
 
 # =======================
@@ -293,7 +335,7 @@ class UdpCommunicationThread(threading.Thread):
             udp_packet_count += 1
             logger.info(f"收到来自 {source_ip}:{source_port} 的数据包")
 
-            if source_ip in blocked_ips:
+            if source_ip in BLOCKED_IPS:
                 logger.info(f"忽略被屏蔽的IP: {source_ip}")
                 continue
 
@@ -442,7 +484,7 @@ class RedisCmdSubscriber(threading.Thread):
                             self.r.xack(self.stream_key, self.group, entry_id)
                             continue
 
-                        if target_ip in blocked_ips:
+                        if target_ip in BLOCKED_IPS:
                             logger.info(f"[redis] 忽略被屏蔽的IP: {target_ip}")
                             self.r.xack(self.stream_key, self.group, entry_id)
                             continue
@@ -480,12 +522,10 @@ async def main():
             await asyncio.sleep(REDIS_STARTUP_RETRY_SEC)
 
     logger.info("MessageBus backend = redis")
+    logger.info("Config loaded from %s", CONFIG_PATH)
+    logger.info("Blocked IP count = %d", len(BLOCKED_IPS))
 
     send_queue: queue.Queue = queue.Queue()
-
-    observer = Observer()
-    observer.schedule(BlockedIPsHandler(), path=".", recursive=False)
-    observer.start()
 
     udp_thread = UdpCommunicationThread(send_queue, bus)
     udp_thread.start()
@@ -500,13 +540,6 @@ async def main():
 
         try:
             bus.close()
-        except Exception:
-            pass
-
-        try:
-            observer.unschedule_all()
-            observer.stop()
-            observer.join()
         except Exception:
             pass
 

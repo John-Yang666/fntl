@@ -1,0 +1,6 @@
+services:
+  vue:
+    # Serve host-built frontend assets so small offline edits can be applied
+    # without rebuilding the production image.
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro

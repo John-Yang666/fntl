@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 安装 Python 依赖
 COPY requirements_udp_id_receiver.txt /app/requirements_udp_id_receiver.txt
-RUN pip install --no-cache-dir -r /app/requirements_udp_id_receiver.txt
+RUN python -m pip install --no-cache-dir -r /app/requirements_udp_id_receiver.txt
 
 # 设置默认环境变量
 ENV PYTHONUNBUFFERED=1

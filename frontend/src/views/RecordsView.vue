@@ -99,7 +99,7 @@
       <div class="summary-stats">
         <div class="stat-card">
           <span class="stat-label">历史告警</span>
-          <strong>{{ alertsPagination.total }}</strong>
+          <strong>{{ alertsTotalText }}</strong>
         </div>
         <div class="stat-card">
           <span class="stat-label">继电器动作</span>
@@ -116,7 +116,7 @@
       <div class="section-header">
         <h2>历史告警</h2>
         <div class="section-actions">
-          <span class="section-count">{{ alertsPagination.total }} 条</span>
+          <span class="section-count">{{ alertsTotalText }} 条</span>
           <el-button v-if="errors.alerts" size="small" @click="retryAlerts">重试</el-button>
         </div>
       </div>
@@ -322,8 +322,13 @@ interface UserOperationRecord {
 }
 
 type ListResponse<T> = {
-  count: number;
+  count?: number | null;
   results: T[];
+};
+
+type CountResponse = {
+  count: number;
+  approximate?: boolean;
 };
 
 const systems = SYSTEMS;
@@ -352,6 +357,7 @@ const relayActions = ref<RelayActionRecord[]>([]);
 const userOperations = ref<UserOperationRecord[]>([]);
 const lastUpdatedAt = ref<Date | null>(null);
 const confirmingAlertIds = ref<string[]>([]);
+const alertsRequestId = ref(0);
 
 const loading = reactive({
   devices: false,
@@ -371,6 +377,7 @@ const alertsPagination = reactive({
   page: 1,
   pageSize: 20,
   total: 0,
+  approximateTotal: false,
 });
 
 const relayPagination = reactive({
@@ -402,6 +409,10 @@ const lastUpdatedText = computed(() => {
   }
   return `最后刷新：${formatToLocalTime(lastUpdatedAt.value.toISOString())}`;
 });
+
+const alertsTotalText = computed(() => (
+  `${alertsPagination.approximateTotal ? '约 ' : ''}${alertsPagination.total}`
+));
 
 const formatToLocalTime = (timestamp: string | null): string => {
   if (!timestamp) {
@@ -523,36 +534,76 @@ const loadDevicesForSystem = async () => {
   }
 };
 
-const fetchAlerts = async () => {
+const buildAlertsQuery = (): URLSearchParams => {
+  const query = new URLSearchParams();
+  query.set('page', String(alertsPagination.page));
+  query.set('page_size', String(alertsPagination.pageSize));
+  applyCommonFilters(query, 'timestamp_start');
+
+  if (alarmCode.value !== undefined) {
+    query.set('alarm_code', String(alarmCode.value));
+  }
+
+  if (confirmedFilter.value === 'confirmed') {
+    query.set('is_confirmed', 'true');
+  } else if (confirmedFilter.value === 'unconfirmed') {
+    query.set('is_confirmed', 'false');
+  }
+
+  return query;
+};
+
+const requestAlertsCount = async (query: URLSearchParams): Promise<CountResponse> => {
+  const response = await axios.get(`${getApiBase(selectedSystem.value)}/alerts/count/?${query.toString()}`);
+  return response.data as CountResponse;
+};
+
+const fetchAlerts = async (options: { refreshTotal?: boolean } = {}) => {
+  const requestId = ++alertsRequestId.value;
   loading.alerts = true;
   errors.alerts = null;
 
   try {
-    const query = new URLSearchParams();
-    query.set('page', String(alertsPagination.page));
-    query.set('page_size', String(alertsPagination.pageSize));
-    applyCommonFilters(query, 'timestamp_start');
+    const refreshTotal = options.refreshTotal ?? true;
+    const pageQuery = buildAlertsQuery();
+    pageQuery.set('include_count', '0');
 
-    if (alarmCode.value !== undefined) {
-      query.set('alarm_code', String(alarmCode.value));
+    const pageResponse = await axios.get(`${getApiBase(selectedSystem.value)}/alerts/?${pageQuery.toString()}`);
+    if (requestId !== alertsRequestId.value) {
+      return;
     }
 
-    if (confirmedFilter.value === 'confirmed') {
-      query.set('is_confirmed', 'true');
-    } else if (confirmedFilter.value === 'unconfirmed') {
-      query.set('is_confirmed', 'false');
-    }
-
-    const response = await axios.get(`${getApiBase(selectedSystem.value)}/alerts/?${query.toString()}`);
-    const data = response.data as ListResponse<AlertRecord>;
+    const data = pageResponse.data as ListResponse<AlertRecord>;
 
     alerts.value = data.results;
-    alertsPagination.total = data.count ?? data.results.length;
+
+    if (refreshTotal) {
+      requestAlertsCount(buildAlertsQuery())
+        .then((countData) => {
+          if (requestId !== alertsRequestId.value) {
+            return;
+          }
+          alertsPagination.total = countData.count ?? data.results.length;
+          alertsPagination.approximateTotal = Boolean(countData.approximate);
+        })
+        .catch((error) => {
+          if (requestId !== alertsRequestId.value) {
+            return;
+          }
+          console.error('加载历史告警总数失败:', error);
+          alertsPagination.total = data.results.length;
+          alertsPagination.approximateTotal = false;
+        });
+    } else if (alertsPagination.total === 0) {
+      alertsPagination.total = data.results.length;
+      alertsPagination.approximateTotal = false;
+    }
   } catch (error) {
     console.error('加载历史告警失败:', error);
     errors.alerts = '历史告警加载失败，请重试。';
     alerts.value = [];
     alertsPagination.total = 0;
+    alertsPagination.approximateTotal = false;
     throw error;
   } finally {
     loading.alerts = false;
@@ -704,7 +755,7 @@ const handleReset = async () => {
 
 const retryAlerts = async () => {
   try {
-    await fetchAlerts();
+    await fetchAlerts({ refreshTotal: true });
     lastUpdatedAt.value = new Date();
   } catch {
     // error already handled in fetchAlerts
@@ -755,12 +806,12 @@ const confirmHistoricalAlert = async (alert: AlertRecord) => {
 };
 
 const handleAlertsPageChange = async () => {
-  await fetchAlerts();
+  await fetchAlerts({ refreshTotal: false });
 };
 
 const handleAlertsSizeChange = async () => {
   alertsPagination.page = 1;
-  await fetchAlerts();
+  await fetchAlerts({ refreshTotal: false });
 };
 
 const handleRelayPageChange = async () => {

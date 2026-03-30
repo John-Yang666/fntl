@@ -21,7 +21,7 @@ import json
 import random
 import threading
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import redis
 
@@ -119,34 +119,23 @@ LINES_CONFIG = [
 # =========================
 # 帧构造（响应帧格式：7F7F ... F7F7）
 # =========================
-def build_a1_resp(serial_id: int, d_bytes: List[int]) -> bytes:
-    frame = bytearray()
-    frame += b"\x7F\x7F"
-    frame.append(serial_id & 0xFF)
-    frame.append(0xA1)
-    frame.extend([x & 0xFF for x in d_bytes[:4]])
-    h = sum(frame[2:]) & 0xFF
-    frame.append(h)
-    frame += b"\xF7\xF7"
-    return bytes(frame)
+def build_a1_resp(serial_id: int, d_bytes: bytes) -> bytes:
+    serial_id &= 0xFF
+    d0, d1, d2, d3 = d_bytes
+    h = (serial_id + 0xA1 + d0 + d1 + d2 + d3) & 0xFF
+    return bytes((0x7F, 0x7F, serial_id, 0xA1, d0, d1, d2, d3, h, 0xF7, 0xF7))
 
 
-def build_a2_resp(serial_id: int, d_bytes: List[int], bit_index_all: int, new_val: int) -> bytes:
-    frame = bytearray()
-    frame += b"\x7F\x7F"
-    frame.append(serial_id & 0xFF)
-    frame.append(0xA2)
-    frame.extend([x & 0xFF for x in d_bytes[:4]])
+def build_a2_resp(serial_id: int, d_bytes: bytes, bit_index_all: int, new_val: int) -> bytes:
+    serial_id &= 0xFF
+    d0, d1, d2, d3 = d_bytes
     s = ((new_val & 0x01) << 7) | (bit_index_all & 0x7F)
-    frame.append(s)
-    h = sum(frame[2:]) & 0xFF
-    frame.append(h)
-    frame += b"\xF7\xF7"
-    return bytes(frame)
+    h = (serial_id + 0xA2 + d0 + d1 + d2 + d3 + s) & 0xFF
+    return bytes((0x7F, 0x7F, serial_id, 0xA2, d0, d1, d2, d3, s, h, 0xF7, 0xF7))
 
 
 # 继电器相关 bit（d1/d2/d3 的 D4~D7）
-RELAY_BIT_INDEXES = [4, 5, 6, 7, 12, 13, 14, 15, 20, 21, 22, 23]
+RELAY_BIT_INDEXES = (4, 5, 6, 7, 12, 13, 14, 15, 20, 21, 22, 23)
 
 
 def now_mono() -> float:
@@ -184,18 +173,18 @@ def xadd_raw(
     payload = {
         "payload_hex": frame.hex(),
         "ts": int(time.time()),
-        "line_id": int(line_id),
+        "line_id": line_id,
         "port": "virtual-bus",
-        "serial_id": int(serial_id),
-        "nms_id": int(nms_id),
-        "req_cmd": str(req_cmd),
+        "serial_id": serial_id,
+        "nms_id": nms_id,
+        "req_cmd": req_cmd,
     }
     if extra:
         payload.update(extra)
 
     r.xadd(
         RAW_STREAM_KEY,
-        {"data": json.dumps(payload, ensure_ascii=False).encode("utf-8")},
+        {"data": json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")},
         maxlen=RAW_STREAM_MAXLEN,
         approximate=True,
     )
@@ -205,8 +194,8 @@ def xadd_raw(
 class DevState:
     serial_id: int
     nms_id: int
-    d_bytes: List[int] = field(default_factory=lambda: [random.getrandbits(8) for _ in range(4)])
-    bits_state: Dict[int, int] = field(default_factory=lambda: {idx: 0 for idx in RELAY_BIT_INDEXES})
+    d_bytes: bytes = field(default_factory=lambda: bytes(random.getrandbits(8) for _ in range(4)))
+    relay_mask: int = 0
     last_a1_mono: float = 0.0
     last_a2_mono: float = 0.0
 
@@ -215,20 +204,22 @@ class LineBusSimulator(threading.Thread):
     """
     每条线：严格“轮询节拍”，每 tick 只产生 1 帧（A1 或 A2）
     """
-    def __init__(self, *, line_id: int, name: str, devices: List[Dict]):
+    def __init__(self, *, line_id: int, name: str, devices: List[dict]):
         super().__init__(daemon=True)
         self.line_id = int(line_id)
         self.name = str(name)
+        self._rand = random.Random((self.line_id << 32) ^ time.time_ns())
 
         self.devices: List[DevState] = []
         t0 = now_mono()
+        rand = self._rand
         for d in devices:
             sid = int(d["serial_id"]) & 0xFF
             nid = int(d.get("nms_id", sid))
             st = DevState(serial_id=sid, nms_id=nid)
             # 初始让 last_a1 分散一点，避免启动瞬间全 A1
-            st.last_a1_mono = t0 - random.random() * A1_INTERVAL_SEC
-            st.last_a2_mono = t0 - random.random() * A2_INTERVAL_SEC
+            st.last_a1_mono = t0 - rand.random() * A1_INTERVAL_SEC
+            st.last_a2_mono = t0 - rand.random() * A2_INTERVAL_SEC
             self.devices.append(st)
 
         self._stop = threading.Event()
@@ -243,46 +234,60 @@ class LineBusSimulator(threading.Thread):
 
     def run(self):
         r = get_redis_client()
-        devs = len(self.devices)
+        devs_count = len(self.devices)
+        devs = self.devices
+        rand = self._rand
+        stop_wait = self._stop.wait
+        tick_sec = BUS_TICK_SEC
+        jitter_sec = BUS_JITTER_SEC
+        drop_rate = DROP_RATE
+        timeout_extra_sec = TIMEOUT_EXTRA_SEC
+        relay_bits = RELAY_BIT_INDEXES
+        relay_bits_len = len(relay_bits)
+        a1_interval_sec = A1_INTERVAL_SEC
+        log_every_sec = LOG_EVERY_SEC
+        xadd = xadd_raw
+        mono = time.monotonic
 
         print(
-            f"[LineBus] start line={self.line_id} name={self.name} devs={devs} "
+            f"[LineBus] start line={self.line_id} name={self.name} devs={devs_count} "
             f"redis={REDIS_HOST}:{REDIS_PORT}/{REDIS_DB} stream={RAW_STREAM_KEY} "
-            f"BUS_TICK={BUS_TICK_SEC}s (~{(1.0/BUS_TICK_SEC) if BUS_TICK_SEC>0 else 0:.1f} pkt/s/line) "
-            f"A1_INTERVAL={A1_INTERVAL_SEC}s DROP={DROP_RATE} TIMEOUT_EXTRA={TIMEOUT_EXTRA_SEC}s"
+            f"BUS_TICK={tick_sec}s (~{(1.0/tick_sec) if tick_sec>0 else 0:.1f} pkt/s/line) "
+            f"A1_INTERVAL={a1_interval_sec}s DROP={drop_rate} TIMEOUT_EXTRA={timeout_extra_sec}s"
         )
 
-        if devs == 0:
+        if devs_count == 0:
             print(f"[LineBus][{self.line_id}] no devices, exit.")
             return
 
-        next_tick = now_mono()
+        next_tick = mono()
+        next_log = self._last_log + log_every_sec
 
         while not self._stop.is_set():
-            t = now_mono()
+            t = mono()
 
             # 到点才“轮询一次”
             if t < next_tick:
-                time.sleep(min(0.05, next_tick - t))
+                stop_wait(next_tick - t)
                 continue
 
             # 轮到哪个设备
-            dev = self.devices[self._cursor]
-            self._cursor = (self._cursor + 1) % devs
+            dev = devs[self._cursor]
+            self._cursor = (self._cursor + 1) % devs_count
 
             # 模拟丢包/超时：丢包就不写入流，并额外等待一段（模拟 wait_response_timeout）
-            if DROP_RATE > 0 and random.random() < DROP_RATE:
+            if drop_rate > 0 and rand.random() < drop_rate:
                 # 相当于“发了请求但没收到回帧”
-                if TIMEOUT_EXTRA_SEC > 0:
-                    next_tick = now_mono() + jitter(BUS_TICK_SEC + TIMEOUT_EXTRA_SEC, BUS_JITTER_SEC)
+                if timeout_extra_sec > 0:
+                    next_tick = mono() + tick_sec + timeout_extra_sec + (rand.uniform(0, jitter_sec) if jitter_sec > 0 else 0.0)
                 else:
-                    next_tick = now_mono() + jitter(BUS_TICK_SEC, BUS_JITTER_SEC)
+                    next_tick = mono() + tick_sec + (rand.uniform(0, jitter_sec) if jitter_sec > 0 else 0.0)
             else:
                 # 选择发 A1 还是 A2
-                if (t - dev.last_a1_mono) >= A1_INTERVAL_SEC:
-                    dev.d_bytes = [random.getrandbits(8) for _ in range(4)]
+                if (t - dev.last_a1_mono) >= a1_interval_sec:
+                    dev.d_bytes = bytes(rand.getrandbits(8) for _ in range(4))
                     frame = build_a1_resp(dev.serial_id, dev.d_bytes)
-                    xadd_raw(
+                    xadd(
                         r,
                         line_id=self.line_id,
                         serial_id=dev.serial_id,
@@ -296,13 +301,14 @@ class LineBusSimulator(threading.Thread):
                 else:
                     # A2：为了“像现场”，可以不每次都翻 bit；
                     # 这里用 A2_INTERVAL_SEC 做个限速：距离上次A2太近就也允许发，但不翻bit也行。
-                    bit_idx = random.choice(RELAY_BIT_INDEXES)
-                    old = dev.bits_state.get(bit_idx, 0)
+                    relay_pos = rand.randrange(relay_bits_len)
+                    bit_idx = relay_bits[relay_pos]
+                    old = (dev.relay_mask >> relay_pos) & 0x01
                     new = 1 - old
-                    dev.bits_state[bit_idx] = new
+                    dev.relay_mask ^= (1 << relay_pos)
 
                     frame = build_a2_resp(dev.serial_id, dev.d_bytes, bit_idx, new)
-                    xadd_raw(
+                    xadd(
                         r,
                         line_id=self.line_id,
                         serial_id=dev.serial_id,
@@ -315,11 +321,11 @@ class LineBusSimulator(threading.Thread):
                     self._a2_count += 1
                     self._tx_count += 1
 
-                next_tick = now_mono() + jitter(BUS_TICK_SEC, BUS_JITTER_SEC)
+                next_tick = mono() + tick_sec + (rand.uniform(0, jitter_sec) if jitter_sec > 0 else 0.0)
 
             # 日志：每条线打印吞吐 + A1/A2 比例
-            nowt = now_mono()
-            if (nowt - self._last_log) >= LOG_EVERY_SEC:
+            nowt = mono()
+            if nowt >= next_log:
                 dt = nowt - self._last_log
                 rate = self._tx_count / dt if dt > 0 else 0.0
                 a1r = self._a1_count / dt if dt > 0 else 0.0
@@ -332,6 +338,7 @@ class LineBusSimulator(threading.Thread):
                 self._a1_count = 0
                 self._a2_count = 0
                 self._last_log = nowt
+                next_log = nowt + log_every_sec
 
 
 def main():

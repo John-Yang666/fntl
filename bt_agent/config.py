@@ -1,0 +1,24 @@
+CONFIG = {
+    "udp": {
+        "host": "0.0.0.0",
+        "port": 38315,
+    },
+    "redis": {
+        "host": "127.0.0.1",
+        "port": 36379,
+        "packet_stream_key": "stream:udp:packets",
+        "cmd_stream_key": "stream:udp:cmd",
+        "cmd_group": "udp-agent-cmd",
+        "cmd_consumer": "udp-agent-cmd-0",
+        "startup_retry_sec": 2.0,
+    },
+    "stream": {
+        "block_ms": 2000,
+        "count": 100,
+        "packet_maxlen": 200000,
+        "cmd_maxlen": 50000,
+    },
+    "filters": {
+        "blocked_ips": [],
+    },
+}

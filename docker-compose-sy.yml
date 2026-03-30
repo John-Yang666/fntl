@@ -60,7 +60,6 @@ services:
       - "36380:6379"
     networks:
       - sy_nms_network
-      - sy_kafka_network   # 你要求网络结构不变：继续挂着
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -141,7 +140,6 @@ services:
       - db
     networks:
       - sy_nms_network
-      - sy_kafka_network   # 你要求先不动
     restart: unless-stopped
 
   # =======================
@@ -185,7 +183,6 @@ services:
       - web
     networks:
       - sy_nms_network
-      - sy_kafka_network   # 你要求先不动
     restart: unless-stopped
 
   # =======================
@@ -270,7 +267,7 @@ services:
     ports:
       - "38174:5173"
     command: >
-      sh -c "npm install && npm run dev"
+      sh -c "npm ci && npm run dev"
     networks:
       - sy_nms_network
     restart: unless-stopped
@@ -311,8 +308,6 @@ networks:
   sy_nms_network:
     driver: bridge
     name: sy_nms_sy_nms_network
-  sy_kafka_network:
-    driver: bridge
 
 
 volumes:

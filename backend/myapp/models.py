@@ -170,6 +170,11 @@ class AlarmData(models.Model):
         ordering = ['-timestamp_start']
         verbose_name = '历史告警记录'
         verbose_name_plural = '历史告警'
+        indexes = [
+            models.Index(fields=['-timestamp_start'], name='bt_alarmdata_ts_desc_idx'),
+            models.Index(fields=['is_confirmed', '-timestamp_start'], name='bt_alarmdata_conf_ts_idx'),
+            models.Index(fields=['device', '-timestamp_start'], name='bt_alarmdata_dev_ts_idx'),
+        ]
 
     @property
     def alarm_meaning(self):

@@ -11,6 +11,7 @@ from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth import get_user_model
+from django.core.paginator import Paginator
 from django.core.exceptions import ValidationError
 from django.db import connections
 from django.http import HttpResponseRedirect
@@ -18,6 +19,7 @@ from django.template.response import TemplateResponse
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.functional import cached_property
 
 from import_export import resources, fields
 from import_export.admin import ImportExportModelAdmin
@@ -30,6 +32,53 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _estimated_admin_count(queryset):
+    if not hasattr(queryset, "query"):
+        return None
+
+    connection = connections[queryset.db]
+    if connection.vendor != "postgresql":
+        return None
+
+    try:
+        sql, params = queryset.query.sql_with_params()
+        with connection.cursor() as cursor:
+            cursor.execute(f"EXPLAIN (FORMAT JSON) {sql}", params)
+            row = cursor.fetchone()
+    except Exception:
+        logger.exception("admin count estimate failed")
+        return None
+
+    if not row:
+        return None
+
+    plan = row[0]
+    if isinstance(plan, list) and plan:
+        plan = plan[0]
+
+    try:
+        return max(int(plan["Plan"]["Plan Rows"]), 0)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+class EstimatedCountPaginator(Paginator):
+    @cached_property
+    def count(self):
+        estimated = _estimated_admin_count(self.object_list)
+        if estimated is not None:
+            return estimated
+        return super().count
+
+
+class LargeTableAdminMixin:
+    paginator = EstimatedCountPaginator
+    show_full_result_count = False
+    list_per_page = 50
+    list_max_show_all = 200
+    list_select_related = ("device",)
 
 # ========================
 # ✅ 导出安全基类：屏蔽 stdout/stderr，避免任何输出污染 xlsx 二进制流
@@ -326,11 +375,11 @@ class MyDateRangePicker(admin.FieldListFilter):
 # 当前告警（不需要导出）
 # ========================
 @admin.register(AlarmActive)
-class AlarmActiveAdmin(DepotScopedAdmin):
+class AlarmActiveAdmin(LargeTableAdminMixin, DepotScopedAdmin):
     depot_filter_field = 'device__depot'
     list_display = ('timestamp_start_display', 'device', 'alarm_code', 'alarm_meaning', 'show_confirmed_status')
     search_fields = ('device__device_id', 'device__name', 'alarm_code')
-    list_filter = (('timestamp_start', MyDateRangePicker), 'device__name', 'device__device_id', 'alarm_code', 'is_confirmed')
+    list_filter = (('timestamp_start', MyDateRangePicker), 'device', 'alarm_code', 'is_confirmed')
     actions = [batch_delete, truncate_table, batch_confirm]
 
     def alarm_meaning(self, obj):
@@ -382,12 +431,12 @@ class AlarmDataResource(resources.ModelResource):
 
 
 @admin.register(AlarmData)
-class AlarmDataAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
+class AlarmDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = AlarmDataResource
     list_display = ('timestamp_start_display', 'timestamp_end_display', 'device', 'alarm_code', 'alarm_meaning', 'show_confirmed_status')
     search_fields = ('device__device_id', 'device__name', 'alarm_code')
-    list_filter = (('timestamp_start', MyDateRangePicker), 'device__name', 'device__device_id', 'alarm_code', 'is_confirmed')
+    list_filter = (('timestamp_start', MyDateRangePicker), 'device', 'alarm_code', 'is_confirmed')
     actions = [batch_delete, truncate_table, batch_confirm]
 
     def alarm_meaning(self, obj):
@@ -436,12 +485,12 @@ class SwitchDataResource(resources.ModelResource):
 
 
 @admin.register(SwitchData)
-class SwitchDataAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
+class SwitchDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = SwitchDataResource
     export_form_class = ExportForm
     list_display = ('timestamp_with_seconds', 'device', 'formatted_switch_status')
-    list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id')
+    list_filter = (('timestamp', MyDateRangePicker), 'device')
     search_fields = ('device__device_id', 'device__ip_address', 'device__name')
     actions = [batch_delete, truncate_table]
 
@@ -479,11 +528,11 @@ class AnalogDataResource(resources.ModelResource):
 
 
 @admin.register(AnalogData)
-class AnalogDataAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
+class AnalogDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = AnalogDataResource
     list_display = ('timestamp_with_seconds', 'device', 'voltage_1', 'current_1_display', 'voltage_2', 'current_2_display')
-    list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id')
+    list_filter = (('timestamp', MyDateRangePicker), 'device')
     search_fields = ('device__device_id', 'device__ip_address', 'device__name')
     actions = [batch_delete, truncate_table]
 
@@ -584,12 +633,12 @@ class UserOperationResource(resources.ModelResource):
 
 
 @admin.register(UserOperation)
-class UserOperationAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
+class UserOperationAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = UserOperationResource
     list_display = ('timestamp_with_seconds', 'device', 'operation', 'username')
     search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'operation', 'username')
-    list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id', 'operation', 'username')
+    list_filter = (('timestamp', MyDateRangePicker), 'device')
     actions = [batch_delete, truncate_table]
 
     def timestamp_with_seconds(self, obj):
@@ -625,12 +674,12 @@ class RelayActionResource(resources.ModelResource):
 
 
 @admin.register(RelayAction)
-class RelayActionAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
+class RelayActionAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = RelayActionResource
     list_display = ('timestamp_with_seconds', 'device', 'relay', 'action')
     search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'relay', 'action')
-    list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id', 'relay', 'action')
+    list_filter = (('timestamp', MyDateRangePicker), 'device')
     actions = [batch_delete, truncate_table]
 
     def timestamp_with_seconds(self, obj):

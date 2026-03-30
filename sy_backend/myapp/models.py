@@ -330,28 +330,7 @@ class ChangeBitEvent(models.Model):
         verbose_name_plural = "变化量事件"
 
 # -------------------------
-# 5) 模拟量（保留）
-# -------------------------
-class AnalogData(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    device = models.ForeignKey(Device, to_field='device_id', on_delete=models.CASCADE, verbose_name="设备")
-    voltage_1 = models.FloatField(verbose_name="电压1(V)")
-    current_1 = models.FloatField(verbose_name="电流1(mA)")
-    voltage_2 = models.FloatField(verbose_name="电压2(V)")
-    current_2 = models.FloatField(verbose_name="电流2(mA)")
-    timestamp = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-timestamp']
-        verbose_name = '电压电流数据'
-        verbose_name_plural = '电压电流数据'
-
-    def __str__(self):
-        return f"Device {self.device.device_id} - V1:{self.voltage_1} I1:{self.current_1} V2:{self.voltage_2} I2:{self.current_2}"
-
-
-# -------------------------
-# 6) 告警（保留）
+# 5) 告警（保留）
 # -------------------------
 class AlarmActive(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -389,6 +368,11 @@ class AlarmData(models.Model):
         ordering = ['-timestamp_start']
         verbose_name = '历史告警记录'
         verbose_name_plural = '历史告警'
+        indexes = [
+            models.Index(fields=['-timestamp_start'], name='sy_alarmdata_ts_desc_idx'),
+            models.Index(fields=['is_confirmed', '-timestamp_start'], name='sy_alarmdata_conf_ts_idx'),
+            models.Index(fields=['device', '-timestamp_start'], name='sy_alarmdata_dev_ts_idx'),
+        ]
 
     @property
     def alarm_meaning(self):

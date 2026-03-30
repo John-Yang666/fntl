@@ -107,8 +107,18 @@ const route = useRoute();
 const router = useRouter();
 const pinnedDeviceKeys = ref<Set<string>>(new Set());
 
-let topologySocket: WebSocket | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const topologySockets: Record<SystemType, WebSocket | null> = {
+  bt: null,
+  sy: null,
+};
+const reconnectTimers: Record<SystemType, ReturnType<typeof setTimeout> | null> = {
+  bt: null,
+  sy: null,
+};
+const topologySocketConnected: Record<SystemType, boolean> = {
+  bt: false,
+  sy: false,
+};
 let blinkInterval: ReturnType<typeof setInterval> | null = null;
 let statusPollInterval: ReturnType<typeof setInterval> | null = null;
 let containerResizeObserver: ResizeObserver | null = null;
@@ -312,66 +322,89 @@ const fetchAllTopologyStatuses = async () => {
   await Promise.all(SYSTEMS.map((system) => fetchTopologyStatuses(system)));
 };
 
-const clearReconnectTimer = () => {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+const clearReconnectTimer = (system: SystemType) => {
+  const timer = reconnectTimers[system];
+  if (timer) {
+    clearTimeout(timer);
+    reconnectTimers[system] = null;
   }
 };
 
-const scheduleReconnect = () => {
-  if (reconnectTimer) {
+const scheduleReconnect = (system: SystemType) => {
+  if (reconnectTimers[system]) {
     return;
   }
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    connectTopologyWebSocket();
+  reconnectTimers[system] = setTimeout(() => {
+    reconnectTimers[system] = null;
+    connectTopologyWebSocket(system);
   }, WS_RECONNECT_DELAY_MS);
 };
 
-const connectTopologyWebSocket = () => {
-  if (topologySocket && (topologySocket.readyState === WebSocket.OPEN || topologySocket.readyState === WebSocket.CONNECTING)) {
+const connectTopologyWebSocket = (system: SystemType) => {
+  const currentSocket = topologySockets[system];
+  if (currentSocket && (currentSocket.readyState === WebSocket.OPEN || currentSocket.readyState === WebSocket.CONNECTING)) {
     return;
   }
 
-  clearReconnectTimer();
-  topologySocket = new WebSocket(`${getWsBase('bt')}/ws/topology/`);
+  clearReconnectTimer(system);
+  const socket = new WebSocket(`${getWsBase(system)}/ws/topology/`);
+  topologySockets[system] = socket;
+  topologySocketConnected[system] = false;
 
-  topologySocket.onopen = () => {
-    fetchTopologyStatuses('bt');
+  socket.onopen = () => {
+    topologySocketConnected[system] = true;
+    void fetchTopologyStatuses(system);
   };
 
-  topologySocket.onmessage = (event: MessageEvent) => {
+  socket.onmessage = (event: MessageEvent) => {
     try {
       const payload = JSON.parse(event.data) as TopologyStatus;
-      applyTopologyStatus('bt', payload);
+      applyTopologyStatus(system, payload);
       drawCanvas();
     } catch (error) {
-      console.error('[TopologyWS] invalid message', error);
+      console.error(`[TopologyWS:${system}] invalid message`, error);
     }
   };
 
-  topologySocket.onerror = (error) => {
-    console.error('[TopologyWS] error', error);
+  socket.onerror = (error) => {
+    console.error(`[TopologyWS:${system}] error`, error);
   };
 
-  topologySocket.onclose = () => {
-    topologySocket = null;
-    scheduleReconnect();
+  socket.onclose = () => {
+    if (topologySockets[system] === socket) {
+      topologySockets[system] = null;
+    }
+    topologySocketConnected[system] = false;
+    scheduleReconnect(system);
   };
 };
 
-const disconnectTopologyWebSocket = () => {
-  clearReconnectTimer();
-  if (!topologySocket) {
+const disconnectTopologyWebSocket = (system: SystemType) => {
+  clearReconnectTimer(system);
+  const socket = topologySockets[system];
+  if (!socket) {
+    topologySocketConnected[system] = false;
     return;
   }
-  topologySocket.onopen = null;
-  topologySocket.onmessage = null;
-  topologySocket.onerror = null;
-  topologySocket.onclose = null;
-  topologySocket.close();
-  topologySocket = null;
+  socket.onopen = null;
+  socket.onmessage = null;
+  socket.onerror = null;
+  socket.onclose = null;
+  socket.close();
+  topologySockets[system] = null;
+  topologySocketConnected[system] = false;
+};
+
+const connectAllTopologyWebSockets = () => {
+  SYSTEMS.forEach((system) => {
+    connectTopologyWebSocket(system);
+  });
+};
+
+const disconnectAllTopologyWebSockets = () => {
+  SYSTEMS.forEach((system) => {
+    disconnectTopologyWebSocket(system);
+  });
 };
 
 const getStatusColor = (status: string) => {
@@ -609,10 +642,14 @@ onMounted(async () => {
   await fetchAllTopologyStatuses();
   restoreCanvasState();
   drawCanvas();
-  connectTopologyWebSocket();
-  // Poll all systems as a realtime fallback when WS delivery is unstable.
+  connectAllTopologyWebSockets();
+  // Poll only the systems whose topology websocket is currently disconnected.
   statusPollInterval = setInterval(() => {
-    void fetchAllTopologyStatuses();
+    SYSTEMS.forEach((system) => {
+      if (!topologySocketConnected[system]) {
+        void fetchTopologyStatuses(system);
+      }
+    });
   }, 3000);
   blinkInterval = setInterval(() => {
     blinkState = !blinkState;
@@ -641,7 +678,7 @@ onUnmounted(() => {
     containerResizeObserver.disconnect();
     containerResizeObserver = null;
   }
-  disconnectTopologyWebSocket();
+  disconnectAllTopologyWebSockets();
   window.removeEventListener('resize', handleResize);
   window.removeEventListener(DEVICE_SETTINGS_CHANGED_EVENT, handleDeviceSettingsChangedEvent);
 });

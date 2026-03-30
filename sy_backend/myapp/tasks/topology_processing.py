@@ -3,9 +3,53 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from consts import TOPOLOGY_TIMEOUT
 from myapp.models import Device
+from myapp.tasks.sy_device_context import load_sy_device_context_cache
+
+DEVICE_LEVEL_ALARM_CODES_FOR_DEVICE_STATUS = {
+    0,
+    40,
+    50,
+    60,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+}
+
+DIRECTION_CHANNEL_ALARM_MAP = {
+    1: (43, 42),
+    2: (52, 53),
+    3: (62, 63),
+}
+
+CHANNEL_LAYER = None
 
 
-def process_topology_status(device_id, alarms_of_this_device):
+def _resolve_device_context(device_id, device_context=None):
+    if device_context is not None:
+        return device_context
+    try:
+        return load_sy_device_context_cache().get(device_id)
+    except Exception:
+        try:
+            device = Device.objects.only(
+                "direction1_enabled",
+                "direction2_enabled",
+                "direction3_enabled",
+            ).get(device_id=device_id)
+        except Device.DoesNotExist:
+            return None
+        return {
+            "direction1_enabled": bool(getattr(device, "direction1_enabled", False)),
+            "direction2_enabled": bool(getattr(device, "direction2_enabled", False)),
+            "direction3_enabled": bool(getattr(device, "direction3_enabled", False)),
+        }
+
+
+def process_topology_status(device_id, alarms_of_this_device, device_context=None):
     """
     sy 网管拓扑状态汇总：
     - device_status: 只分 good / bad
@@ -40,36 +84,27 @@ def process_topology_status(device_id, alarms_of_this_device):
 
     # --- 设备状态判断 ---
     # 参与设备级判断的告警码
-    device_level_alarm_codes_for_device_status = {
-        0,   # 设备网管连接中断
-        40,  # 一方向故障
-        50,  # 二方向故障
-        60,  # 三方向故障
-        70,  # 主机告警
-        71,  # 备机告警
-        72,  # 同步故障
-        73,  # 备机未同步
-        74,  # 通道故障
-        75,  # 励磁故障
-        76,  # 系统故障
-    }
-
+    has_offline_alarm = alarms_of_this_device.get(0, {}).get("bit_value") == 1
     has_any_alarm = any(
-        alarm_code in device_level_alarm_codes_for_device_status
+        alarm_code in DEVICE_LEVEL_ALARM_CODES_FOR_DEVICE_STATUS
         and alarm_status.get("bit_value") == 1
         for alarm_code, alarm_status in alarms_of_this_device.items()
     )
-    if has_any_alarm:
+
+    if has_offline_alarm:
+        topology_status["device_status"] = "offline"
+        topology_status["direction1_line_status"] = "null"
+        topology_status["direction2_line_status"] = "null"
+        topology_status["direction3_line_status"] = "null"
+    elif has_any_alarm:
         topology_status["device_status"] = "bad"
 
-    # 取设备的方向启用信息
-    try:
-        device = Device.objects.get(device_id=device_id)
-    except Device.DoesNotExist:
-        device = None
+    resolved_device_context = _resolve_device_context(device_id, device_context=device_context)
 
     # --- 线路状态判断：一方向 ---
-    if device is None or getattr(device, "direction1_enabled", False):
+    if has_offline_alarm:
+        topology_status["direction1_line_status"] = "null"
+    elif resolved_device_context is None or resolved_device_context.get("direction1_enabled", False):
         topology_status["direction1_line_status"] = get_direction_line_status(
             alarms_of_this_device,
             direction=1,
@@ -78,7 +113,9 @@ def process_topology_status(device_id, alarms_of_this_device):
         topology_status["direction1_line_status"] = "null"
 
     # --- 线路状态判断：二方向 ---
-    if device is None or getattr(device, "direction2_enabled", False):
+    if has_offline_alarm:
+        topology_status["direction2_line_status"] = "null"
+    elif resolved_device_context is None or resolved_device_context.get("direction2_enabled", False):
         topology_status["direction2_line_status"] = get_direction_line_status(
             alarms_of_this_device,
             direction=2,
@@ -87,7 +124,9 @@ def process_topology_status(device_id, alarms_of_this_device):
         topology_status["direction2_line_status"] = "null"
 
     # --- 线路状态判断：三方向（sy 特有） ---
-    if device is not None and getattr(device, "direction3_enabled", False):
+    if has_offline_alarm:
+        topology_status["direction3_line_status"] = "null"
+    elif resolved_device_context is not None and resolved_device_context.get("direction3_enabled", False):
         topology_status["direction3_line_status"] = get_direction_line_status(
             alarms_of_this_device,
             direction=3,
@@ -97,6 +136,10 @@ def process_topology_status(device_id, alarms_of_this_device):
 
     # 将拓扑状态存入缓存
     topology_key = f"device_{device_id}_topology_status"
+    previous_topology_status = cache.get(topology_key)
+    if previous_topology_status == topology_status:
+        return topology_status
+
     cache.set(topology_key, topology_status, timeout=TOPOLOGY_TIMEOUT)
 
     # 发送给 WebSocket 前端
@@ -130,16 +173,10 @@ def get_direction_line_status(alarms_of_this_device, direction: int) -> str:
     """
 
     # 每个方向对应的 (A 通道码, B 通道码)
-    direction_channel_alarm_map = {
-        1: (43, 42),  # 一方向：A=43, B=42
-        2: (52, 53),  # 二方向：A=52, B=53
-        3: (62, 63),  # 三方向：A=62, B=63
-    }
-
-    if direction not in direction_channel_alarm_map:
+    if direction not in DIRECTION_CHANNEL_ALARM_MAP:
         return "null"
 
-    code_a, code_b = direction_channel_alarm_map[direction]
+    code_a, code_b = DIRECTION_CHANNEL_ALARM_MAP[direction]
 
     status_a = alarms_of_this_device.get(code_a, {})
     status_b = alarms_of_this_device.get(code_b, {})
@@ -156,8 +193,10 @@ def get_direction_line_status(alarms_of_this_device, direction: int) -> str:
 
 
 def send_topology_update(topology_status):
-    channel_layer = get_channel_layer()
-    async_to_sync(channel_layer.group_send)(
+    global CHANNEL_LAYER
+    if CHANNEL_LAYER is None:
+        CHANNEL_LAYER = get_channel_layer()
+    async_to_sync(CHANNEL_LAYER.group_send)(
         "topology_updates",  # 和 consumer 中 group_add 的 group 名字一致
         {
             "type": "topology.update",

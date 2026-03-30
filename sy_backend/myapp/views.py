@@ -9,7 +9,6 @@ from rest_framework import viewsets  # type: ignore
 from myapp.models import (
     Device,
     SwitchData,
-    AnalogData,
     AlarmActive,
     AlarmData,
     UserOperation,
@@ -20,7 +19,6 @@ from myapp.serializers import (
     DeviceSerializer,
     SwitchDataSerializer,
     AlarmActiveSerializer,
-    AnalogDataSerializer,
     AlarmDataSerializer,
     RelayActionSerializer,
     UserOperationSerializer,
@@ -41,6 +39,7 @@ from django_filters.rest_framework import DjangoFilterBackend  # type: ignore
 from rest_framework.permissions import IsAuthenticated, AllowAny  # type: ignore
 from rest_framework import status
 from django.contrib.auth import get_user_model
+from django.db import connection
 
 from .sy_command_sender import (
     make_cmd_a1,
@@ -59,6 +58,50 @@ import json
 import base64
 
 User = get_user_model()
+
+FAST_COUNT_CACHE_TTL = 30
+
+
+def _is_truthy_query_param(value):
+    return str(value).lower() not in {"0", "false", "no", "off"}
+
+
+def _query_is_unfiltered(queryset):
+    query = queryset.query
+    return (
+        len(query.where.children) == 0
+        and not query.group_by
+        and not query.distinct
+        and query.combinator is None
+        and not query.annotations
+    )
+
+
+def _estimated_queryset_count(queryset):
+    if connection.vendor != "postgresql":
+        return None
+    if not _query_is_unfiltered(queryset):
+        return None
+
+    table_name = queryset.model._meta.db_table
+    cache_key = f"estimated_count:{table_name}"
+    cached_count = cache.get(cache_key)
+    if isinstance(cached_count, int) and cached_count >= 0:
+        return cached_count
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT GREATEST(reltuples::bigint, 0) FROM pg_class WHERE oid = %s::regclass",
+            [table_name],
+        )
+        row = cursor.fetchone()
+
+    if not row:
+        return None
+
+    estimated_count = int(row[0])
+    cache.set(cache_key, estimated_count, FAST_COUNT_CACHE_TTL)
+    return estimated_count
 
 # =========================
 # BB 命令中文名称映射表
@@ -144,18 +187,6 @@ class SwitchStatusView(View):  # 从缓存读取开关量信息
             # 将字节数据转换为 base64 编码的字符串
             encoded_switch_status = base64.b64encode(switch_status).decode("utf-8")
             return JsonResponse({"switch_status": encoded_switch_status})
-        else:
-            return JsonResponse({"error": "No data found"}, status=404)
-
-
-class AnalogStatusView(View):  # 从缓存读取模拟量信息
-    def get(self, request, device_id):
-        analog_key = f"device_{device_id}_analog_status"
-        analog_status = cache.get(analog_key)
-
-        if analog_status:
-            analog_status = json.loads(analog_status)
-            return JsonResponse({"analog_status": analog_status})
         else:
             return JsonResponse({"error": "No data found"}, status=404)
 
@@ -246,25 +277,6 @@ class CustomPageNumberPagination(PageNumberPagination):
     max_page_size = 10000
 
 
-class AnalogDataViewSet(viewsets.ModelViewSet):
-    queryset = AnalogData.objects.all()
-    serializer_class = AnalogDataSerializer
-    pagination_class = CustomPageNumberPagination
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = {
-        "timestamp": ["gte", "lte"],
-        "device": ["exact"],
-    }
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        device_id = self.request.query_params.get("device")
-        if device_id is not None:
-            queryset = queryset.filter(device_id=device_id)
-        queryset = queryset.order_by("-timestamp")
-        return queryset
-
-
 class RelayActionViewSet(viewsets.ModelViewSet):
     queryset = RelayAction.objects.all()
     serializer_class = RelayActionSerializer
@@ -340,7 +352,48 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
     }
 
     def get_queryset(self):
-        return super().get_queryset().order_by("-timestamp_start")
+        return (
+            super()
+            .get_queryset()
+            .select_related("device")
+            .only(
+                "id",
+                "device",
+                "device__device_id",
+                "device__name",
+                "alarm_code",
+                "timestamp_start",
+                "timestamp_end",
+                "is_confirmed",
+            )
+            .order_by("-timestamp_start")
+        )
+
+    def list(self, request, *args, **kwargs):
+        if _is_truthy_query_param(request.query_params.get("include_count", "1")):
+            return super().list(request, *args, **kwargs)
+
+        queryset = self.filter_queryset(self.get_queryset())
+        paginator = self.paginator
+        page_size = paginator.get_page_size(request) if paginator else None
+        page_size = page_size or 20
+
+        try:
+            page_number = max(int(request.query_params.get("page", "1")), 1)
+        except (TypeError, ValueError):
+            page_number = 1
+
+        offset = (page_number - 1) * page_size
+        serializer = self.get_serializer(queryset[offset:offset + page_size], many=True)
+        return Response({"count": None, "results": serializer.data})
+
+    @action(detail=False, methods=["get"], url_path="count")
+    def count(self, request):
+        queryset = self.filter_queryset(AlarmData.objects.all())
+        estimated_count = _estimated_queryset_count(queryset)
+        approximate = estimated_count is not None
+        total_count = estimated_count if approximate else queryset.count()
+        return Response({"count": total_count, "approximate": approximate})
 
     @action(detail=True, methods=["post"], url_path="confirm")
     def confirm(self, request, pk=None):
@@ -535,7 +588,7 @@ class SySendCommandView(View):
                 username=username,
             )
 
-            # 3）通过 Kafka 丢给 sy_agent，sy_agent 写串口
+            # 3）通过 Redis Streams 丢给 sy_agent，sy_agent 写串口
             send_sy_frame_via_redis(
                 device_id=device.device_id,
                 addr=addr,

@@ -6,12 +6,18 @@ import logging
 import time
 
 from django.contrib import admin, messages
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth import get_user_model
+from django.core.paginator import Paginator
 from django.core.exceptions import ValidationError
+from django.db import connections
+from django.http import HttpResponseRedirect
+from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.functional import cached_property
 
 import redis
 from import_export import resources, fields
@@ -28,6 +34,53 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _estimated_admin_count(queryset):
+    if not hasattr(queryset, "query"):
+        return None
+
+    connection = connections[queryset.db]
+    if connection.vendor != "postgresql":
+        return None
+
+    try:
+        sql, params = queryset.query.sql_with_params()
+        with connection.cursor() as cursor:
+            cursor.execute(f"EXPLAIN (FORMAT JSON) {sql}", params)
+            row = cursor.fetchone()
+    except Exception:
+        logger.exception("admin count estimate failed")
+        return None
+
+    if not row:
+        return None
+
+    plan = row[0]
+    if isinstance(plan, list) and plan:
+        plan = plan[0]
+
+    try:
+        return max(int(plan["Plan"]["Plan Rows"]), 0)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+class EstimatedCountPaginator(Paginator):
+    @cached_property
+    def count(self):
+        estimated = _estimated_admin_count(self.object_list)
+        if estimated is not None:
+            return estimated
+        return super().count
+
+
+class LargeTableAdminMixin:
+    paginator = EstimatedCountPaginator
+    show_full_result_count = False
+    list_per_page = 50
+    list_max_show_all = 200
+    list_select_related = ("device",)
 
 
 # ========================
@@ -53,6 +106,27 @@ class DepotScopedAdmin(admin.ModelAdmin):
 
         return qs.none()
 
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not request.user.is_superuser:
+            actions.pop("truncate_table", None)
+        return actions
+
+    def changelist_view(self, request, extra_context=None):
+        if request.method == "POST" and request.POST.get("action") == "truncate_table":
+            selected = request.POST.getlist(ACTION_CHECKBOX_NAME)
+            select_across = request.POST.get("select_across") == "1"
+            if not selected and not select_across:
+                actions = self.get_actions(request)
+                action = actions.get("truncate_table")
+                if action:
+                    queryset = self.get_queryset(request).none()
+                    response = action[0](self, request, queryset)
+                    if response is not None:
+                        return response
+                    return HttpResponseRedirect(request.get_full_path())
+        return super().changelist_view(request, extra_context=extra_context)
+
 
 # ========================
 # 公共批量动作
@@ -65,24 +139,83 @@ batch_confirm.short_description = "确认选中的告警"
 
 
 def batch_delete(modeladmin, request, queryset):
-    """批量强制删除（分批避免大事务）"""
-    batch_size = 1000
-    iterator = queryset.iterator()
+    """批量强制删除（高性能分批版）"""
+    batch_size = max(int(os.getenv("ADMIN_BATCH_DELETE_SIZE", "20000")), 1000)
+    model = modeladmin.model
+    pk_name = model._meta.pk.name
+    using = queryset.db
     deleted_count = 0
-    while True:
-        ids = []
-        for _ in range(batch_size):
-            try:
-                ids.append(next(iterator).id)
-            except StopIteration:
-                break
-        if not ids:
-            break
-        modeladmin.model.objects.filter(id__in=ids).delete()
-        deleted_count += len(ids)
 
-    modeladmin.message_user(request, f'成功删除 {deleted_count} 条记录', level=messages.SUCCESS)
+    base_queryset = queryset.order_by()
+
+    while True:
+        pk_subquery = base_queryset.values(pk_name)[:batch_size]
+        batch_qs = model.objects.filter(**{f"{pk_name}__in": pk_subquery})
+
+        try:
+            deleted = batch_qs._raw_delete(using=using)
+        except Exception:
+            logger.exception("batch_delete: _raw_delete failed, fallback to delete()")
+            ids = list(base_queryset.values_list(pk_name, flat=True)[:batch_size])
+            if not ids:
+                break
+            deleted, _ = model.objects.filter(**{f"{pk_name}__in": ids}).delete()
+
+        if deleted <= 0:
+            break
+        deleted_count += deleted
+
+    logger.info("batch_delete: deleted=%s model=%s batch_size=%s", deleted_count, model.__name__, batch_size)
+    modeladmin.message_user(request, f"成功强制删除 {deleted_count} 条记录。", level=messages.SUCCESS)
 batch_delete.short_description = '强制删除选中的项目'
+
+
+def truncate_table(modeladmin, request, queryset):
+    """清空整表（仅 superuser，二次确认）"""
+    if not request.user.is_superuser:
+        modeladmin.message_user(request, "仅超级管理员可执行“清空整表(慎用)”。", level=messages.ERROR)
+        return None
+
+    model = modeladmin.model
+    opts = model._meta
+    table_name = opts.db_table
+    using = queryset.db
+    conn = connections[using]
+
+    if conn.vendor != "postgresql":
+        modeladmin.message_user(request, "当前数据库非 PostgreSQL，已拒绝执行 TRUNCATE。", level=messages.ERROR)
+        return None
+
+    if request.POST.get("confirm_truncate") == "yes":
+        quoted_table = conn.ops.quote_name(table_name)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(f"TRUNCATE TABLE {quoted_table}")
+            logger.warning(
+                "truncate_table: table=%s model=%s operator=%s",
+                table_name,
+                model.__name__,
+                request.user.username,
+            )
+            modeladmin.message_user(request, f"已清空整表：{table_name}", level=messages.WARNING)
+        except Exception:
+            logger.exception("truncate_table failed: table=%s model=%s", table_name, model.__name__)
+            modeladmin.message_user(request, f"清空整表失败：{table_name}", level=messages.ERROR)
+        return None
+
+    context = {
+        **modeladmin.admin_site.each_context(request),
+        "title": f"确认清空整表（慎用）：{opts.verbose_name_plural}",
+        "opts": opts,
+        "action_name": "truncate_table",
+        "action_checkbox_name": ACTION_CHECKBOX_NAME,
+        "selected_ids": request.POST.getlist(ACTION_CHECKBOX_NAME),
+        "select_across": request.POST.get("select_across", "0"),
+        "table_name": table_name,
+        "model_label": opts.verbose_name_plural,
+    }
+    return TemplateResponse(request, "admin/truncate_table_confirmation.html", context)
+truncate_table.short_description = "清空整表(慎用)"
 
 
 # ========================
@@ -150,7 +283,7 @@ class AlarmActiveResource(resources.ModelResource):
 
 
 @admin.register(AlarmActive)
-class AlarmActiveAdmin(DepotScopedAdmin, ImportExportModelAdmin):
+class AlarmActiveAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = AlarmActiveResource
 
@@ -161,9 +294,9 @@ class AlarmActiveAdmin(DepotScopedAdmin, ImportExportModelAdmin):
     search_fields = ('device__device_id', 'device__name', 'alarm_code')
     list_filter = (
         ('timestamp_start', MyDateRangePicker),
-        'device__name', 'device__device_id', 'alarm_code', 'is_confirmed'
+        'device', 'alarm_code', 'is_confirmed'
     )
-    actions = [batch_delete, batch_confirm]
+    actions = [batch_delete, truncate_table, batch_confirm]
 
     def has_import_permission(self, request, *args, **kwargs):
         return False
@@ -240,7 +373,7 @@ class AlarmDataResource(resources.ModelResource):
 
 
 @admin.register(AlarmData)
-class AlarmDataAdmin(DepotScopedAdmin, ImportExportModelAdmin):
+class AlarmDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = AlarmDataResource
 
@@ -251,9 +384,9 @@ class AlarmDataAdmin(DepotScopedAdmin, ImportExportModelAdmin):
     search_fields = ('device__device_id', 'device__name', 'alarm_code')
     list_filter = (
         ('timestamp_start', MyDateRangePicker),
-        'device__name', 'device__device_id', 'alarm_code', 'is_confirmed'
+        'device', 'alarm_code', 'is_confirmed'
     )
-    actions = [batch_delete, batch_confirm]
+    actions = [batch_delete, truncate_table, batch_confirm]
 
     def has_import_permission(self, request, *args, **kwargs):
         return False
@@ -315,14 +448,15 @@ class RawFrameLogResource(resources.ModelResource):
 
 
 @admin.register(RawFrameLog)
-class RawFrameLogAdmin(ImportExportModelAdmin):
+class RawFrameLogAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModelAdmin):
+    depot_filter_field = 'device__depot'
     resource_class = RawFrameLogResource
 
     list_display = ("timestamp_with_seconds", "device_display", "cmd", "raw_hex_short")
     search_fields = ("cmd",)
     list_filter = ("cmd", "device")
     readonly_fields = ("timestamp", "raw_hex_full", "device", "cmd", "note")
-    actions = [batch_delete]
+    actions = [batch_delete, truncate_table]
 
     def has_import_permission(self, request, *args, **kwargs):
         return False
@@ -381,14 +515,14 @@ class SwitchDataResource(resources.ModelResource):
 
 
 @admin.register(SwitchData)
-class SwitchDataAdmin(DepotScopedAdmin, ImportExportModelAdmin):
+class SwitchDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = SwitchDataResource
 
     list_display = ('timestamp_with_seconds', 'device', 'protocol_hex_short')
-    list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id')
+    list_filter = (('timestamp', MyDateRangePicker), 'device')
     search_fields = ('device__device_id', 'device__ip_address', 'device__name')
-    actions = [batch_delete]
+    actions = [batch_delete, truncate_table]
 
     def has_import_permission(self, request, *args, **kwargs):
         return False
@@ -433,14 +567,14 @@ class ChangeBitEventResource(resources.ModelResource):
 
 
 @admin.register(ChangeBitEvent)
-class ChangeBitEventAdmin(DepotScopedAdmin, ImportExportModelAdmin):
+class ChangeBitEventAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = ChangeBitEventResource
 
     list_display = ('timestamp_with_seconds', 'device', 'bit_index', 'value', 'source')
     search_fields = ('device__device_id', 'device__name', 'bit_index', 'source')
-    list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id', 'source', 'value')
-    actions = [batch_delete]
+    list_filter = (('timestamp', MyDateRangePicker), 'device', 'source', 'value')
+    actions = [batch_delete, truncate_table]
 
     def has_import_permission(self, request, *args, **kwargs):
         return False
@@ -535,14 +669,14 @@ class UserOperationResource(resources.ModelResource):
 
 
 @admin.register(UserOperation)
-class UserOperationAdmin(DepotScopedAdmin, ImportExportModelAdmin):
+class UserOperationAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = UserOperationResource
 
     list_display = ('id', 'device', 'function_code', 'operation', 'username', 'timestamp_with_seconds')
     search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'function_code', 'operation', 'username')
-    list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id', 'operation', 'username')
-    actions = [batch_delete]
+    list_filter = (('timestamp', MyDateRangePicker), 'device')
+    actions = [batch_delete, truncate_table]
 
     def has_import_permission(self, request, *args, **kwargs):
         return False
@@ -579,14 +713,14 @@ class RelayActionResource(resources.ModelResource):
 
 
 @admin.register(RelayAction)
-class RelayActionAdmin(DepotScopedAdmin, ImportExportModelAdmin):
+class RelayActionAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = RelayActionResource
 
     list_display = ('timestamp_with_seconds', 'device', 'relay', 'action')
     search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'relay', 'action')
-    list_filter = (('timestamp', MyDateRangePicker), 'device__name', 'device__device_id', 'relay', 'action')
-    actions = [batch_delete]
+    list_filter = (('timestamp', MyDateRangePicker), 'device')
+    actions = [batch_delete, truncate_table]
 
     def has_import_permission(self, request, *args, **kwargs):
         return False
