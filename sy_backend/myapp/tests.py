@@ -235,6 +235,7 @@ class SySummarizeIterationTests(TestCase):
             return_value={"device_id": 1, "device_status": "good"},
         ):
             state = sy_summarize.summarize_alarms_iteration({})
+        cache.set("device_1_topology_status", {"device_id": 1, "device_status": "good"}, timeout=None)
 
         later = timezone.make_aware(datetime(2026, 3, 24, 12, 0, 11))
         with patch.object(sy_summarize, "SUMMARY_DEVICE_CACHE_REFRESH_SEC", 30), patch(
@@ -274,13 +275,19 @@ class SySummarizeIterationTests(TestCase):
 class SyTopologyProcessingTests(TestCase):
     def test_offline_alarm_maps_to_offline_topology(self):
         with patch("myapp.tasks.topology_processing.send_topology_update"), patch(
-            "myapp.tasks.topology_processing.cache.get", return_value=None
-        ), patch("myapp.tasks.topology_processing.cache.set"):
+            "myapp.tasks.topology_processing.cache.set"
+        ):
             from myapp.tasks.topology_processing import process_topology_status
 
             topology = process_topology_status(
                 1,
-                {0: {"bit_value": 1}},
+                {
+                    "device_id": 1,
+                    "device_status": "offline",
+                    "direction1_line_status": "bad",
+                    "direction2_line_status": "bad",
+                    "direction3_line_status": "bad",
+                },
                 device_context={
                     "direction1_enabled": True,
                     "direction2_enabled": True,
@@ -291,6 +298,93 @@ class SyTopologyProcessingTests(TestCase):
         self.assertEqual(topology["device_status"], "offline")
         self.assertEqual(topology["direction1_line_status"], "null")
         self.assertEqual(topology["direction2_line_status"], "null")
+        self.assertEqual(topology["direction3_line_status"], "null")
+
+    def test_non_direction3_device_maps_code_62_to_direction1_bad(self):
+        topology = sy_summarize.build_topology_status_payload(
+            device_id=1,
+            device_context={
+                "direction1_enabled": True,
+                "direction2_enabled": True,
+                "direction3_enabled": False,
+            },
+            alarms_of_this_device={62: {"bit_value": 1}},
+            comm_ok=True,
+        )
+
+        self.assertEqual(topology["device_status"], "good")
+        self.assertEqual(topology["direction1_line_status"], "bad")
+        self.assertEqual(topology["direction2_line_status"], "good")
+        self.assertEqual(topology["direction3_line_status"], "null")
+
+    def test_non_direction3_device_maps_code_63_to_direction2_bad(self):
+        topology = sy_summarize.build_topology_status_payload(
+            device_id=1,
+            device_context={
+                "direction1_enabled": True,
+                "direction2_enabled": True,
+                "direction3_enabled": False,
+            },
+            alarms_of_this_device={63: {"bit_value": 1}},
+            comm_ok=True,
+        )
+
+        self.assertEqual(topology["direction1_line_status"], "good")
+        self.assertEqual(topology["direction2_line_status"], "bad")
+        self.assertEqual(topology["direction3_line_status"], "null")
+
+    def test_non_direction3_device_maps_62_and_63_to_two_bad_lines(self):
+        topology = sy_summarize.build_topology_status_payload(
+            device_id=1,
+            device_context={
+                "direction1_enabled": True,
+                "direction2_enabled": True,
+                "direction3_enabled": False,
+            },
+            alarms_of_this_device={
+                62: {"bit_value": 1},
+                63: {"bit_value": 1},
+            },
+            comm_ok=True,
+        )
+
+        self.assertEqual(topology["direction1_line_status"], "bad")
+        self.assertEqual(topology["direction2_line_status"], "bad")
+        self.assertEqual(topology["direction3_line_status"], "null")
+
+    def test_direction3_device_keeps_62_63_on_direction3(self):
+        topology = sy_summarize.build_topology_status_payload(
+            device_id=1,
+            device_context={
+                "direction1_enabled": True,
+                "direction2_enabled": True,
+                "direction3_enabled": True,
+            },
+            alarms_of_this_device={62: {"bit_value": 1}},
+            comm_ok=True,
+        )
+
+        self.assertEqual(topology["direction1_line_status"], "good")
+        self.assertEqual(topology["direction2_line_status"], "good")
+        self.assertEqual(topology["direction3_line_status"], "blink")
+
+    def test_channel_fault_mapping_still_works_for_direction1_and_direction2(self):
+        topology = sy_summarize.build_topology_status_payload(
+            device_id=1,
+            device_context={
+                "direction1_enabled": True,
+                "direction2_enabled": True,
+                "direction3_enabled": False,
+            },
+            alarms_of_this_device={
+                43: {"bit_value": 1},
+                52: {"bit_value": 1},
+            },
+            comm_ok=True,
+        )
+
+        self.assertEqual(topology["direction1_line_status"], "blink")
+        self.assertEqual(topology["direction2_line_status"], "blink")
         self.assertEqual(topology["direction3_line_status"], "null")
 
 

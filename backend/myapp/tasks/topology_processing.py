@@ -11,6 +11,22 @@ _last_pushed_topology_monotonic = {}
 TOPOLOGY_PUSH_HEARTBEAT_SEC = float(os.getenv("TOPOLOGY_PUSH_HEARTBEAT_SEC", "30"))
 
 
+def _resolve_topology_cache_timeout():
+    if TOPOLOGY_TIMEOUT is None:
+        return None
+
+    try:
+        timeout = int(TOPOLOGY_TIMEOUT)
+    except (TypeError, ValueError):
+        return TOPOLOGY_TIMEOUT
+
+    if timeout <= 0:
+        return None
+
+    heartbeat_floor = int(max(TOPOLOGY_PUSH_HEARTBEAT_SEC, 0)) + 5
+    return max(timeout, heartbeat_floor)
+
+
 def _topology_signature(topology_status):
     return (
         topology_status.get('device_status'),
@@ -50,7 +66,7 @@ def process_topology_status(device_id, alarms_of_this_device):
 
     # 将拓扑状态存入缓存
     topology_key = f"device_{device_id}_topology_status"
-    cache.set(topology_key, topology_status, timeout=TOPOLOGY_TIMEOUT) #20250821
+    cache.set(topology_key, topology_status, timeout=_resolve_topology_cache_timeout()) #20250821
 
     # 仅在状态变化时推送 WebSocket，降低高频重复广播开销。
     now_monotonic = time.monotonic()

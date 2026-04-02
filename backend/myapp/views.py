@@ -16,19 +16,25 @@ from .udp_sender import create_packet, send_packet  # 导入函数
 from django.core.cache import cache # type: ignore
 import json
 import base64
+import redis
+from datetime import datetime
+import time
 #import paho.mqtt.client as mqtt
 from django.shortcuts import render, get_object_or_404 # type: ignore
 from django.http import HttpResponse # type: ignore
+from django.utils import timezone
 from django_celery_beat.models import PeriodicTask # type: ignore
 from django_filters.rest_framework import DjangoFilterBackend # type: ignore
 from rest_framework.permissions import IsAuthenticated, AllowAny # type: ignore
 from rest_framework import status
 from django.contrib.auth import get_user_model
 from django.db import connection, transaction
+from consts import COMMUNICATION_TIMEOUT
 
 User = get_user_model()
 
 FAST_COUNT_CACHE_TTL = 30
+redis_comm_client = redis.StrictRedis(host='redis', port=6379, db=2, decode_responses=True)
 
 
 def _is_truthy_query_param(value):
@@ -71,6 +77,39 @@ def _estimated_queryset_count(queryset):
     estimated_count = int(row[0])
     cache.set(cache_key, estimated_count, FAST_COUNT_CACHE_TTL)
     return estimated_count
+
+
+def _parse_iso_aware(value: str):
+    dt = datetime.fromisoformat(value)
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone=timezone.utc)
+    return dt
+
+
+def _is_device_comm_online(device_id: int) -> bool:
+    raw_time = redis_comm_client.get(f"device_{device_id}_last_communication_time")
+    raw_monotonic = redis_comm_client.get(f"device_{device_id}_last_communication_monotonic")
+    if not raw_time:
+        return False
+
+    now = timezone.now()
+    now_monotonic = time.monotonic()
+
+    if raw_monotonic is not None:
+        try:
+            elapsed = now_monotonic - float(raw_monotonic)
+            if elapsed < 0:
+                elapsed = 0.0
+            return elapsed <= COMMUNICATION_TIMEOUT
+        except (TypeError, ValueError):
+            pass
+
+    try:
+        last_comm = _parse_iso_aware(raw_time)
+    except Exception:
+        return False
+
+    return (now - last_comm).total_seconds() <= COMMUNICATION_TIMEOUT
 
 class UserDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -181,15 +220,30 @@ class AllTopologyStatusView(View):
 
 class SwitchStatusView(View):#从缓存读取开关量信息
     def get(self, request, device_id):
+        if not _is_device_comm_online(device_id):
+            cache.delete(f"device_{device_id}_switch_status")
+            return JsonResponse({"error": "Device offline"}, status=404)
+
         switch_key = f"device_{device_id}_switch_status"
         switch_status = cache.get(switch_key)
-        
+
+        if switch_status is None:
+            latest_switch = (
+                SwitchData.objects
+                .filter(device_id=device_id)
+                .order_by("-timestamp")
+                .values("switch_status")
+                .first()
+            )
+            if latest_switch:
+                switch_status = bytes(latest_switch["switch_status"])
+                cache.set(switch_key, switch_status, timeout=None)
+
         if switch_status:
-            # 将字节数据转换为 base64 编码的字符串
             encoded_switch_status = base64.b64encode(switch_status).decode('utf-8')
             return JsonResponse({"switch_status": encoded_switch_status})
-        else:
-            return JsonResponse({"error": "No data found"}, status=404)
+
+        return JsonResponse({"error": "No data found"}, status=404)
 
 class AnalogStatusView(View):# 从缓存读取模拟量信息
     def get(self, request, device_id):

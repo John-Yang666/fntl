@@ -37,6 +37,19 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 SUMMARY_INTERVAL_SEC = float(os.getenv("SUMMARY_INTERVAL_SEC", "1"))
 SUMMARY_DEVICE_CACHE_REFRESH_SEC = float(os.getenv("SUMMARY_DEVICE_CACHE_REFRESH_SEC", "30"))
 NON_ZERO_ALARM_CODES = sorted(SY_ALARM_CODES)
+DEVICE_LEVEL_ALARM_CODES_FOR_DEVICE_STATUS = {
+    0,
+    40,
+    50,
+    60,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+}
 
 redis_client = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, db=2, decode_responses=True)
 
@@ -190,6 +203,67 @@ def _active_alarm_dict_from_model(active_alarm: AlarmActive):
     }
 
 
+def _build_channel_line_status(alarms_of_this_device: dict, code_a: int, code_b: int) -> str:
+    has_a_alarm = alarms_of_this_device.get(code_a, {}).get("bit_value") == 1
+    has_b_alarm = alarms_of_this_device.get(code_b, {}).get("bit_value") == 1
+
+    if has_a_alarm and has_b_alarm:
+        return "bad"
+    if has_a_alarm or has_b_alarm:
+        return "blink"
+    return "good"
+
+
+def build_topology_status_payload(
+    *,
+    device_id: int,
+    device_context: dict | None,
+    alarms_of_this_device: dict,
+    comm_ok: bool | None,
+) -> dict:
+    topology_status = {
+        "device_id": device_id,
+        "device_status": "good",
+        "direction1_line_status": "null",
+        "direction2_line_status": "null",
+        "direction3_line_status": "null",
+    }
+
+    has_offline_alarm = (comm_ok is False) or alarms_of_this_device.get(0, {}).get("bit_value") == 1
+    if has_offline_alarm:
+        topology_status["device_status"] = "offline"
+        return topology_status
+
+    has_any_device_alarm = any(
+        alarm_code in DEVICE_LEVEL_ALARM_CODES_FOR_DEVICE_STATUS
+        and alarm_status.get("bit_value") == 1
+        for alarm_code, alarm_status in alarms_of_this_device.items()
+    )
+    if has_any_device_alarm:
+        topology_status["device_status"] = "bad"
+
+    direction1_enabled = device_context is None or device_context.get("direction1_enabled", False)
+    direction2_enabled = device_context is None or device_context.get("direction2_enabled", False)
+    direction3_enabled = bool(device_context and device_context.get("direction3_enabled", False))
+
+    if direction1_enabled:
+        direction1_line_status = _build_channel_line_status(alarms_of_this_device, 43, 42)
+        if not direction3_enabled and alarms_of_this_device.get(62, {}).get("bit_value") == 1:
+            direction1_line_status = "bad"
+        topology_status["direction1_line_status"] = direction1_line_status
+
+    if direction2_enabled:
+        direction2_line_status = _build_channel_line_status(alarms_of_this_device, 52, 53)
+        if not direction3_enabled and alarms_of_this_device.get(63, {}).get("bit_value") == 1:
+            direction2_line_status = "bad"
+        topology_status["direction2_line_status"] = direction2_line_status
+
+    if direction3_enabled:
+        topology_status["direction3_line_status"] = _build_channel_line_status(alarms_of_this_device, 62, 63)
+
+    return topology_status
+
+
 def summarize_alarms_iteration(state: dict | None = None) -> dict:
     state = state or {}
     current_time = timezone.now()
@@ -235,17 +309,20 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
     switch_updated_at_keys = {}
     alarm_cache_keys = {}
     alarm_updated_at_keys = {}
+    topology_cache_keys = {}
     for device_id in device_ids_cache:
         switch_status_keys[device_id] = _switch_status_key(device_id)
         switch_updated_at_keys[device_id] = _switch_status_updated_at_key(device_id)
         alarm_cache_keys[device_id] = _alarm_key(device_id)
         alarm_updated_at_keys[device_id] = _alarm_updated_at_key(device_id)
+        topology_cache_keys[device_id] = f"device_{device_id}_topology_status"
         cache_keys.extend(
             (
                 switch_status_keys[device_id],
                 switch_updated_at_keys[device_id],
                 alarm_cache_keys[device_id],
                 alarm_updated_at_keys[device_id],
+                topology_cache_keys[device_id],
             )
         )
     cache_snapshot = cache.get_many(cache_keys) if cache_keys else {}
@@ -286,6 +363,8 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
                 devices_to_process.add(device_id)
             if cache_snapshot.get(alarm_cache_keys[device_id]) is None:
                 devices_to_process.add(device_id)
+            if cache_snapshot.get(topology_cache_keys[device_id]) is None:
+                devices_to_process.add(device_id)
     if context_dirty:
         devices_to_process = set(device_ids_cache)
 
@@ -323,9 +402,15 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
                 cache.delete(_switch_status_updated_at_key(device_id))
                 cache.delete(f"device_{device_id}_switch_status_version")
                 raised_alarms += 1
+            topology_status = build_topology_status_payload(
+                device_id=device_id,
+                device_context=device_context,
+                alarms_of_this_device={0: {"bit_value": 1}},
+                comm_ok=comm_ok,
+            )
             topology_status = process_topology_status(
-                device_id,
-                {0: {"bit_value": 1}},
+                device_id=device_id,
+                topology_status=topology_status,
                 device_context=device_context,
             )
             if previous_topology_status != topology_status:
@@ -393,9 +478,15 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
                 active_alarm_by_key[(device_id, alarm_code)] = _active_alarm_dict_from_model(active_alarm)
                 raised_alarms += 1
 
+        topology_status = build_topology_status_payload(
+            device_id=device_id,
+            device_context=device_context,
+            alarms_of_this_device=alarms_of_this_device,
+            comm_ok=comm_ok,
+        )
         topology_status = process_topology_status(
-            device_id,
-            alarms_of_this_device,
+            device_id=device_id,
+            topology_status=topology_status,
             device_context=device_context,
         )
         if previous_topology_status != topology_status:

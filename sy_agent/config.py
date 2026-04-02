@@ -56,6 +56,19 @@ CONFIG = {
         "default_baudrate": 19200,
         "timeout": 0.0,
     },
+    "probe": {
+        "enable": True,
+        "interval_sec": 45.0,
+        "timeout_sec": 0.12,
+        "queue_threshold": 32,
+        "cooldown_after_fault_sec": 15.0,
+    },
+    "ui": {
+        "mode": "dashboard",
+        "refresh_sec": 1.0,
+        "event_buffer_size": 20,
+        "ansi": "auto",
+    },
     "debug_tuning": {
         "AFTER_WRITE_SLEEP_SEC": 0.035,
         "ENABLE_AFTER_WRITE_SLEEP": True,

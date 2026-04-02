@@ -176,7 +176,14 @@ def summarize_alarms():
         }
         alarm_cache_keys = {device_id: f'device_{device_id}_alarms' for device_id in device_ids_cache}
         alarm_updated_at_keys = {device_id: f'device_{device_id}_alarms_updated_at' for device_id in device_ids_cache}
-        cache_snapshot = cache.get_many([*alarm_cache_keys.values(), *alarm_updated_at_keys.values()]) if alarm_cache_keys else {}
+        topology_cache_keys = {device_id: f'device_{device_id}_topology_status' for device_id in device_ids_cache}
+        cache_snapshot = cache.get_many(
+            [
+                *alarm_cache_keys.values(),
+                *alarm_updated_at_keys.values(),
+                *topology_cache_keys.values(),
+            ],
+        ) if alarm_cache_keys else {}
         alarm_cache_snapshot = {cache_key: cache_snapshot.get(cache_key) for cache_key in alarm_cache_keys.values()}
         missing_alarm_cache_ids = [
             device_id
@@ -202,6 +209,8 @@ def summarize_alarms():
                 if last_comm_ok_by_device.get(device_id) != comm_ok:
                     devices_to_process.add(device_id)
                 if last_alarm_updated_at_by_device.get(device_id) != alarm_updated_at_by_device.get(device_id):
+                    devices_to_process.add(device_id)
+                if cache_snapshot.get(topology_cache_keys[device_id]) is None:
                     devices_to_process.add(device_id)
 
         alarm_data_to_create: list[AlarmData] = []

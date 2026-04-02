@@ -8,6 +8,7 @@ WORKDIR /app
 ARG APT_MIRROR_HOST=mirrors.ustc.edu.cn
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+ARG PIP_EXTRA_INDEX_URL=https://pypi.org/simple
 
 # 安装系统依赖（使用 BuildKit 缓存提升重复构建速度）
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -20,7 +21,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 COPY requirements.txt /app/
 COPY requirements.lock.txt /app/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install -i ${PIP_INDEX_URL} --trusted-host ${PIP_TRUSTED_HOST} -r requirements.txt -c requirements.lock.txt
+    python -m pip install \
+    -i ${PIP_INDEX_URL} \
+    --extra-index-url ${PIP_EXTRA_INDEX_URL} \
+    --trusted-host ${PIP_TRUSTED_HOST} \
+    -r requirements.txt \
+    -c requirements.lock.txt
 
 # 复制项目文件和脚本到容器中
 COPY . /app

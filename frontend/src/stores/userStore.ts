@@ -73,14 +73,19 @@ export const useUserStore = defineStore('user', {
         await this.fetchUserDetails(system);
       }));
 
-      const failedSystems = results
-        .map((result, index) => ({ result, system: SYSTEMS[index] }))
+      const settledResults = results.map((result, index) => ({ result, system: SYSTEMS[index] }));
+      const successfulSystems = settledResults
+        .filter(({ result }) => result.status === 'fulfilled')
+        .map(({ system }) => system);
+      const failedSystems = settledResults
         .filter(({ result }) => result.status === 'rejected')
-        .map(({ system }) => system.toUpperCase());
+        .map(({ system }) => system);
 
-      if (failedSystems.length > 0) {
+      await Promise.all(failedSystems.map((system) => this.logoutSystem(system)));
+
+      if (successfulSystems.length === 0) {
         await this.logout();
-        throw new Error(`登录失败: ${failedSystems.join(', ')}`);
+        throw new Error(`登录失败: ${failedSystems.map((system) => system.toUpperCase()).join(', ')}`);
       }
     },
 
@@ -144,11 +149,24 @@ export const useUserStore = defineStore('user', {
     },
 
     async ensureUsersLoaded(): Promise<void> {
-      await Promise.all(SYSTEMS.map(async (system) => {
+      const results = await Promise.allSettled(SYSTEMS.map(async (system) => {
         if (this.auth[system].token && !this.auth[system].user) {
           await this.fetchUserDetails(system);
         }
       }));
+
+      const failedSystems = results
+        .map((result, index) => ({ result, system: SYSTEMS[index] }))
+        .filter(({ result, system }) => result.status === 'rejected' && !!this.auth[system].token)
+        .map(({ system }) => system);
+
+      if (failedSystems.length > 0) {
+        await Promise.all(failedSystems.map((system) => this.logoutSystem(system)));
+      }
+
+      if (!this.isAuthenticated) {
+        throw new Error('No authenticated systems available');
+      }
     },
 
     async getAuthHeaders(system: SystemType): Promise<Record<string, string>> {
@@ -202,7 +220,7 @@ export const useUserStore = defineStore('user', {
   getters: {
     user: (state: UserState): User | null => state.auth.bt.user || state.auth.sy.user,
     isAuthenticated: (state: UserState): boolean =>
-      SYSTEMS.every((system) => !!state.auth[system].token),
+      SYSTEMS.some((system) => !!state.auth[system].token),
     isSystemAuthenticated: (state: UserState): (system: SystemType) => boolean =>
       (system: SystemType): boolean => !!state.auth[system].token,
     getUser: (state: UserState): (system: SystemType) => User | null =>

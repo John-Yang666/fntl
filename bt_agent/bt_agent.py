@@ -11,7 +11,6 @@ import time
 from typing import TYPE_CHECKING
 from pathlib import Path
 import copy
-import tomllib
 
 # Redis 依赖：宿主机跑 redis_stream 时需要
 try:
@@ -24,7 +23,6 @@ if TYPE_CHECKING:
 
 
 CONFIG_PY_PATH = Path(__file__).with_name("config.py")
-CONFIG_TOML_PATH = Path(__file__).with_name("config.toml")
 CONFIG_PATH: Path
 
 DEFAULT_CONFIG = {
@@ -77,17 +75,11 @@ def _load_py_config(path: Path) -> dict:
 def _load_config() -> dict:
     global CONFIG_PATH
 
-    if CONFIG_PY_PATH.exists():
-        CONFIG_PATH = CONFIG_PY_PATH
-        loaded = _load_py_config(CONFIG_PATH)
-    elif CONFIG_TOML_PATH.exists():
-        CONFIG_PATH = CONFIG_TOML_PATH
-        with CONFIG_PATH.open("rb") as f:
-            loaded = tomllib.load(f)
-    else:
-        raise FileNotFoundError(
-            f"missing config file: {CONFIG_PY_PATH} or {CONFIG_TOML_PATH}"
-        )
+    if not CONFIG_PY_PATH.exists():
+        raise FileNotFoundError(f"missing config file: {CONFIG_PY_PATH}")
+
+    CONFIG_PATH = CONFIG_PY_PATH
+    loaded = _load_py_config(CONFIG_PATH)
     config = copy.deepcopy(DEFAULT_CONFIG)
     return _deep_merge(config, loaded)
 

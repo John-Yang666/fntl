@@ -27,13 +27,14 @@ docker run --rm --network none ^
   -v "%ROOT%\frontend:/app" ^
   -w /app ^
   node:22 ^
-  sh -lc "npm ci --offline --cache ./npm-cache --no-audit --no-fund && npm run build" || goto :fail
+  sh -lc "rm -rf dist && npm ci --offline --cache ./npm-cache --no-audit --no-fund && npm run build && test -f dist/index.html" || goto :fail
 
 echo [INFO] Recreating vue service with local dist mount...
 docker compose -f docker-compose-prod.yml -f docker-compose-prod.frontend-local.yml up -d --no-deps --force-recreate vue || goto :fail
 
 echo [INFO] Done.
 echo [INFO] Frontend is now serving host dist from frontend\dist
+echo [INFO] Hard refresh the browser with Ctrl+F5 after each frontend update.
 popd
 call :hold
 exit /b 0

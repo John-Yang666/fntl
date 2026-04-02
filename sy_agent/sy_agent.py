@@ -47,11 +47,11 @@ import signal
 import threading
 import queue
 import socket
+import shutil
 from typing import Dict, List, Optional, Tuple, Deque, Callable
 from collections import deque
 from pathlib import Path
 import copy
-import tomllib
 
 import serial
 from serial import SerialException
@@ -130,7 +130,6 @@ DEBUG_TUNING = {
 }
 
 CONFIG_PY_PATH = Path(__file__).with_name("config.py")
-CONFIG_TOML_PATH = Path(__file__).with_name("config.toml")
 CONFIG_PATH: Path
 
 DEFAULT_CONFIG = {
@@ -179,6 +178,19 @@ DEFAULT_CONFIG = {
     "serial": {
         "default_baudrate": 19200,
         "timeout": 0.0,
+    },
+    "probe": {
+        "enable": True,
+        "interval_sec": 45.0,
+        "timeout_sec": 0.12,
+        "queue_threshold": 32,
+        "cooldown_after_fault_sec": 15.0,
+    },
+    "ui": {
+        "mode": "dashboard",
+        "refresh_sec": 1.0,
+        "event_buffer_size": 20,
+        "ansi": "auto",
     },
     "lines": [
         {
@@ -235,17 +247,11 @@ def _load_py_config(path: Path) -> dict:
 def _load_config() -> dict:
     global CONFIG_PATH
 
-    if CONFIG_PY_PATH.exists():
-        CONFIG_PATH = CONFIG_PY_PATH
-        loaded = _load_py_config(CONFIG_PATH)
-    elif CONFIG_TOML_PATH.exists():
-        CONFIG_PATH = CONFIG_TOML_PATH
-        with CONFIG_PATH.open("rb") as f:
-            loaded = tomllib.load(f)
-    else:
-        raise FileNotFoundError(
-            f"missing config file: {CONFIG_PY_PATH} or {CONFIG_TOML_PATH}"
-        )
+    if not CONFIG_PY_PATH.exists():
+        raise FileNotFoundError(f"missing config file: {CONFIG_PY_PATH}")
+
+    CONFIG_PATH = CONFIG_PY_PATH
+    loaded = _load_py_config(CONFIG_PATH)
     config = copy.deepcopy(DEFAULT_CONFIG)
     return _deep_merge(config, loaded)
 
@@ -258,9 +264,11 @@ CMD_CONFIG = CONFIG["cmd"]
 TIME_SYNC_CONFIG = CONFIG["time_sync"]
 A2_BURST_CONFIG = CONFIG["a2_burst"]
 SERIAL_CONFIG = CONFIG["serial"]
+PROBE_CONFIG = CONFIG.get("probe", {})
+UI_CONFIG = CONFIG.get("ui", {})
 
 # ============================================================
-# Redis Streams 配置（由 TOML 提供）
+# Redis Streams 配置
 # ============================================================
 REDIS_HOST = str(REDIS_CONFIG["host"])
 REDIS_PORT = int(REDIS_CONFIG["port"])
@@ -357,9 +365,320 @@ DEFAULT_STOPBITS = serial.STOPBITS_TWO
 DEFAULT_TIMEOUT = float(SERIAL_CONFIG["timeout"])
 
 # ============================================================
+# 控制台 UI 配置
+# ============================================================
+UI_MODE = str(UI_CONFIG.get("mode", "dashboard")).strip().lower() or "dashboard"
+UI_REFRESH_SEC = max(0.2, float(UI_CONFIG.get("refresh_sec", 1.0)))
+UI_EVENT_BUFFER_SIZE = max(5, int(UI_CONFIG.get("event_buffer_size", 20)))
+UI_ANSI = str(UI_CONFIG.get("ansi", "auto")).strip().lower() or "auto"
+NO_RESP_WINDOW_SEC = 300.0
+PROBE_ENABLE = bool(PROBE_CONFIG.get("enable", True))
+PROBE_INTERVAL_SEC = max(10.0, float(PROBE_CONFIG.get("interval_sec", 45.0)))
+PROBE_TIMEOUT_SEC = max(0.05, float(PROBE_CONFIG.get("timeout_sec", 0.12)))
+PROBE_QUEUE_THRESHOLD = max(1, int(PROBE_CONFIG.get("queue_threshold", 32)))
+PROBE_COOLDOWN_AFTER_FAULT_SEC = max(0.0, float(PROBE_CONFIG.get("cooldown_after_fault_sec", 15.0)))
+
+# ============================================================
 # 多线路配置（示例）
 # ============================================================
 LINES_CONFIG = CONFIG["lines"]
+
+# ============================================================
+# 控制台输出
+# ============================================================
+running = True
+nms_to_line: Dict[int, "LinePoller"] = {}
+CONSOLE = None
+
+
+def _trim_text(value, max_len: int = 160) -> str:
+    text = str(value)
+    text = text.replace("\r", " ").replace("\n", " ")
+    if len(text) <= max_len:
+        return text
+    return f"{text[:max_len - 3]}..."
+
+
+def _age_text(last_mono: Optional[float], nowt: float) -> str:
+    if not last_mono or last_mono <= 0:
+        return "-"
+    delta = max(0.0, nowt - float(last_mono))
+    if delta < 1.0:
+        return f"{delta:.1f}s"
+    if delta < 60.0:
+        return f"{delta:.0f}s"
+    return f"{delta / 60.0:.1f}m"
+
+
+def _enable_windows_vt_mode() -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)
+        if handle in (0, -1):
+            return False
+        mode = ctypes.c_uint()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)) == 0:
+            return False
+        enable_vt = 0x0004
+        if kernel32.SetConsoleMode(handle, mode.value | enable_vt) == 0:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+class ConsoleManager:
+    def __init__(self):
+        self.requested_mode = UI_MODE if UI_MODE in ("dashboard", "plain") else "dashboard"
+        self.refresh_sec = float(UI_REFRESH_SEC)
+        self.event_capacity = int(UI_EVENT_BUFFER_SIZE)
+        self.ansi_setting = UI_ANSI if UI_ANSI in ("auto", "always", "never") else "auto"
+
+        self._lock = threading.Lock()
+        self._events: Deque[dict] = deque(maxlen=self.event_capacity)
+        self._stop_evt = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._redis_conn = None
+        self._pollers: List["LinePoller"] = []
+
+        self.ansi_enabled = self._resolve_ansi_enabled()
+        self.mode = "dashboard" if (self.requested_mode == "dashboard" and self.ansi_enabled) else "plain"
+
+    def _resolve_ansi_enabled(self) -> bool:
+        if self.ansi_setting == "never":
+            return False
+        if self.ansi_setting == "always":
+            return _enable_windows_vt_mode()
+        if not sys.stdout.isatty():
+            return False
+        return _enable_windows_vt_mode()
+
+    def bind_runtime(self, *, redis_conn=None, pollers: Optional[List["LinePoller"]] = None):
+        with self._lock:
+            if redis_conn is not None:
+                self._redis_conn = redis_conn
+            if pollers is not None:
+                self._pollers = pollers
+
+    def register_poller(self, poller: "LinePoller"):
+        with self._lock:
+            if poller not in self._pollers:
+                self._pollers.append(poller)
+
+    def start(self):
+        if self.mode != "dashboard" or self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._render_loop, name="sy-dashboard", daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop_evt.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.5)
+        if self.mode == "dashboard" and self.ansi_enabled:
+            try:
+                sys.stdout.write("\x1b[?25h\n")
+                sys.stdout.flush()
+            except Exception:
+                pass
+
+    def emit(
+        self,
+        *,
+        level: str,
+        category: str,
+        message: str,
+        line_id: Optional[int] = None,
+        line_name: Optional[str] = None,
+        port: Optional[str] = None,
+        record_event: bool = True,
+        plain_output: bool = True,
+    ):
+        event = {
+            "ts": time.strftime("%H:%M:%S", time.localtime()),
+            "level": (level or "INFO").upper(),
+            "category": (category or "general").lower(),
+            "message": _trim_text(message, 220),
+            "line_id": line_id,
+            "line_name": line_name,
+            "port": port,
+        }
+        if record_event:
+            with self._lock:
+                self._events.append(event)
+        if self.mode == "plain" and plain_output:
+            print(self._format_plain_event(event), flush=True)
+
+    def _format_plain_event(self, event: dict) -> str:
+        parts = [event["ts"], event["level"], f"[{event['category']}]"]
+        if event.get("line_id") is not None:
+            label = f"line={event['line_id']}"
+            if event.get("line_name"):
+                label += f"/{event['line_name']}"
+            parts.append(label)
+        if event.get("port"):
+            parts.append(f"port={event['port']}")
+        parts.append(event["message"])
+        return " ".join(parts)
+
+    def _snapshot(self):
+        with self._lock:
+            events = list(self._events)
+            redis_conn = self._redis_conn
+            pollers = list(self._pollers)
+        return redis_conn, pollers, events
+
+    def _render_loop(self):
+        while not self._stop_evt.is_set():
+            self.render_once()
+            self._stop_evt.wait(self.refresh_sec)
+
+    def render_once(self):
+        if self.mode != "dashboard" or not self.ansi_enabled:
+            return
+        redis_conn, pollers, events = self._snapshot()
+        nowt = time.monotonic()
+        width = max(100, shutil.get_terminal_size(fallback=(120, 40)).columns)
+
+        redis_up = bool(redis_conn and redis_conn.is_ready())
+        redis_state = "UP" if redis_up else "DOWN"
+        total_a1_timeout = sum(int(getattr(p, "a1_no_resp_count", 0) or 0) for p in pollers)
+        total_a1_timeout_5m = sum(int(p.recent_no_resp_count("a1", nowt)) for p in pollers)
+        total_a2_timeout = sum(int(getattr(p, "a2_no_resp_count", 0) or 0) for p in pollers)
+        total_a2_timeout_5m = sum(int(p.recent_no_resp_count("a2", nowt)) for p in pollers)
+        total_cmd_timeout = sum(int(getattr(p, "cmd_no_resp_count", 0) or 0) for p in pollers)
+        total_cmd_timeout_5m = sum(int(p.recent_no_resp_count("cmd", nowt)) for p in pollers)
+        degraded_lines = sum(1 for p in pollers if p.is_degraded())
+
+        lines = []
+        lines.append(
+            _trim_text(
+                f"SY_AGENT  mode={self.mode}  time={time.strftime('%Y-%m-%d %H:%M:%S')}  "
+                f"redis={redis_state}  consumer={SY_CMD_CONSUMER}  pid={os.getpid()}",
+                width,
+            )
+        )
+        lines.append(
+            _trim_text(
+                f"target={REDIS_HOST}:{REDIS_PORT}/{SY_STREAM_DB}  raw={SY_RAW_STREAM}  cmd={SY_CMD_STREAM}  "
+                f"group={SY_CMD_GROUP}  lines={len(pollers)}  after_sleep={ADAPT.get_sleep():.3f}s  "
+                f"degraded_lines={degraded_lines}  a1_timeout(T/5m)={total_a1_timeout}/{total_a1_timeout_5m}  "
+                f"a2_timeout(T/5m)={total_a2_timeout}/{total_a2_timeout_5m}  "
+                f"cmd_timeout(T/5m)={total_cmd_timeout}/{total_cmd_timeout_5m}",
+                width,
+            )
+        )
+        lines.append(
+            _trim_text(
+                f"wait={float(DEBUG_TUNING['WAIT_RESPONSE_TIMEOUT_SEC']):.3f}s  "
+                f"no_resp_cmds={','.join(hex(x) for x in sorted(NO_RESP_REQ_CMDS))}  config={CONFIG_PATH}",
+                width,
+            )
+        )
+        lines.append("")
+        lines.append("Lines")
+        lines.append(_trim_text("ID  Name         Pref(H/T) Head      Tail      DownFor(H/T)   Devs  A1Timeout(T/5m)  A2Timeout(T/5m)  CmdTimeout(T/5m)  Unmatch(T/5m)  QFull(H/T)  Queue(H/T)  LastOK", width))
+        lines.append("-" * min(width, 156))
+
+        if pollers:
+            for poller in pollers:
+                snap = poller.get_ui_snapshot(nowt)
+                row = (
+                    f"{snap['line_id']:<3} {snap['name'][:12]:<12} "
+                    f"{snap['preferred']:<9} "
+                    f"{snap['head']:<9} {snap['tail']:<9} {snap['down_for']:<15} "
+                    f"{snap['devices']:<5} {snap['a1_timeout']:<16} {snap['a2_timeout']:<16} {snap['cmd_timeout']:<17} {snap['unmatched']:<13} "
+                    f"{snap['qfull']:<11} {snap['queue']:<11} {snap['last_ok']}"
+                )
+                lines.append(_trim_text(row, width))
+        else:
+            lines.append("No lines registered.")
+
+        lines.append("")
+        lines.append("Recent events")
+        lines.append("-" * min(width, 110))
+        display_events = events[-min(10, self.event_capacity):]
+        if display_events:
+            for event in display_events:
+                prefix = f"{event['ts']} {event['level']:<5} [{event['category']}]"
+                if event.get("line_id") is not None:
+                    prefix += f" line={event['line_id']}"
+                if event.get("port"):
+                    prefix += f" port={event['port']}"
+                lines.append(_trim_text(f"{prefix} {event['message']}", width))
+        else:
+            lines.append("No recent events.")
+
+        payload = "\n".join(lines)
+        try:
+            sys.stdout.write("\x1b[?25l\x1b[H\x1b[2J")
+            sys.stdout.write(payload)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        except Exception:
+            self.mode = "plain"
+            self.emit(level="WARN", category="startup", message="dashboard render failed, fallback to plain mode", record_event=True, plain_output=True)
+
+
+def _infer_level(message: str, default: str = "INFO") -> str:
+    msg = str(message).upper()
+    if "[FATAL]" in msg or "[ERROR]" in msg:
+        return "ERROR"
+    if "[WARN]" in msg or "FAILED" in msg or " DOWN" in msg:
+        return "WARN"
+    return default.upper()
+
+
+def _infer_category(message: str, default: str = "general") -> str:
+    msg = str(message)
+    if msg.startswith("[Redis]") or "[Redis]" in msg:
+        return "redis"
+    if msg.startswith("[PORT]") or "[PORT]" in msg:
+        return "port"
+    if msg.startswith("[PROBE]") or "[PROBE]" in msg:
+        return "port"
+    if msg.startswith("[Cmd") or "[Cmd" in msg or msg.startswith("CMD "):
+        return "cmd"
+    if "[DLQ]" in msg:
+        return "dlq"
+    if "[STATUS]" in msg:
+        return "poll"
+    return default
+
+
+def emit_event(
+    message: str,
+    *,
+    level: str = "INFO",
+    category: Optional[str] = None,
+    line_id: Optional[int] = None,
+    line_name: Optional[str] = None,
+    port: Optional[str] = None,
+    record_event: bool = True,
+    plain_output: bool = True,
+):
+    final_level = _infer_level(message, default=level)
+    final_category = _infer_category(message, default=category or "general")
+    if CONSOLE is not None:
+        CONSOLE.emit(
+            level=final_level,
+            category=final_category,
+            message=message,
+            line_id=line_id,
+            line_name=line_name,
+            port=port,
+            record_event=record_event,
+            plain_output=plain_output,
+        )
+        return
+    print(_trim_text(message, 220), flush=True)
+
+
+CONSOLE = ConsoleManager()
 
 # ============================================================
 # 帧常量
@@ -395,17 +714,10 @@ UNESCAPE_MAP = {
 }
 
 
-# ============================================================
-# 全局控制
-# ============================================================
-running = True
-nms_to_line: Dict[int, "LinePoller"] = {}
-
-
 def handle_signal(sig, frame):
     global running
-    print(f"\n[sy_agent] caught signal {sig}, preparing to exit...")
     running = False
+    emit_event(f"caught signal {sig}, preparing to exit...", category="startup", record_event=True, plain_output=True)
 
 
 for _sig in ("SIGINT", "SIGTERM"):
@@ -827,9 +1139,11 @@ class AdaptiveSleep:
                 p99 = arr[int(round(0.99 * (len(arr) - 1)))]
                 mx = arr[-1]
                 cur = self._cur_sleep
-                print(
+                emit_event(
                     f"[TUNE] RTT(p50/p95/p99/max)={p50*1000:.1f}/{p95*1000:.1f}/{p99*1000:.1f}/{mx*1000:.1f}ms "
-                    f"=> auto_after_sleep={cur:.3f}s (margin={self.margin:.3f}s)"
+                    f"=> auto_after_sleep={cur:.3f}s (margin={self.margin:.3f}s)",
+                    category="poll",
+                    record_event=False,
                 )
 
     def on_no_resp(self):
@@ -844,7 +1158,11 @@ class AdaptiveSleep:
                 self._last_no_bump = nowt
                 old = self._cur_sleep
                 self._cur_sleep = self._clamp(self._cur_sleep + self.no_bump)
-                print(f"[TUNE] no-resp streak={self._no_streak} => bump after_sleep {old:.3f}s -> {self._cur_sleep:.3f}s")
+                emit_event(
+                    f"[TUNE] no-resp streak={self._no_streak} => bump after_sleep {old:.3f}s -> {self._cur_sleep:.3f}s",
+                    category="poll",
+                    level="WARN",
+                )
 
 
 ADAPT = AdaptiveSleep()
@@ -917,7 +1235,10 @@ class RedisConn:
         try:
             r.xgroup_create(name=stream, groupname=group, id="$", mkstream=True)
             if DEBUG_TUNING["LOG_REDIS_STATE"]:
-                print(f"[Redis] xgroup_create OK: stream={stream}, group={group}, id=$")
+                emit_event(
+                    f"[Redis] xgroup_create OK: stream={stream}, group={group}, id=$",
+                    category="redis",
+                )
         except redis.ResponseError as e:
             if "BUSYGROUP" in str(e):
                 return
@@ -934,12 +1255,19 @@ class RedisConn:
 
             self._set_state(True)
             if DEBUG_TUNING["LOG_REDIS_STATE"]:
-                print(f"[Redis] CONNECTED target={self.host}:{self.port}/{self.db}")
+                emit_event(
+                    f"[Redis] CONNECTED target={self.host}:{self.port}/{self.db}",
+                    category="redis",
+                )
             return True
         except Exception as e:
             self._set_state(False, err=str(e))
             if DEBUG_TUNING["LOG_REDIS_STATE"]:
-                print(f"[Redis] CONNECT FAILED target={self.host}:{self.port}/{self.db} err={e}")
+                emit_event(
+                    f"[Redis] CONNECT FAILED target={self.host}:{self.port}/{self.db} err={e}",
+                    category="redis",
+                    level="WARN",
+                )
             return False
 
     def mark_down(self, reason: str):
@@ -956,7 +1284,7 @@ class RedisConn:
         except Exception:
             pass
         if DEBUG_TUNING["LOG_REDIS_STATE"]:
-            print(f"[Redis] DOWN: {reason}")
+            emit_event(f"[Redis] DOWN: {reason}", category="redis", level="WARN")
 
     def get_client(self) -> redis.Redis:
         if not self.is_ready():
@@ -1042,7 +1370,7 @@ class RedisConn:
             )
         except Exception as e:
             if DEBUG_TUNING["LOG_REDIS_STATE"]:
-                print(f"[DLQ] push failed: {e}")
+                emit_event(f"[DLQ] push failed: {e}", category="dlq", level="ERROR")
 
     # ✅ 生产：命令去重（Redis key）
     def cmd_done_exists(self, key: str) -> bool:
@@ -1144,7 +1472,7 @@ class PortReceiver(threading.Thread):
             self._last_good_frame_mono = now_mono()
 
     def log(self, msg: str):
-        print(f"[Line {self.line_id} - {self.line_name}][RX-{self.which}] {msg}")
+        emit_event(msg, line_id=self.line_id, line_name=self.line_name, port=self.which)
 
     def request_clear(self):
         self.req_clear.set()
@@ -1314,15 +1642,29 @@ class LinePoller(threading.Thread):
             self.dev_state[serial_id] = {"last_a1_mono": t0, "last_good_side": "head"}
 
         self.next_time_sync_mono = t0 + TIME_SYNC_INTERVAL if TIME_SYNC_ENABLE else float("inf")
+        self.next_probe_mono = t0 + (self.line_id % 5) * 0.5 + PROBE_INTERVAL_SEC if PROBE_ENABLE else float("inf")
         self.dev_idx = 0 if self.devices_cfg else -1
+        self.probe_target_serial_id = int(self.devices_cfg[0]["serial_id"]) if self.devices_cfg else None
 
         self.stash: Dict[Tuple[str, int, int, int], List[dict]] = {}
         self.stash_max_per_key = 8
         self.stash_keep_seconds = 1.2
 
         self.drop_unmatched = 0
+        self.unmatched_times: Deque[float] = deque()
+        self.last_unmatched_mono = 0.0
         self.seq_send = 0
-        self.no_resp_count = 0
+        self.a1_no_resp_count = 0
+        self.a2_no_resp_count = 0
+        self.cmd_no_resp_count = 0
+        self.a1_no_resp_times: Deque[float] = deque()
+        self.a2_no_resp_times: Deque[float] = deque()
+        self.cmd_no_resp_times: Deque[float] = deque()
+        self.last_a1_no_resp_mono = 0.0
+        self.last_a2_no_resp_mono = 0.0
+        self.last_cmd_no_resp_mono = 0.0
+        self.last_ok_mono = 0.0
+        self.last_ok_side = "-"
 
         self._port_retry = {
             "head": {"next": 0.0, "delay": float(DEBUG_TUNING["SERIAL_RETRY_MIN_SEC"]), "min": float(DEBUG_TUNING["SERIAL_RETRY_MIN_SEC"]), "max": float(DEBUG_TUNING["SERIAL_RETRY_MAX_SEC"])},
@@ -1330,6 +1672,14 @@ class LinePoller(threading.Thread):
         }
 
         self._port_open_mono = {"head": 0.0, "tail": 0.0}
+        self._port_down_since = {
+            "head": 0.0 if is_disabled_port(self.head_port_name) else t0,
+            "tail": 0.0 if is_disabled_port(self.tail_port_name) else t0,
+        }
+        self._probe_state = {
+            "head": {"status": "DIS" if is_disabled_port(self.head_port_name) else "IDLE", "last_ok_mono": 0.0, "last_fail_mono": 0.0, "fail_streak": 0},
+            "tail": {"status": "DIS" if is_disabled_port(self.tail_port_name) else "IDLE", "last_ok_mono": 0.0, "last_fail_mono": 0.0, "fail_streak": 0},
+        }
         self._last_stall_action_mono = {"head": 0.0, "tail": 0.0}
 
         self._last_status_print = now_mono()
@@ -1339,7 +1689,211 @@ class LinePoller(threading.Thread):
         self._done_local_lock = threading.Lock()
 
     def log(self, msg: str):
-        print(f"[Line {self.line_id} - {self.name}] {msg}")
+        emit_event(msg, line_id=self.line_id, line_name=self.name)
+
+    def get_ui_snapshot(self, nowt: Optional[float] = None) -> dict:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        head_state = "DISABLED" if is_disabled_port(self.head_port_name) else ("UP" if (self.ser_head and self.ser_head.is_open) else "DOWN")
+        tail_state = "DISABLED" if is_disabled_port(self.tail_port_name) else ("UP" if (self.ser_tail and self.ser_tail.is_open) else "DOWN")
+        rx_h_qfull = self.rx_head.drop_q_full if self.rx_head else 0
+        rx_t_qfull = self.rx_tail.drop_q_full if self.rx_tail else 0
+        recent_a1_no_resp = self.recent_no_resp_count("a1", nowt)
+        recent_a2_no_resp = self.recent_no_resp_count("a2", nowt)
+        recent_cmd_no_resp = self.recent_no_resp_count("cmd", nowt)
+        recent_unmatched = self.recent_unmatched_count(nowt)
+        pref_head = sum(1 for st in self.dev_state.values() if st.get("last_good_side", "head") == "head")
+        pref_tail = max(0, len(self.dev_state) - pref_head)
+        return {
+            "line_id": self.line_id,
+            "name": self.name,
+            "preferred": f"{pref_head}/{pref_tail}",
+            "head": head_state,
+            "tail": tail_state,
+            "down_for": f"{self.port_down_for('head', nowt)}/{self.port_down_for('tail', nowt)}",
+            "devices": len(self.devices_cfg),
+            "a1_timeout": f"{self.a1_no_resp_count}/{recent_a1_no_resp}",
+            "a2_timeout": f"{self.a2_no_resp_count}/{recent_a2_no_resp}",
+            "cmd_timeout": f"{self.cmd_no_resp_count}/{recent_cmd_no_resp}",
+            "unmatched": f"{self.drop_unmatched}/{recent_unmatched}",
+            "qfull": f"{rx_h_qfull}/{rx_t_qfull}",
+            "queue": f"{self.q_head.qsize()}/{self.q_tail.qsize()}",
+            "last_ok": _age_text(self.last_ok_mono, nowt) if self.last_ok_mono > 0 else "-",
+        }
+
+    def port_down_for(self, which: str, nowt: Optional[float] = None) -> str:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        port_name = self.head_port_name if which == "head" else self.tail_port_name
+        if is_disabled_port(port_name):
+            return "dis"
+        down_since = float(self._port_down_since.get(which, 0.0) or 0.0)
+        if down_since <= 0:
+            return "-"
+        return _age_text(down_since, nowt)
+
+    def health_label(self) -> str:
+        head_bad = (not is_disabled_port(self.head_port_name)) and (self.ser_head is None or (not self.ser_head.is_open))
+        tail_bad = (not is_disabled_port(self.tail_port_name)) and (self.ser_tail is None or (not self.ser_tail.is_open))
+        if head_bad or tail_bad:
+            return "DEGRADED"
+        for which in ("head", "tail"):
+            state = self._probe_state.get(which, {})
+            if state.get("status") == "FAIL":
+                return "AT-RISK"
+        return "OK"
+
+    def is_degraded(self) -> bool:
+        return self.health_label() != "OK"
+
+    def preferred_side_majority(self) -> str:
+        pref_head = sum(1 for st in self.dev_state.values() if st.get("last_good_side", "head") == "head")
+        pref_tail = max(0, len(self.dev_state) - pref_head)
+        return "head" if pref_head >= pref_tail else "tail"
+
+    def probe_status_text(self, which: str, nowt: Optional[float] = None) -> str:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        state = self._probe_state.get(which, {})
+        status = str(state.get("status", "IDLE")).upper()
+        if status == "DIS":
+            return "dis"
+        if status == "IDLE":
+            return "idle"
+        if status == "OK":
+            return f"ok@{_age_text(state.get('last_ok_mono', 0.0), nowt)}"
+        if status == "FAIL":
+            return f"f{int(state.get('fail_streak', 0))}@{_age_text(state.get('last_fail_mono', 0.0), nowt)}"
+        return status.lower()
+
+    def recent_no_resp_count(self, kind: str, nowt: Optional[float] = None) -> int:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        if kind == "a1":
+            buf = self.a1_no_resp_times
+        elif kind == "a2":
+            buf = self.a2_no_resp_times
+        else:
+            buf = self.cmd_no_resp_times
+        while buf and (nowt - float(buf[0])) > NO_RESP_WINDOW_SEC:
+            buf.popleft()
+        return len(buf)
+
+    def record_no_resp(self, kind: str):
+        nowt = now_mono()
+        if kind == "a1":
+            self.a1_no_resp_count += 1
+            self.last_a1_no_resp_mono = nowt
+            self.a1_no_resp_times.append(nowt)
+        elif kind == "a2":
+            self.a2_no_resp_count += 1
+            self.last_a2_no_resp_mono = nowt
+            self.a2_no_resp_times.append(nowt)
+        else:
+            self.cmd_no_resp_count += 1
+            self.last_cmd_no_resp_mono = nowt
+            self.cmd_no_resp_times.append(nowt)
+        self.recent_no_resp_count(kind, nowt)
+
+    def recent_unmatched_count(self, nowt: Optional[float] = None) -> int:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        while self.unmatched_times and (nowt - float(self.unmatched_times[0])) > NO_RESP_WINDOW_SEC:
+            self.unmatched_times.popleft()
+        return len(self.unmatched_times)
+
+    def record_unmatched(self):
+        nowt = now_mono()
+        self.drop_unmatched += 1
+        self.last_unmatched_mono = nowt
+        self.unmatched_times.append(nowt)
+        self.recent_unmatched_count(nowt)
+
+    def _probe_side_candidate(self) -> Optional[str]:
+        preferred = self.preferred_side_majority()
+        candidate = "tail" if preferred == "head" else "head"
+        port_name = self.tail_port_name if candidate == "tail" else self.head_port_name
+        if is_disabled_port(port_name):
+            return None
+        return candidate
+
+    def _record_probe_result(self, side: str, ok: bool, reason: str):
+        state = self._probe_state[side]
+        nowt = now_mono()
+        prev_status = str(state.get("status", "IDLE")).upper()
+        prev_fail_streak = int(state.get("fail_streak", 0) or 0)
+
+        if ok:
+            state["status"] = "OK"
+            state["last_ok_mono"] = nowt
+            state["fail_streak"] = 0
+            if prev_status == "FAIL":
+                self.log(f"[PROBE] {side} recovered target={self.probe_target_serial_id} result={reason}")
+            return
+
+        state["status"] = "FAIL"
+        state["last_fail_mono"] = nowt
+        state["fail_streak"] = prev_fail_streak + 1
+        if prev_status != "FAIL" or int(state["fail_streak"]) in (3, 5):
+            self.log(
+                f"[PROBE] {side} failed target={self.probe_target_serial_id} streak={int(state['fail_streak'])} reason={reason}"
+            )
+
+    def _maybe_probe_health(self, nowt: float) -> bool:
+        if not PROBE_ENABLE or self.probe_target_serial_id is None:
+            return False
+        if nowt < self.next_probe_mono:
+            return False
+
+        self.next_probe_mono = nowt + PROBE_INTERVAL_SEC
+
+        if not self.redis_conn.is_ready():
+            return False
+        if not self.command_queue.empty():
+            return False
+        if self.q_head.qsize() > PROBE_QUEUE_THRESHOLD or self.q_tail.qsize() > PROBE_QUEUE_THRESHOLD:
+            return False
+        last_no_resp_mono = max(
+            float(self.last_a1_no_resp_mono or 0.0),
+            float(self.last_a2_no_resp_mono or 0.0),
+            float(self.last_cmd_no_resp_mono or 0.0),
+        )
+        if last_no_resp_mono > 0 and (nowt - last_no_resp_mono) < PROBE_COOLDOWN_AFTER_FAULT_SEC:
+            return False
+        if self.last_unmatched_mono > 0 and (nowt - self.last_unmatched_mono) < PROBE_COOLDOWN_AFTER_FAULT_SEC:
+            return False
+
+        side = self._probe_side_candidate()
+        if side is None:
+            return False
+
+        ser = self.ser_head if side == "head" else self.ser_tail
+        if ser is None or (not ser.is_open):
+            self._record_probe_result(side, False, "port_down")
+            return True
+
+        self._clear_side(side)
+        serial_id = int(self.probe_target_serial_id)
+        meta = {
+            "serial_id": serial_id,
+            "nms_id": self.serial_to_nms.get(serial_id),
+            "req_cmd": "A2",
+            "_probe": True,
+        }
+        resp_item = self._send_and_wait(
+            side,
+            build_a2_request(serial_id),
+            meta,
+            timeout=float(PROBE_TIMEOUT_SEC),
+            use_stash_first=False,
+            record_unmatched=False,
+        )
+        if resp_item is None:
+            self._record_probe_result(side, False, "timeout")
+            return True
+
+        cmd = int(resp_item.get("cmd", -1))
+        if cmd in (CMD_A2, CMD_NOCHANGE):
+            self._record_probe_result(side, True, "a2" if cmd == CMD_A2 else "nochange")
+            return True
+
+        self._record_probe_result(side, False, f"cmd_{cmd:02x}")
+        return True
 
     def enqueue_command(self, item: dict):
         self.command_queue.put(item)
@@ -1417,6 +1971,7 @@ class LinePoller(threading.Thread):
         st["next"] = 0.0
 
     def _close_port(self, which: str, reason: str):
+        nowt = now_mono()
         if which == "head":
             rx, ser, lock = self.rx_head, self.ser_head, self.lock_head
             self.rx_head = None
@@ -1441,6 +1996,10 @@ class LinePoller(threading.Thread):
                     ser.close()
         except Exception:
             pass
+
+        if not is_disabled_port(self.head_port_name if which == "head" else self.tail_port_name):
+            if float(self._port_down_since.get(which, 0.0) or 0.0) <= 0:
+                self._port_down_since[which] = nowt
 
         self._schedule_retry(which, reason)
 
@@ -1499,9 +2058,12 @@ class LinePoller(threading.Thread):
 
             self._reset_retry(which)
             self._port_open_mono[which] = now_mono()
+            self._port_down_since[which] = 0.0
             self.log(f"[PORT] {which.upper()} opened: {ser.portstr}")
 
         except Exception as e:
+            if float(self._port_down_since.get(which, 0.0) or 0.0) <= 0:
+                self._port_down_since[which] = now_mono()
             self.log(f"[PORT] {which.upper()} open failed: {e}")
             self._schedule_retry(which, f"open_failed:{e}")
 
@@ -1669,10 +2231,15 @@ class LinePoller(threading.Thread):
                 time.sleep(after_sleep)
 
             if DEBUG_TUNING["LOG_SEND"]:
-                self.log(
+                emit_event(
                     f"sent({which}) seq={seq} serial_id={meta.get('serial_id')} cmd={meta.get('req_cmd')} "
                     f"after={after_sleep:.3f}s wait={float(DEBUG_TUNING['WAIT_RESPONSE_TIMEOUT_SEC']):.3f}s "
-                    f"hex={frame_to_hex(frame)}"
+                    f"hex={frame_to_hex(frame)}",
+                    category="poll",
+                    line_id=self.line_id,
+                    line_name=self.name,
+                    port=which,
+                    record_event=False,
                 )
 
             meta["_send_seq"] = seq
@@ -1698,6 +2265,7 @@ class LinePoller(threading.Thread):
         expected_cmds: Optional[Tuple[int, ...]] = None,
         timeout: float,
         use_stash_first: bool = True,
+        record_unmatched: bool = True,
     ) -> Optional[dict]:
         q = self.q_head if which == "head" else self.q_tail
         expect_epoch = self._current_epoch(which)
@@ -1734,26 +2302,30 @@ class LinePoller(threading.Thread):
                 if resp_match_expected(frame, expected_serial_id=expected_serial_id, expected_req_cmd=str(expected_req_cmd)):
                     return item
                 else:
-                    self.drop_unmatched += 1
+                    if record_unmatched:
+                        self.record_unmatched()
                     self._stash_put(item)
                     continue
             else:
                 if expected_serial_id is not None:
                     addr = int(item.get("addr", -1))
                     if addr != (int(expected_serial_id) & 0xFF):
-                        self.drop_unmatched += 1
+                        if record_unmatched:
+                            self.record_unmatched()
                         self._stash_put(item)
                         continue
 
                     if expected_cmds is not None:
                         cmd = int(item.get("cmd", -1)) & 0xFF
                         if cmd not in expected_cmds:
-                            self.drop_unmatched += 1
+                            if record_unmatched:
+                                self.record_unmatched()
                             self._stash_put(item)
                             continue
                         try:
                             if not checksum_ok_lenient(frame):
-                                self.drop_unmatched += 1
+                                if record_unmatched:
+                                    self.record_unmatched()
                                 continue
                         except Exception:
                             pass
@@ -1772,6 +2344,7 @@ class LinePoller(threading.Thread):
         timeout: float,
         *,
         use_stash_first: bool = True,
+        record_unmatched: bool = True,
     ) -> Optional[dict]:
         if not self._send_frame(which, frame, meta):
             return None
@@ -1782,6 +2355,7 @@ class LinePoller(threading.Thread):
             expected_cmds=meta.get("_expected_cmds"),
             timeout=timeout,
             use_stash_first=use_stash_first,
+            record_unmatched=record_unmatched,
         )
 
     def _report_ok(self, side: str, *, serial_id: Optional[int], nms_id: Optional[int], req_cmd: Optional[str], frame: bytes, send_meta: dict):
@@ -1789,13 +2363,20 @@ class LinePoller(threading.Thread):
         send_t = float(send_meta.get("_send_tmono", recv_t))
         rtt = max(0.0, recv_t - send_t)
         ADAPT.on_resp_ok(rtt)
+        self.last_ok_mono = recv_t
+        self.last_ok_side = side
 
         hex_str = frame_to_hex(frame)
 
         if DEBUG_TUNING["LOG_RECV_OK"]:
-            self.log(
+            emit_event(
                 f"recv({side}) RESP_OK seq={send_meta.get('_send_seq')} serial_id={serial_id} cmd={req_cmd} "
-                f"RTT={rtt*1000:.1f}ms after={float(send_meta.get('_after_sleep', 0.0)):.3f}s hex={hex_str}"
+                f"RTT={rtt*1000:.1f}ms after={float(send_meta.get('_after_sleep', 0.0)):.3f}s hex={hex_str}",
+                category="poll",
+                line_id=self.line_id,
+                line_name=self.name,
+                port=side,
+                record_event=False,
             )
 
         msg = {
@@ -1873,11 +2454,16 @@ class LinePoller(threading.Thread):
             rx_h_qfull = self.rx_head.drop_q_full if self.rx_head else 0
             rx_t_qfull = self.rx_tail.drop_q_full if self.rx_tail else 0
 
-            self.log(
+            emit_event(
                 f"[STATUS] redis={'UP' if self.redis_conn.is_ready() else 'DOWN'} "
                 f"ports(head/tail)={h}/{t} after_sleep={ADAPT.get_sleep():.3f}s "
-                f"no_resp={self.no_resp_count} drop_unmatched={self.drop_unmatched} "
-                f"rx_drop_qfull(head/tail)={rx_h_qfull}/{rx_t_qfull}"
+                f"a1_timeout={self.a1_no_resp_count} a2_timeout={self.a2_no_resp_count} cmd_timeout={self.cmd_no_resp_count} "
+                f"drop_unmatched={self.drop_unmatched} "
+                f"rx_drop_qfull(head/tail)={rx_h_qfull}/{rx_t_qfull}",
+                category="poll",
+                line_id=self.line_id,
+                line_name=self.name,
+                record_event=False,
             )
 
     def _try_ack_cmd(self, msg_id):
@@ -1887,7 +2473,6 @@ class LinePoller(threading.Thread):
             return
         try:
             self.redis_conn.xack(SY_CMD_STREAM, SY_CMD_GROUP, msg_id)
-            self.log(f"[CmdACK] ack id={_b2s(msg_id)}")
         except Exception as e:
             self.log(f"[CmdACK] ack failed (redis down): {e}")
 
@@ -2059,9 +2644,9 @@ class LinePoller(threading.Thread):
                         break
 
                 if not sent_ok and DEBUG_TUNING["LOG_NO_RESP"]:
-                    self.no_resp_count += 1
+                    self.record_no_resp("cmd")
                     ADAPT.on_no_resp()
-                    self.log(f"CMD no RESP_OK (no={self.no_resp_count}) meta={meta} (id={_b2s(msg_id)})")
+                    self.log(f"CMD no RESP_OK (cmd_no={self.cmd_no_resp_count}) meta={meta} (id={_b2s(msg_id)})")
                 continue
 
             # 2) AA 校时
@@ -2078,7 +2663,11 @@ class LinePoller(threading.Thread):
                 self.next_time_sync_mono = tnow + TIME_SYNC_INTERVAL
                 continue
 
-            # 3) 轮询
+            # 3) 备链路健康探测（低频、只读、不改变主用侧）
+            if self._maybe_probe_health(tnow):
+                continue
+
+            # 4) 轮询
             if not self.devices_cfg:
                 time.sleep(0.01)
                 continue
@@ -2145,10 +2734,11 @@ class LinePoller(threading.Thread):
                 break
 
             if not got_ok and DEBUG_TUNING["LOG_NO_RESP"]:
-                self.no_resp_count += 1
+                self.record_no_resp("a1" if req_cmd == "A1" else "a2")
                 ADAPT.on_no_resp()
                 self.log(
-                    f"device no RESP_OK (no={self.no_resp_count}) serial_id={serial_id} nms_id={nms_id} "
+                    f"device no RESP_OK ({req_cmd}_no={self.a1_no_resp_count if req_cmd == 'A1' else self.a2_no_resp_count}) "
+                    f"serial_id={serial_id} nms_id={nms_id} "
                     f"after={ADAPT.get_sleep():.3f}s wait={float(DEBUG_TUNING['WAIT_RESPONSE_TIMEOUT_SEC']):.3f}s "
                     f"RTS={int(DEBUG_TUNING['RTS_TOGGLE'])}"
                 )
@@ -2156,7 +2746,10 @@ class LinePoller(threading.Thread):
             self.dev_idx = (self.dev_idx + 1) % len(self.devices_cfg)
 
         self.close_ports()
-        self.log(f"thread stopped. drop_unmatched={self.drop_unmatched}, no_resp={self.no_resp_count}")
+        self.log(
+            f"thread stopped. drop_unmatched={self.drop_unmatched}, a1_timeout={self.a1_no_resp_count}, "
+            f"a2_timeout={self.a2_no_resp_count}, cmd_timeout={self.cmd_no_resp_count}"
+        )
 
 
 # ============================================================
@@ -2200,13 +2793,15 @@ def _enqueue_cmd_from_fields(*, msg_id, fields, poller: LinePoller) -> Tuple[boo
 
     frame = normalize_downlink_request_tail(frame)
 
-    print(f"[CmdStream] enqueue cmd for nms_id={nms_id}: id={_b2s(msg_id)} hex={frame_hex}")
     poller.enqueue_command({"frame": frame, "meta": meta, "msg_id": msg_id})
     return True, "enqueued"
 
 
 def redis_command_thread(redis_conn: RedisConn):
-    print(f"[CmdStream] start. stream={SY_CMD_STREAM}, group={SY_CMD_GROUP}, consumer={SY_CMD_CONSUMER}")
+    emit_event(
+        f"[CmdStream] start. stream={SY_CMD_STREAM}, group={SY_CMD_GROUP}, consumer={SY_CMD_CONSUMER}",
+        category="cmd",
+    )
 
     pending_start = "0-0"
     last_claim = 0.0
@@ -2242,9 +2837,12 @@ def redis_command_thread(redis_conn: RedisConn):
         redis_conn.dlq_push(reason=reason, msg_id=msg_id, fields=fields, extra=extra or {})
         try:
             redis_conn.xack(SY_CMD_STREAM, SY_CMD_GROUP, msg_id)
-            print(f"[CmdStream][DLQ] acked id={_b2s(msg_id)} reason={reason}")
         except Exception as e:
-            print(f"[CmdStream][DLQ] ack failed id={_b2s(msg_id)} reason={reason} err={e}")
+            emit_event(
+                f"[CmdStream][DLQ] ack failed id={_b2s(msg_id)} reason={reason} err={e}",
+                category="dlq",
+                level="ERROR",
+            )
 
     while running:
         if not redis_conn.is_ready():
@@ -2302,7 +2900,11 @@ def redis_command_thread(redis_conn: RedisConn):
                             if not ok:
                                 dlq_and_ack(msg_id, fields, f"pending_{reason}")
                         except Exception as e:
-                            print(f"[CmdStream][PENDING] process error: {e}, id={_b2s(msg_id)}")
+                            emit_event(
+                                f"[CmdStream][PENDING] process error: {e}, id={_b2s(msg_id)}",
+                                category="cmd",
+                                level="ERROR",
+                            )
                 except Exception:
                     pass
 
@@ -2356,7 +2958,11 @@ def redis_command_thread(redis_conn: RedisConn):
                         dlq_and_ack(msg_id, fields, reason, extra={"nms_id": nms_id})
 
                 except Exception as e:
-                    print(f"[CmdStream] process error: {e}, id={_b2s(msg_id)}")
+                    emit_event(
+                        f"[CmdStream] process error: {e}, id={_b2s(msg_id)}",
+                        category="cmd",
+                        level="ERROR",
+                    )
                     time.sleep(0.05)
 
 
@@ -2364,67 +2970,46 @@ def redis_command_thread(redis_conn: RedisConn):
 # 主函数
 # ============================================================
 def main():
-    print("=" * 72)
-    print(f"[sy_agent] REDIS TARGET => host={REDIS_HOST} port={REDIS_PORT} db={SY_STREAM_DB}")
-    print(f"[sy_agent] STREAMS => raw={SY_RAW_STREAM} cmd={SY_CMD_STREAM} group={SY_CMD_GROUP}")
-    print("=" * 72)
-    print(
-        f"[sy_agent] starting, redis={REDIS_HOST}:{REDIS_PORT}/{SY_STREAM_DB}, raw_stream={SY_RAW_STREAM}, cmd_stream={SY_CMD_STREAM}"
+    emit_event(
+        f"startup mode={CONSOLE.mode} ansi={int(CONSOLE.ansi_enabled)} target={REDIS_HOST}:{REDIS_PORT}/{SY_STREAM_DB} "
+        f"streams raw={SY_RAW_STREAM} cmd={SY_CMD_STREAM} group={SY_CMD_GROUP}",
+        category="startup",
     )
-    print(
-        f"[sy_agent] A2_BURST enable={int(A2_BURST_ENABLE)} max={A2_BURST_MAX} per_timeout={A2_BURST_TIMEOUT} budget={A2_BURST_BUDGET}"
+    emit_event(
+        f"timing wait={float(DEBUG_TUNING['WAIT_RESPONSE_TIMEOUT_SEC']):.3f}s auto_sleep={int(DEBUG_TUNING['AUTO_SLEEP_ENABLE'])} "
+        f"after_sleep={ADAPT.get_sleep():.3f}s a2_burst={int(A2_BURST_ENABLE)} "
+        f"probe={int(PROBE_ENABLE)}@{PROBE_INTERVAL_SEC:.0f}s/{PROBE_TIMEOUT_SEC:.2f}s no_resp_cmds={[hex(x) for x in sorted(NO_RESP_REQ_CMDS)]}",
+        category="startup",
     )
-    print(
-        f"[sy_agent] RTS_TOGGLE={int(DEBUG_TUNING['RTS_TOGGLE'])} TX_LEVEL={DEBUG_TUNING['RTS_TX_LEVEL']} RX_LEVEL={DEBUG_TUNING['RTS_RX_LEVEL']} "
-        f"PRE={DEBUG_TUNING['RTS_PRE_DELAY_SEC']}s POST={DEBUG_TUNING['RTS_POST_DELAY_SEC']}s"
-    )
-    print(
-        f"[sy_agent] WAIT_RESPONSE_TIMEOUT={float(DEBUG_TUNING['WAIT_RESPONSE_TIMEOUT_SEC']):.3f}s "
-        f"AUTO_SLEEP={int(DEBUG_TUNING['AUTO_SLEEP_ENABLE'])} "
-        f"AFTER_WRITE_SLEEP(base)={float(DEBUG_TUNING['AFTER_WRITE_SLEEP_SEC']):.3f}s "
-        f"AFTER_WRITE_SLEEP(cur)={ADAPT.get_sleep():.3f}s"
-    )
-    print(
-        f"[sy_agent] STALL_WATCHDOG={int(DEBUG_TUNING['STALL_WATCHDOG_ENABLE'])} "
-        f"NOFRAME={float(DEBUG_TUNING['STALL_NOFRAME_SEC']):.1f}s "
-        f"GRACE={float(DEBUG_TUNING['STALL_GRACE_AFTER_OPEN_SEC']):.1f}s "
-        f"COOLDOWN={float(DEBUG_TUNING['STALL_COOLDOWN_SEC']):.1f}s "
-        f"RX_THREAD_DEAD_REOPEN={int(bool(DEBUG_TUNING['RX_THREAD_DEAD_REOPEN']))}"
-    )
-    print(
-        f"[sy_agent] CMD DEDUPE: key_prefix={SY_CMD_DONE_KEY_PREFIX} ttl={SY_CMD_DONE_TTL_SEC}s local_ttl={SY_CMD_DONE_LOCAL_TTL_SEC}s "
-        f"DLQ={SY_CMD_DLQ_STREAM} maxlen={SY_CMD_DLQ_MAXLEN} dlq_dedupe_ttl={SY_CMD_DLQ_DEDUPE_TTL_SEC}s"
-    )
-    print(
-        f"[sy_agent] CMD TRY LIMIT: prefix={SY_CMD_TRY_KEY_PREFIX} ttl={SY_CMD_TRY_TTL_SEC}s max_tries={SY_CMD_MAX_TRIES} inflight_ttl={SY_CMD_INFLIGHT_TTL_SEC}s"
-    )
-    print(
-        f"[sy_agent] NO_RESP: enable={int(SY_CMD_NO_RESP_ENABLE)} cmds={[hex(x) for x in sorted(NO_RESP_REQ_CMDS)]} "
-        f"confirm_delay={SY_CMD_CONFIRM_DELAY_SEC}s confirm_timeout={SY_CMD_CONFIRM_TIMEOUT_SEC}s confirm_a1={int(SY_CMD_CONFIRM_A1)}"
-    )
-    print(
-        f"[sy_agent] AGENT: host={socket.gethostname()} consumer={SY_CMD_CONSUMER} pid={os.getpid()}"
+    emit_event(
+        f"agent host={socket.gethostname()} consumer={SY_CMD_CONSUMER} pid={os.getpid()} config={CONFIG_PATH}",
+        category="startup",
     )
 
     redis_conn = RedisConn(host=REDIS_HOST, port=REDIS_PORT, db=SY_STREAM_DB)
+    CONSOLE.bind_runtime(redis_conn=redis_conn, pollers=[])
+    CONSOLE.start()
     t_redis = threading.Thread(target=redis_conn.keepalive_loop, daemon=True)
     t_redis.start()
 
-    print("[sy_agent] NOTE: not blocking on redis ready; pollers will pause while redis is DOWN.")
+    emit_event("not blocking on redis ready; pollers will pause while redis is DOWN.", category="startup")
 
     if not running:
-        print("[sy_agent] exit before start (signal).")
+        emit_event("exit before start (signal).", category="startup", level="WARN")
+        CONSOLE.stop()
         return 0
 
     pollers: List[LinePoller] = []
+    CONSOLE.bind_runtime(pollers=pollers)
     for line_cfg in LINES_CONFIG:
         if not isinstance(line_cfg, dict):
-            print(f"[sy_agent] skip invalid line cfg: {line_cfg!r}")
+            emit_event(f"skip invalid line cfg: {line_cfg!r}", category="startup", level="WARN")
             continue
 
         poller = LinePoller(line_cfg, redis_conn)
         poller.start()
         pollers.append(poller)
+        CONSOLE.register_poller(poller)
 
         for d in line_cfg.get("devices", []):
             nms_id = int(d.get("nms_id", d["serial_id"]))
@@ -2432,7 +3017,12 @@ def main():
             nms_to_line[nms_id] = poller
 
         devs = [{"serial_id": d["serial_id"], "nms_id": d.get("nms_id", d["serial_id"])} for d in line_cfg.get("devices", [])]
-        print(f"[sy_agent] Line {line_cfg.get('line_id')} started, devices={devs}")
+        emit_event(
+            f"line started devices={devs}",
+            category="startup",
+            line_id=int(line_cfg.get("line_id", 0) or 0),
+            line_name=str(line_cfg.get("name", f"Line-{line_cfg.get('line_id')}")),
+        )
 
     t_cmd = threading.Thread(target=redis_command_thread, args=(redis_conn,), daemon=True)
     t_cmd.start()
@@ -2441,11 +3031,12 @@ def main():
         while running:
             time.sleep(0.5)
     finally:
-        print("[sy_agent] shutting down...")
+        emit_event("shutting down...", category="startup", level="WARN")
         for p in pollers:
             p.join(timeout=1.0)
 
-    print("[sy_agent] bye.")
+    emit_event("bye.", category="startup")
+    CONSOLE.stop()
     return 0
 
 
