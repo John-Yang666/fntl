@@ -18,6 +18,8 @@
       <div v-else class="command-box">
         <device-name-component />
 
+        <el-divider />
+
         <h3>发送切换模式命令</h3>
         <div class="direction-buttons">
           本站方向选择：
@@ -30,7 +32,6 @@
             @click="selectedDirection = 'direction2'"
           >二方向</el-button>
         </div>
-
         <div class="mode-buttons">
           模式选择：
           <el-button v-for="(label, mode) in modes" :key="mode"
@@ -46,16 +47,31 @@
         </div>
 
         <el-divider />
-        <p v-if="error" class="error-message">
-          {{ error }}
-        </p>
-
-        <el-divider />
         <h3>其他远程控制</h3>
         <div class="send-buttons">
-          <el-button type="warning" @click="sendRestartCommand">
+          <el-button
+            v-if="!showRestartConfirm"
+            type="warning"
+            @click="showRestartConfirm = true"
+          >
             重启当前网管板
           </el-button>
+          <div v-else class="restart-confirm">
+            <span class="restart-confirm-text">确认重启当前网管板？</span>
+            <el-button
+              type="danger"
+              :loading="isSendingRestartCommand"
+              @click="sendRestartCommand"
+            >
+              确认重启
+            </el-button>
+            <el-button
+              :disabled="isSendingRestartCommand"
+              @click="cancelRestartCommand"
+            >
+              取消
+            </el-button>
+          </div>
         </div>
 
         <el-divider />
@@ -67,8 +83,7 @@
             placeholder="例如 0x05 或 05"
             class="custom-input"
           ></el-input>
-          <el-button type="primary" @click="sendCustomCommand(device_id)">向本站发送</el-button>
-          <el-button type="primary" @click="sendNeighborCustomCommand">向邻站发送</el-button>
+          <el-button type="primary" @click="sendCustomCommand(device_id)">发送</el-button>
         </div>
       </div>
     </el-card>
@@ -79,7 +94,7 @@
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useRoute } from 'vue-router';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import DeviceNameComponent from '@/components/DeviceNameComponent.vue';
 import { useUserStore } from '@/stores/userStore';
 import { getApiBase, getSystemFromRoute } from '@/utils/systems';
@@ -92,6 +107,8 @@ const customCommand = ref('');
 const password = ref('');
 const error = ref('');
 const isAuthenticated = ref(false);
+const showRestartConfirm = ref(false);
+const isSendingRestartCommand = ref(false);
 
 const userStore = useUserStore();
 const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
@@ -122,6 +139,16 @@ const showError = (message: string) => {
   error.value = message;
 };
 
+const showSelectionMessage = (message: string) => {
+  error.value = '';
+  ElMessage.warning(message);
+};
+
+const showCommandMessage = (message: string, type: 'warning' | 'error' = 'warning') => {
+  error.value = '';
+  ElMessage[type](message);
+};
+
 const showResponse = (message: string, type: 'success' | 'error') => {
   if (type === 'success') {
     error.value = '';
@@ -138,9 +165,14 @@ const getDirectionFunctionCode = (direction: string | null) => {
   return direction === 'direction1' ? 1 : 2;
 };
 
-const sendPacketCommand = async (targetId: string, functionCode: number, operation: number) => {
+const sendPacketCommand = async (
+  targetId: string,
+  functionCode: number,
+  operation: number,
+  isCustomCommand = false,
+) => {
   if (!username.value) {
-    showError('用户信息为空，请重新登录。');
+    showCommandMessage('用户信息为空，请重新登录。', 'error');
     return;
   }
 
@@ -149,7 +181,8 @@ const sendPacketCommand = async (targetId: string, functionCode: number, operati
       function_code: functionCode,
       time: Math.floor(Date.now() / 1000),
       operation,
-      username: username.value
+      username: username.value,
+      is_custom_command: isCustomCommand,
     });
     showResponse(response.data.status, 'success');
   } catch (err: any) {
@@ -187,16 +220,16 @@ const getNeighborInfo = async () => {
   };
 };
 
-const parseCustomOperation = () => {
+const parseCustomFunctionCode = () => {
   const input = customCommand.value.trim();
   if (!input) {
-    showError('请输入命令字节（16进制）。');
+    showCommandMessage('请输入命令字节（16进制）。');
     return null;
   }
 
   const normalized = input.toLowerCase().startsWith('0x') ? input.slice(2) : input;
   if (!/^[0-9a-fA-F]{1,2}$/.test(normalized)) {
-    showError('命令字节格式错误，请输入 1~2 位 16 进制数。');
+    showCommandMessage('命令字节格式错误，请输入 1~2 位 16 进制数。');
     return null;
   }
 
@@ -205,13 +238,13 @@ const parseCustomOperation = () => {
 
 const sendCommand = async (targetId: string) => {
   if (!selectedMode.value || !selectedDirection.value) {
-    showError('请选择模式和方向。');
+    showSelectionMessage('请选择模式和方向。');
     return;
   }
 
   const functionCode = getDirectionFunctionCode(selectedDirection.value);
   if (functionCode === null) {
-    showError('方向配置错误。');
+    showCommandMessage('方向配置错误。', 'error');
     return;
   }
 
@@ -220,7 +253,7 @@ const sendCommand = async (targetId: string) => {
 
 const sendNeighborCommand = async () => {
   if (!selectedMode.value || !selectedDirection.value) {
-    showError('请选择模式和方向。');
+    showSelectionMessage('请选择模式和方向。');
     return;
   }
 
@@ -234,57 +267,27 @@ const sendNeighborCommand = async () => {
 };
 
 const sendCustomCommand = async (targetId: string) => {
-  if (!selectedDirection.value) {
-    showError('请选择方向。');
+  const functionCode = parseCustomFunctionCode();
+  if (functionCode === null) {
     return;
   }
 
-  const operation = parseCustomOperation();
-  const functionCode = getDirectionFunctionCode(selectedDirection.value);
-  if (operation === null || functionCode === null) {
-    return;
-  }
-
-  await sendPacketCommand(targetId, functionCode, operation);
-};
-
-const sendNeighborCustomCommand = async () => {
-  if (!selectedDirection.value) {
-    showError('请选择方向。');
-    return;
-  }
-
-  const operation = parseCustomOperation();
-  if (operation === null) {
-    return;
-  }
-
-  try {
-    const { neighborId, neighborDirection } = await getNeighborInfo();
-    await sendPacketCommand(neighborId, neighborDirection, operation);
-  } catch (err: any) {
-    console.error('Error:', err);
-    showResponse(err.message || '获取邻站信息失败。', 'error');
-  }
+  await sendPacketCommand(targetId, functionCode, 0, true);
 };
 
 const sendRestartCommand = async () => {
+  isSendingRestartCommand.value = true;
   try {
-    await ElMessageBox.confirm(
-      '确认重启当前网管板吗？',
-      '确认发送重启命令',
-      {
-        confirmButtonText: '确认发送',
-        cancelButtonText: '取消',
-        type: 'warning',
-      }
-    );
-  } catch {
-    ElMessage.info('已取消发送');
-    return;
+    await sendPacketCommand(device_id, 0x05, 0);
+    showRestartConfirm.value = false;
+  } finally {
+    isSendingRestartCommand.value = false;
   }
+};
 
-  await sendPacketCommand(device_id, 0x05, 0);
+const cancelRestartCommand = () => {
+  showRestartConfirm.value = false;
+  ElMessage.info('已取消发送');
 };
 
 </script>
@@ -323,6 +326,18 @@ const sendRestartCommand = async () => {
   justify-content: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.restart-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.restart-confirm-text {
+  color: #606266;
 }
 
 .custom-input {

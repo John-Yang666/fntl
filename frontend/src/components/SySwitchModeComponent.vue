@@ -25,6 +25,8 @@
         <!-- ✅ 监听 DeviceNameComponent 的 loaded 事件，避免重复请求 -->
         <device-name-component @loaded="onDeviceLoaded" />
 
+        <el-divider />
+
         <h3>发送切换模式命令</h3>
 
         <!-- 本站方向选择 -->
@@ -60,6 +62,7 @@
             自动
           </el-button>
         </div>
+
         <div class="send-buttons">
           <el-button type="success" @click="sendModeToLocal">
             向本站发送
@@ -69,24 +72,43 @@
           </el-button>
         </div>
 
-        <!-- 这里只保留选择类错误提示（比如没选方向/模式），结果提示用气泡 -->
-        <el-divider />
-        <p v-if="error" class="error-message">
-          {{ error }}
-        </p>
-
         <!-- 其他远程控制 -->
         <el-divider />
         <h3>其他远程控制</h3>
         <div class="send-buttons">
-          <el-button type="warning" @click="sendRemoteStart">
+          <el-button
+            v-if="pendingRemoteAction !== 'start' && pendingRemoteAction !== 'disable'"
+            type="warning"
+            @click="prepareRemoteStart"
+          >
             启动当前设备
           </el-button>
 
           <!-- ✅ 合并后的按钮：根据设备名是否含“备机”选择停用A/停用B -->
-          <el-button type="danger" @click="sendDisableCurrent">
+          <el-button
+            v-if="pendingRemoteAction !== 'start' && pendingRemoteAction !== 'disable'"
+            type="danger"
+            @click="prepareDisableCurrent"
+          >
             停用当前设备
           </el-button>
+
+          <div v-else class="remote-confirm">
+            <span class="remote-confirm-text">{{ remoteConfirmText }}</span>
+            <el-button
+              :type="pendingRemoteAction === 'disable' ? 'danger' : 'warning'"
+              :loading="isSendingRemoteAction"
+              @click="confirmRemoteAction"
+            >
+              确认发送
+            </el-button>
+            <el-button
+              :disabled="isSendingRemoteAction"
+              @click="cancelRemoteAction"
+            >
+              取消
+            </el-button>
+          </div>
         </div>
 
         <!-- 自定义命令 -->
@@ -112,7 +134,7 @@
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useRoute } from 'vue-router';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import DeviceNameComponent from '@/components/DeviceNameComponent.vue';
 import { useUserStore } from '@/stores/userStore';
 import { getApiBase, getSystemFromRoute } from '@/utils/systems';
@@ -127,6 +149,8 @@ const customCode = ref(''); // 自定义命令字节（16进制）
 const password = ref('');
 const error = ref('');
 const isAuthenticated = ref(false);
+const pendingRemoteAction = ref<'start' | 'disable' | null>(null);
+const isSendingRemoteAction = ref(false);
 
 const userStore = useUserStore();
 const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
@@ -135,10 +159,33 @@ const username = computed(() => userStore.user?.username ?? null);
 /** ✅ 从 DeviceNameComponent 接收的设备信息（避免重复 GET） */
 const currentDeviceName = ref('');
 const isBackupDevice = ref(false);
+const remoteConfirmText = computed(() => {
+  if (pendingRemoteAction.value === 'start') {
+    return '确认启动当前设备？';
+  }
+
+  if (pendingRemoteAction.value === 'disable') {
+    const deviceLabel = currentDeviceName.value || `设备 ${device_id}`;
+    const actionLabel = isBackupDevice.value ? '停用备机（B落下）' : '停用主机（A落下）';
+    return `确认对 ${deviceLabel} 执行“${actionLabel}”吗？`;
+  }
+
+  return '';
+});
 
 const onDeviceLoaded = (payload: { name: string; isBackup: boolean; deviceId: number | null }) => {
   currentDeviceName.value = payload.name || '';
   isBackupDevice.value = !!payload.isBackup;
+};
+
+const showSelectionMessage = (message: string) => {
+  error.value = '';
+  ElMessage.warning(message);
+};
+
+const showCommandMessage = (message: string, type: 'warning' | 'error' = 'warning') => {
+  error.value = '';
+  ElMessage[type](message);
 };
 
 const validatePassword = () => {
@@ -174,7 +221,7 @@ const getBbNameForMode = (): string | null => {
  */
 const sendBbByName = async (targetId: string, bbName: string, extra?: any) => {
   if (!username.value) {
-    error.value = '用户信息为空，请重新登录。';
+    showCommandMessage('用户信息为空，请重新登录。', 'error');
     return;
   }
 
@@ -204,7 +251,7 @@ const sendBbByName = async (targetId: string, bbName: string, extra?: any) => {
  */
 const sendBbByCode = async (targetId: string, codeHex: string) => {
   if (!username.value) {
-    error.value = '用户信息为空，请重新登录。';
+    showCommandMessage('用户信息为空，请重新登录。', 'error');
     return;
   }
 
@@ -231,7 +278,7 @@ const sendBbByCode = async (targetId: string, codeHex: string) => {
 const sendModeToLocal = async () => {
   const bbName = getBbNameForMode();
   if (!bbName) {
-    error.value = '请选择方向和模式。';
+    showSelectionMessage('请选择方向和模式。');
     return;
   }
   await sendBbByName(device_id, bbName);
@@ -240,7 +287,7 @@ const sendModeToLocal = async () => {
 /** 向邻站发送模式命令：需要查一次设备信息拿邻站ID */
 const sendModeToNeighbor = async () => {
   if (!selectedMode.value || !selectedDirection.value) {
-    error.value = '请选择方向和模式。';
+    showSelectionMessage('请选择方向和模式。');
     return;
   }
 
@@ -301,6 +348,37 @@ const sendRemoteStart = async () => {
   await sendBbByName(device_id, 'REMOTE_START_LOCAL');
 };
 
+const prepareRemoteStart = () => {
+  pendingRemoteAction.value = 'start';
+};
+
+const prepareDisableCurrent = () => {
+  pendingRemoteAction.value = 'disable';
+};
+
+const cancelRemoteAction = () => {
+  pendingRemoteAction.value = null;
+  ElMessage.info('已取消发送');
+};
+
+const confirmRemoteAction = async () => {
+  if (!pendingRemoteAction.value) {
+    return;
+  }
+
+  isSendingRemoteAction.value = true;
+  try {
+    if (pendingRemoteAction.value === 'start') {
+      await sendRemoteStart();
+    } else {
+      await sendDisableCurrent();
+    }
+    pendingRemoteAction.value = null;
+  } finally {
+    isSendingRemoteAction.value = false;
+  }
+};
+
 /**
  * ✅ 合并后的“停用当前设备”
  * 规则：
@@ -311,23 +389,6 @@ const sendRemoteStart = async () => {
  */
 const sendDisableCurrent = async () => {
   const bbName = isBackupDevice.value ? 'FORCE_B_DROP' : 'FORCE_A_DROP';
-  const deviceLabel = currentDeviceName.value || `设备 ${device_id}`;
-  const actionLabel = isBackupDevice.value ? '停用备机（B落下）' : '停用主机（A落下）';
-
-  try {
-    await ElMessageBox.confirm(
-      `确认对 ${deviceLabel} 执行“${actionLabel}”吗？`,
-      '确认停用当前设备',
-      {
-        confirmButtonText: '确认发送',
-        cancelButtonText: '取消',
-        type: 'warning',
-      }
-    );
-  } catch {
-    ElMessage.info('已取消发送');
-    return;
-  }
 
   await sendBbByName(device_id, bbName, {
     device_name: currentDeviceName.value,
@@ -345,12 +406,12 @@ const sendDisableCurrent = async () => {
 const sendCustomCommand = async () => {
   const codeStr = customCode.value.trim();
   if (!codeStr) {
-    error.value = '请输入命令字节（16进制）。';
+    showCommandMessage('请输入命令字节（16进制）。');
     return;
   }
 
   if (!/^[0-9a-fA-F]{1,2}$/.test(codeStr)) {
-    error.value = '命令字节格式错误，请输入 1~2 位 16 进制数。';
+    showCommandMessage('命令字节格式错误，请输入 1~2 位 16 进制数。');
     return;
   }
 
@@ -392,6 +453,18 @@ const sendCustomCommand = async () => {
   justify-content: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.remote-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.remote-confirm-text {
+  color: #606266;
 }
 
 .custom-input {

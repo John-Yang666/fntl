@@ -67,7 +67,7 @@ const userStore = useUserStore();
 // 计算属性：判断当前路径是否需要隐藏 HeaderComponent
 const hideHeader = computed(() => route.matched.some((record) => record.meta.hideHeader));
 
-const BLOCKING_OVERLAY_SELECTOR = 'body > .el-overlay, body > .v-modal, body > .el-loading-mask';
+const BLOCKING_OVERLAY_SELECTOR = 'body > .v-modal, body > .el-loading-mask';
 const OVERLAY_CONTENT_SELECTOR = '.el-dialog, .el-drawer, .el-message-box, .el-loading-spinner, .el-loading-text';
 const DIALOG_LIKE_SELECTOR = '.el-dialog, .el-drawer, .el-message-box, [role="dialog"], [aria-modal="true"]';
 const PAGE_LOCK_STORAGE_KEY = 'manual_page_lock';
@@ -230,9 +230,12 @@ const cleanupOrphanedOverlays = () => {
     const overlayContent = Array.from(
       overlay.querySelectorAll<HTMLElement>(OVERLAY_CONTENT_SELECTOR),
     );
+    const hasDialogLikeContent = overlayContent.some((content) => content.matches(DIALOG_LIKE_SELECTOR));
     const hasVisibleContent = overlayContent.some((content) => isVisibleElement(content));
 
-    if (!hasVisibleContent) {
+    // Element Plus 的 MessageBox / Dialog 在入场过渡的极短窗口内可能还不可见。
+    // 这里只清理“既没有可见内容，也没有对话框内容”的遮罩，避免误删正常弹窗。
+    if (!hasVisibleContent && !hasDialogLikeContent) {
       overlay.remove();
     }
   });
@@ -263,9 +266,14 @@ const cleanupOrphanedOverlays = () => {
       return false;
     }
 
-    return Array.from(
+    const overlayContent = Array.from(
       overlay.querySelectorAll<HTMLElement>(OVERLAY_CONTENT_SELECTOR),
-    ).some((content) => isVisibleElement(content));
+    );
+
+    return (
+      overlayContent.some((content) => content.matches(DIALOG_LIKE_SELECTOR)) ||
+      overlayContent.some((content) => isVisibleElement(content))
+    );
   });
 
   if (!hasVisibleBlockingOverlay) {
@@ -561,20 +569,17 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-body > .el-overlay:not(:has(.el-dialog, .el-drawer, .el-message-box)),
 body > .v-modal:not(:has(.el-dialog, .el-drawer, .el-message-box)),
 body > .el-loading-mask {
   display: none !important;
   pointer-events: none !important;
 }
 
-body.el-popup-parent--hidden:not(:has(> .el-overlay:has(.el-dialog, .el-drawer, .el-message-box))),
 body.el-loading-parent--hidden {
   overflow: auto !important;
   width: auto !important;
 }
 
-html.el-popup-parent--hidden:not(:has(body > .el-overlay:has(.el-dialog, .el-drawer, .el-message-box))),
 html.el-loading-parent--hidden {
   overflow: auto !important;
 }

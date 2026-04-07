@@ -519,6 +519,7 @@ class SendCommandView(View):
             function_code = data.get('function_code')
             unix_time = data.get('time')
             operation = data.get('operation')
+            is_custom_command = bool(data.get('is_custom_command'))
 
             # 验证用户名是否存在
             if not User.objects.filter(username=username).exists():
@@ -530,13 +531,37 @@ class SendCommandView(View):
             packet = create_packet(device.device_id, function_code, unix_time, operation)
 
             # 操作转换
-            operation_mapping = {
+            direction_mapping = {
+                1: '一方向',
+                2: '二方向',
+            }
+            mode_mapping = {
                 1: '强制电缆',
                 2: '自动',
                 3: '强制光缆',
+            }
+            operation_mapping = {
                 0: '重启网管板'
             }
-            operation_name = operation_mapping.get(operation, '未知操作')
+
+            try:
+                function_code_value = int(function_code)
+            except (TypeError, ValueError):
+                function_code_value = None
+
+            try:
+                operation_value = int(operation)
+            except (TypeError, ValueError):
+                operation_value = None
+
+            direction_label = direction_mapping.get(function_code_value)
+            if is_custom_command and function_code_value is not None:
+                operation_name = f'自定义命令 0x{function_code_value & 0xFF:02X}'
+            elif direction_label:
+                mode_label = mode_mapping.get(operation_value, '未知操作')
+                operation_name = f'{direction_label}{mode_label}'
+            else:
+                operation_name = operation_mapping.get(operation_value, '未知操作')
 
             # 添加操作记录
             UserOperation.objects.create(

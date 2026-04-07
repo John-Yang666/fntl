@@ -14,6 +14,7 @@ from django.contrib.auth import get_user_model
 from django.core.paginator import Paginator
 from django.core.exceptions import ValidationError
 from django.db import connections
+from django.db.models import F
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.utils.dateparse import parse_datetime
@@ -30,6 +31,7 @@ from .models import (
     Device, SwitchData, AlarmActive, AnalogData, AlarmData,
     RelayAction, UserOperation, UploadedFile, HelpFaqEntry
 )
+from .udp_sender import create_packet
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,16 @@ class LargeTableAdminMixin:
     list_per_page = 50
     list_max_show_all = 200
     list_select_related = ("device",)
+
+
+class NoAddPermissionAdminMixin:
+    def has_add_permission(self, request):
+        return False
+
+
+class ReadOnlyImportExportAdminMixin(NoAddPermissionAdminMixin):
+    def has_import_permission(self, request, *args, **kwargs):
+        return False
 
 # ========================
 # ✅ 导出安全基类：屏蔽 stdout/stderr，避免任何输出污染 xlsx 二进制流
@@ -375,7 +387,7 @@ class MyDateRangePicker(admin.FieldListFilter):
 # 当前告警（不需要导出）
 # ========================
 @admin.register(AlarmActive)
-class AlarmActiveAdmin(LargeTableAdminMixin, DepotScopedAdmin):
+class AlarmActiveAdmin(NoAddPermissionAdminMixin, LargeTableAdminMixin, DepotScopedAdmin):
     depot_filter_field = 'device__depot'
     list_display = ('timestamp_start_display', 'device', 'alarm_code', 'alarm_meaning', 'show_confirmed_status')
     search_fields = ('device__device_id', 'device__name', 'alarm_code')
@@ -431,13 +443,19 @@ class AlarmDataResource(resources.ModelResource):
 
 
 @admin.register(AlarmData)
-class AlarmDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
+class AlarmDataAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = AlarmDataResource
     list_display = ('timestamp_start_display', 'timestamp_end_display', 'device', 'alarm_code', 'alarm_meaning', 'show_confirmed_status')
     search_fields = ('device__device_id', 'device__name', 'alarm_code')
     list_filter = (('timestamp_start', MyDateRangePicker), 'device', 'alarm_code', 'is_confirmed')
     actions = [batch_delete, truncate_table, batch_confirm]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).order_by(
+            F('timestamp_end').desc(nulls_last=True),
+            '-timestamp_start',
+        )
 
     def alarm_meaning(self, obj):
         return obj.alarm_meaning
@@ -485,7 +503,7 @@ class SwitchDataResource(resources.ModelResource):
 
 
 @admin.register(SwitchData)
-class SwitchDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
+class SwitchDataAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = SwitchDataResource
     export_form_class = ExportForm
@@ -528,7 +546,7 @@ class AnalogDataResource(resources.ModelResource):
 
 
 @admin.register(AnalogData)
-class AnalogDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
+class AnalogDataAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = AnalogDataResource
     list_display = ('timestamp_with_seconds', 'device', 'voltage_1', 'current_1_display', 'voltage_2', 'current_2_display')
@@ -549,6 +567,7 @@ class AnalogDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportMo
     current_1_display.short_description = format_html('<span style="text-transform:none;">电流1(mA)</span>')
     current_2_display.admin_order_field = 'current_2'
     current_2_display.short_description = format_html('<span style="text-transform:none;">电流2(mA)</span>')
+    timestamp_with_seconds.short_description = '时间'
 
 
 # ========================
@@ -633,7 +652,7 @@ class UserOperationResource(resources.ModelResource):
 
 
 @admin.register(UserOperation)
-class UserOperationAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
+class UserOperationAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = UserOperationResource
     list_display = ('timestamp_with_seconds', 'device', 'operation', 'username')
@@ -643,6 +662,7 @@ class UserOperationAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExpor
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S')
+    timestamp_with_seconds.short_description = '时间'
 
 
 # ========================
@@ -674,7 +694,7 @@ class RelayActionResource(resources.ModelResource):
 
 
 @admin.register(RelayAction)
-class RelayActionAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
+class RelayActionAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportModelAdmin):
     depot_filter_field = 'device__depot'
     resource_class = RelayActionResource
     list_display = ('timestamp_with_seconds', 'device', 'relay', 'action')
@@ -684,6 +704,7 @@ class RelayActionAdmin(LargeTableAdminMixin, DepotScopedAdmin, SafeImportExportM
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
+    timestamp_with_seconds.short_description = '时间'
 
 
 # ========================
@@ -761,11 +782,7 @@ def _send_cmd_via_redis_stream(*, target_ip: str, packet: bytes) -> None:
     )
 
 def _build_reconnect_packet_fixed_addr() -> bytes:
-    """
-    固定“重连命令”数据包：
-    7F 7F 01 0B 00 00 00 00 00 00 00 00 0C 00 F7 F7
-    """
-    return bytes.fromhex("7F 7F 01 0B 00 00 00 00 00 00 00 00 0C 00 F7 F7")
+    return create_packet(address=0x01, function_code=0x0B, unix_time=0, operation=0)
 
 
 @admin.action(description="对所选设备发送【重连】命令")

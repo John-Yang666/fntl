@@ -31,10 +31,11 @@ sy_agent.py (Redis Streams) - Receiver Threads + Frame Queues (生产版：最�
 ✅ [FIX] 3) _clear_side 只清当前 side 的 stash，不误伤另一侧匹配缓存
 
 ------------------------------------------------------------
-【✅ 本次新增：适配“SY 下位机命令不回帧”】：
-✅ [NO_RESP] 4) 对 BB/CC 等无回帧命令：只下发不等待 RESP_OK
-✅ [CONFIRM] 5) 命令下发后可选用 A2/A1 做“在线/变化/对账确认”（best-effort）
-✅ [SAFE] 6) 无回帧命令：发送成功即 mark_done + ACK（避免 pending 重复执行造成多次动作）
+【✅ 本次新增：适配“SY 下位机控制确认”】：
+✅ [NO_RESP] 4) 对 CC 等无回帧命令：只下发不等待 RESP_OK
+✅ [ACK] 5) BB 远程控制等待 0x05 执行确认帧
+✅ [CONFIRM] 6) 对无回帧命令仍可选用 A2/A1 做“在线/变化/对账确认”（best-effort）
+✅ [SAFE] 7) 无回帧命令：发送成功即 mark_done + ACK（避免 pending 重复执行造成多次动作）
 ------------------------------------------------------------
 """
 
@@ -163,7 +164,8 @@ DEFAULT_CONFIG = {
         "confirm_delay_sec": 0.08,
         "confirm_timeout_sec": 0.25,
         "confirm_a1": True,
-        "no_resp_cmds": ["BB", "CC"],
+        "bb_cmd_retries": 3,
+        "no_resp_cmds": ["CC"],
     },
     "time_sync": {
         "enable": False,
@@ -192,33 +194,7 @@ DEFAULT_CONFIG = {
         "event_buffer_size": 20,
         "ansi": "auto",
     },
-    "lines": [
-        {
-            "line_id": 1,
-            "name": "Line-1",
-            "head_port": "COM3",
-            "tail_port": "NONE",
-            "baudrate": 19200,
-            "timeout": 0.0,
-            "devices": [
-                {"serial_id": 0x01, "nms_id": 1, "a1_interval": 5.0},
-                {"serial_id": 0x02, "nms_id": 2, "a1_interval": 5.0},
-            ],
-        },
-        {
-            "line_id": 2,
-            "name": "Line-2",
-            "head_port": "COM5",
-            "tail_port": "NONE",
-            "baudrate": 19200,
-            "timeout": 0.0,
-            "devices": [
-                {"serial_id": 0x02, "nms_id": 4, "a1_interval": 5.0},
-                {"serial_id": 0x03, "nms_id": 5, "a1_interval": 5.0},
-                {"serial_id": 0x04, "nms_id": 6, "a1_interval": 5.0},
-            ],
-        },
-    ],
+    "lines": [],
     "debug_tuning": DEBUG_TUNING,
 }
 
@@ -252,6 +228,10 @@ def _load_config() -> dict:
 
     CONFIG_PATH = CONFIG_PY_PATH
     loaded = _load_py_config(CONFIG_PATH)
+    if "lines" not in loaded:
+        raise KeyError(f"{CONFIG_PATH} must define CONFIG['lines']")
+    if not isinstance(loaded.get("lines"), list):
+        raise TypeError(f"{CONFIG_PATH} CONFIG['lines'] must be a list")
     config = copy.deepcopy(DEFAULT_CONFIG)
     return _deep_merge(config, loaded)
 
@@ -303,12 +283,13 @@ SY_CMD_MAX_TRIES = int(CMD_CONFIG["max_tries"])
 SY_CMD_INFLIGHT_TTL_SEC = float(CMD_CONFIG["inflight_ttl_sec"])
 
 # ============================================================
-# ✅ 新增：无回帧命令（BB/CC）适配配置
+# ✅ 新增：无回帧命令（默认仅 CC）适配配置
 # ============================================================
 SY_CMD_NO_RESP_ENABLE = bool(CMD_CONFIG["no_resp_enable"])
 SY_CMD_CONFIRM_DELAY_SEC = float(CMD_CONFIG["confirm_delay_sec"])
 SY_CMD_CONFIRM_TIMEOUT_SEC = float(CMD_CONFIG["confirm_timeout_sec"])
 SY_CMD_CONFIRM_A1 = bool(CMD_CONFIG["confirm_a1"])
+SY_CMD_BB_CMD_RETRIES = int(CMD_CONFIG.get("bb_cmd_retries", 3))
 
 
 def _parse_hex_cmd_list(values) -> List[int]:
@@ -397,6 +378,32 @@ def _trim_text(value, max_len: int = 160) -> str:
     if len(text) <= max_len:
         return text
     return f"{text[:max_len - 3]}..."
+
+
+def _append_wrapped(lines: List[str], text: str, width: int, *, indent: str = ""):
+    text = str(text).replace("\r", " ").replace("\n", " ")
+    if width <= 8:
+        lines.append(text[:width])
+        return
+    if not text:
+        lines.append("")
+        return
+
+    parts = text.split("  ")
+    current = ""
+    for part in parts:
+        token = part.strip()
+        if not token:
+            continue
+        candidate = token if not current else f"{current}  {token}"
+        if len(indent) + len(candidate) <= width:
+            current = candidate
+            continue
+        if current:
+            lines.append(_trim_text(f"{indent}{current}", width))
+        current = token
+    if current:
+        lines.append(_trim_text(f"{indent}{current}", width))
 
 
 def _age_text(last_mono: Optional[float], nowt: float) -> str:
@@ -555,46 +562,66 @@ class ConsoleManager:
         degraded_lines = sum(1 for p in pollers if p.is_degraded())
 
         lines = []
-        lines.append(
-            _trim_text(
-                f"SY_AGENT  mode={self.mode}  time={time.strftime('%Y-%m-%d %H:%M:%S')}  "
-                f"redis={redis_state}  consumer={SY_CMD_CONSUMER}  pid={os.getpid()}",
-                width,
-            )
+        _append_wrapped(
+            lines,
+            f"SY_AGENT  mode={self.mode}  time={time.strftime('%Y-%m-%d %H:%M:%S')}  "
+            f"redis={redis_state}  consumer={SY_CMD_CONSUMER}  pid={os.getpid()}",
+            width,
         )
-        lines.append(
-            _trim_text(
-                f"target={REDIS_HOST}:{REDIS_PORT}/{SY_STREAM_DB}  raw={SY_RAW_STREAM}  cmd={SY_CMD_STREAM}  "
-                f"group={SY_CMD_GROUP}  lines={len(pollers)}  after_sleep={ADAPT.get_sleep():.3f}s  "
-                f"degraded_lines={degraded_lines}  a1_timeout(T/5m)={total_a1_timeout}/{total_a1_timeout_5m}  "
-                f"a2_timeout(T/5m)={total_a2_timeout}/{total_a2_timeout_5m}  "
-                f"cmd_timeout(T/5m)={total_cmd_timeout}/{total_cmd_timeout_5m}",
-                width,
-            )
+        _append_wrapped(
+            lines,
+            f"target={REDIS_HOST}:{REDIS_PORT}/{SY_STREAM_DB}  raw={SY_RAW_STREAM}  cmd={SY_CMD_STREAM}  "
+            f"group={SY_CMD_GROUP}  lines={len(pollers)}  after_sleep={ADAPT.get_sleep():.3f}s  "
+            f"degraded_lines={degraded_lines}  a1_timeout(T/5m)={total_a1_timeout}/{total_a1_timeout_5m}  "
+            f"a2_timeout(T/5m)={total_a2_timeout}/{total_a2_timeout_5m}  "
+            f"cmd_timeout(T/5m)={total_cmd_timeout}/{total_cmd_timeout_5m}",
+            width,
         )
-        lines.append(
-            _trim_text(
-                f"wait={float(DEBUG_TUNING['WAIT_RESPONSE_TIMEOUT_SEC']):.3f}s  "
-                f"no_resp_cmds={','.join(hex(x) for x in sorted(NO_RESP_REQ_CMDS))}  config={CONFIG_PATH}",
-                width,
-            )
+        _append_wrapped(
+            lines,
+            f"wait={float(DEBUG_TUNING['WAIT_RESPONSE_TIMEOUT_SEC']):.3f}s  "
+            f"bb_cmd_retries={SY_CMD_BB_CMD_RETRIES}  "
+            f"no_resp_cmds={','.join(hex(x) for x in sorted(NO_RESP_REQ_CMDS))}  config={CONFIG_PATH}",
+            width,
         )
         lines.append("")
         lines.append("Lines")
-        lines.append(_trim_text("ID  Name         Pref(H/T) Head      Tail      DownFor(H/T)   Devs  A1Timeout(T/5m)  A2Timeout(T/5m)  CmdTimeout(T/5m)  Unmatch(T/5m)  QFull(H/T)  Queue(H/T)  LastOK", width))
-        lines.append("-" * min(width, 156))
+        compact_lines = width < 170
+        if compact_lines:
+            lines.append("-" * min(width, 88))
+        else:
+            lines.append(_trim_text("ID  Name         Pref(H/T) Port(H/T)   Link(H/T)   DownFor(H/T)   Devs  A1Timeout(T/5m)  A2Timeout(T/5m)  CmdTimeout(T/5m)  Unmatch(T/5m)  QFull(H/T)  Queue(H/T)  LastOK", width))
+            lines.append("-" * min(width, 156))
 
         if pollers:
             for poller in pollers:
                 snap = poller.get_ui_snapshot(nowt)
-                row = (
-                    f"{snap['line_id']:<3} {snap['name'][:12]:<12} "
-                    f"{snap['preferred']:<9} "
-                    f"{snap['head']:<9} {snap['tail']:<9} {snap['down_for']:<15} "
-                    f"{snap['devices']:<5} {snap['a1_timeout']:<16} {snap['a2_timeout']:<16} {snap['cmd_timeout']:<17} {snap['unmatched']:<13} "
-                    f"{snap['qfull']:<11} {snap['queue']:<11} {snap['last_ok']}"
-                )
-                lines.append(_trim_text(row, width))
+                if compact_lines:
+                    line_header = (
+                        f"{snap['line_id']} {snap['name']}  pref={snap['preferred']}  devs={snap['devices']}  "
+                        f"last_ok={snap['last_ok']}"
+                    )
+                    line_status = (
+                        f"port={snap['port']}  link={snap['link']}  down={snap['down_for']}  "
+                        f"qfull={snap['qfull']}  queue={snap['queue']}"
+                    )
+                    line_metrics = (
+                        f"a1_to={snap['a1_timeout']}  a2_to={snap['a2_timeout']}  "
+                        f"cmd_to={snap['cmd_timeout']}  unmatch={snap['unmatched']}"
+                    )
+                    _append_wrapped(lines, line_header, width)
+                    _append_wrapped(lines, line_status, width, indent="  ")
+                    _append_wrapped(lines, line_metrics, width, indent="  ")
+                    lines.append("-" * min(width, 88))
+                else:
+                    row = (
+                        f"{snap['line_id']:<3} {snap['name'][:12]:<12} "
+                        f"{snap['preferred']:<9} "
+                        f"{snap['port']:<11} {snap['link']:<11} {snap['down_for']:<15} "
+                        f"{snap['devices']:<5} {snap['a1_timeout']:<16} {snap['a2_timeout']:<16} {snap['cmd_timeout']:<17} {snap['unmatched']:<13} "
+                        f"{snap['qfull']:<11} {snap['queue']:<11} {snap['last_ok']}"
+                    )
+                    lines.append(_trim_text(row, width))
         else:
             lines.append("No lines registered.")
 
@@ -694,13 +721,14 @@ CMD_AA = 0xAA
 CMD_B2 = 0xB2
 CMD_NOCHANGE = 0x05
 
-# ✅ 命令类（无回帧典型：BB/CC）
+# ✅ 命令类：BB 控制命令收到 0x05 执行确认；CC 默认无回帧
 CMD_BB = 0xBB
 CMD_CC = 0xCC
 
-# ✅ 无回帧命令集合
-_NO_RESP_FROM_CONFIG = _parse_hex_cmd_list(CMD_CONFIG.get("no_resp_cmds", ["BB", "CC"]))
-NO_RESP_REQ_CMDS = set(_NO_RESP_FROM_CONFIG or [CMD_BB, CMD_CC])
+# ✅ 无回帧命令集合：即使旧配置里带了 BB，也强制按“BB 等待 0x05”处理
+_NO_RESP_FROM_CONFIG = _parse_hex_cmd_list(CMD_CONFIG.get("no_resp_cmds", ["CC"]))
+NO_RESP_REQ_CMDS = set(_NO_RESP_FROM_CONFIG or [CMD_CC])
+NO_RESP_REQ_CMDS.discard(CMD_BB)
 
 ESCAPE_MAP = {
     0x7F: bytes([0x10, 0x81]),
@@ -991,7 +1019,10 @@ def resp_match_expected(frame: bytes, *, expected_serial_id: Optional[int], expe
 
 def infer_expected_resp_cmds_from_request(req_frame: bytes) -> Optional[Tuple[int, ...]]:
     """
-    ✅ 关键改动：对 BB/CC 等“无回帧命令”，直接返回 None（不等待 RESP_OK）
+    依据请求帧推断期望响应命令。
+    - CC 等 no-resp 命令：返回 None（不等待响应）
+    - BB 远程控制：等待 0x05 执行确认帧
+    - A2：A2 或 NOCHANGE 都算响应
     """
     req_frame = normalize_downlink_request_tail(req_frame or b"")
     if (not req_frame) or (not req_frame.startswith(FRAME_HEAD)) or (not req_frame.endswith(REQUEST_TAIL)):
@@ -1007,6 +1038,8 @@ def infer_expected_resp_cmds_from_request(req_frame: bytes) -> Optional[Tuple[in
         if SY_CMD_NO_RESP_ENABLE and (cmd in NO_RESP_REQ_CMDS):
             return None
 
+        if cmd == CMD_BB:
+            return (CMD_NOCHANGE,)
         if cmd == CMD_A2:
             return (CMD_A2, CMD_NOCHANGE)
         return (cmd,)
@@ -1607,6 +1640,11 @@ class LinePoller(threading.Thread):
 
         self.head_port_name = cfg.get("head_port")
         self.tail_port_name = cfg.get("tail_port")
+        ring_cfg = cfg.get("ring_mode")
+        if ring_cfg is None:
+            self.ring_mode = (not is_disabled_port(self.head_port_name)) and (not is_disabled_port(self.tail_port_name))
+        else:
+            self.ring_mode = bool(ring_cfg)
 
         self.baudrate = int(cfg.get("baudrate", DEFAULT_BAUDRATE))
         self.timeout = float(cfg.get("timeout", DEFAULT_TIMEOUT))
@@ -1693,8 +1731,6 @@ class LinePoller(threading.Thread):
 
     def get_ui_snapshot(self, nowt: Optional[float] = None) -> dict:
         nowt = time.monotonic() if nowt is None else float(nowt)
-        head_state = "DISABLED" if is_disabled_port(self.head_port_name) else ("UP" if (self.ser_head and self.ser_head.is_open) else "DOWN")
-        tail_state = "DISABLED" if is_disabled_port(self.tail_port_name) else ("UP" if (self.ser_tail and self.ser_tail.is_open) else "DOWN")
         rx_h_qfull = self.rx_head.drop_q_full if self.rx_head else 0
         rx_t_qfull = self.rx_tail.drop_q_full if self.rx_tail else 0
         recent_a1_no_resp = self.recent_no_resp_count("a1", nowt)
@@ -1707,8 +1743,8 @@ class LinePoller(threading.Thread):
             "line_id": self.line_id,
             "name": self.name,
             "preferred": f"{pref_head}/{pref_tail}",
-            "head": head_state,
-            "tail": tail_state,
+            "port": f"{self.port_state('head')}/{self.port_state('tail')}",
+            "link": f"{self.link_state('head', nowt)}/{self.link_state('tail', nowt)}",
             "down_for": f"{self.port_down_for('head', nowt)}/{self.port_down_for('tail', nowt)}",
             "devices": len(self.devices_cfg),
             "a1_timeout": f"{self.a1_no_resp_count}/{recent_a1_no_resp}",
@@ -1719,6 +1755,31 @@ class LinePoller(threading.Thread):
             "queue": f"{self.q_head.qsize()}/{self.q_tail.qsize()}",
             "last_ok": _age_text(self.last_ok_mono, nowt) if self.last_ok_mono > 0 else "-",
         }
+
+    def port_state(self, which: str) -> str:
+        port_name = self.head_port_name if which == "head" else self.tail_port_name
+        if is_disabled_port(port_name):
+            return "dis"
+        ser = self.ser_head if which == "head" else self.ser_tail
+        return "open" if (ser and ser.is_open) else "down"
+
+    def link_state(self, which: str, nowt: Optional[float] = None) -> str:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        if self.port_state(which) == "DIS":
+            return "dis"
+        if self.port_state(which) == "DOWN":
+            return "down"
+
+        rx = self.rx_head if which == "head" else self.rx_tail
+        if rx is None:
+            return "init"
+
+        age = max(0.0, nowt - float(rx.last_good_frame_mono()))
+        ok_window = max(1.0, float(DEBUG_TUNING["WAIT_RESPONSE_TIMEOUT_SEC"]) * 4.0)
+        stale_window = max(ok_window, float(DEBUG_TUNING["STALL_NOFRAME_SEC"]))
+        if age <= ok_window:
+            return "good"
+        return "bad"
 
     def port_down_for(self, which: str, nowt: Optional[float] = None) -> str:
         nowt = time.monotonic() if nowt is None else float(nowt)
@@ -2129,6 +2190,16 @@ class LinePoller(threading.Thread):
             if k and k[0] == which:
                 self.stash.pop(k, None)
 
+    def _other_side(self, which: str) -> str:
+        return "tail" if which == "head" else "head"
+
+    def _clear_rx_window_for_send(self, tx_side: str):
+        if self.ring_mode:
+            self._clear_side("head")
+            self._clear_side("tail")
+            return
+        self._clear_side(tx_side)
+
     # -------------------------
     # stall watchdog（假死无异常）
     # -------------------------
@@ -2203,6 +2274,146 @@ class LinePoller(threading.Thread):
     def _current_epoch(self, which: str) -> int:
         return self.epoch_head.get() if which == "head" else self.epoch_tail.get()
 
+    def _item_matches_expected(
+        self,
+        item: dict,
+        *,
+        expected_serial_id: Optional[int],
+        expected_req_cmd: Optional[str],
+        expected_cmds: Optional[Tuple[int, ...]] = None,
+    ) -> bool:
+        frame = item.get("frame") or b""
+        if expected_req_cmd in ("A1", "A2", "B2"):
+            return resp_match_expected(
+                frame,
+                expected_serial_id=expected_serial_id,
+                expected_req_cmd=str(expected_req_cmd),
+            )
+
+        if expected_serial_id is not None:
+            addr = int(item.get("addr", -1))
+            if addr != (int(expected_serial_id) & 0xFF):
+                return False
+
+            if expected_cmds is not None:
+                cmd = int(item.get("cmd", -1)) & 0xFF
+                if cmd not in expected_cmds:
+                    return False
+                try:
+                    if not checksum_ok_lenient(frame):
+                        return False
+                except Exception:
+                    pass
+
+        return True
+
+    def _purge_side_mirror_frame(self, which: str, *, epoch: int, frame: bytes, min_tmono: float) -> int:
+        q = self.q_head if which == "head" else self.q_tail
+        kept = []
+        dropped = 0
+
+        while True:
+            try:
+                item = q.get_nowait()
+            except queue.Empty:
+                break
+
+            item_epoch = int(item.get("epoch", -1))
+            item_tmono = float(item.get("tmono", 0.0) or 0.0)
+            item_frame = item.get("frame") or b""
+            if item_epoch == epoch and item_tmono >= min_tmono and item_frame == frame:
+                dropped += 1
+                continue
+            kept.append(item)
+
+        for item in kept:
+            try:
+                q.put_nowait(item)
+            except queue.Full:
+                dropped += 1
+
+        for key in list(self.stash.keys()):
+            if not key or key[0] != which or int(key[1]) != epoch:
+                continue
+            lst = self.stash.get(key) or []
+            new_lst = []
+            for item in lst:
+                item_tmono = float(item.get("tmono", 0.0) or 0.0)
+                item_frame = item.get("frame") or b""
+                if item_tmono >= min_tmono and item_frame == frame:
+                    dropped += 1
+                    continue
+                new_lst.append(item)
+            if new_lst:
+                self.stash[key] = new_lst
+            else:
+                self.stash.pop(key, None)
+
+        return dropped
+
+    def _wait_match_ring(
+        self,
+        tx_side: str,
+        *,
+        expected_serial_id: Optional[int],
+        expected_req_cmd: Optional[str],
+        expected_cmds: Optional[Tuple[int, ...]] = None,
+        timeout: float,
+        min_tmono: float = 0.0,
+        record_unmatched: bool = True,
+    ) -> Optional[dict]:
+        sides = [tx_side]
+        other_side = self._other_side(tx_side)
+        if other_side not in sides:
+            sides.append(other_side)
+        expect_epochs = {side: self._current_epoch(side) for side in sides}
+        deadline = now_mono() + max(0.0, timeout)
+
+        while running and now_mono() < deadline:
+            progressed = False
+            for side in sides:
+                q = self.q_head if side == "head" else self.q_tail
+                while True:
+                    try:
+                        item = q.get_nowait()
+                    except queue.Empty:
+                        break
+
+                    progressed = True
+                    item_epoch = int(item.get("epoch", -1))
+                    if item_epoch != int(expect_epochs.get(side, -1)):
+                        continue
+
+                    item_tmono = float(item.get("tmono", 0.0) or 0.0)
+                    if min_tmono > 0.0 and item_tmono < min_tmono:
+                        continue
+
+                    if self._item_matches_expected(
+                        item,
+                        expected_serial_id=expected_serial_id,
+                        expected_req_cmd=expected_req_cmd,
+                        expected_cmds=expected_cmds,
+                    ):
+                        mirror_side = self._other_side(side)
+                        mirror_epoch = int(expect_epochs.get(mirror_side, -1))
+                        if mirror_epoch >= 0:
+                            self._purge_side_mirror_frame(
+                                mirror_side,
+                                epoch=mirror_epoch,
+                                frame=item.get("frame") or b"",
+                                min_tmono=min_tmono,
+                            )
+                        return item
+
+                    if record_unmatched:
+                        self.record_unmatched()
+                    self._stash_put(item)
+
+            if not progressed:
+                time.sleep(min(0.002, max(0.0, deadline - now_mono())))
+
+        return None
+
     # -------------------------
     # send / wait / report
     # -------------------------
@@ -2264,6 +2475,7 @@ class LinePoller(threading.Thread):
         expected_req_cmd: Optional[str],
         expected_cmds: Optional[Tuple[int, ...]] = None,
         timeout: float,
+        min_tmono: float = 0.0,
         use_stash_first: bool = True,
         record_unmatched: bool = True,
     ) -> Optional[dict]:
@@ -2279,7 +2491,7 @@ class LinePoller(threading.Thread):
             else:
                 allowed = (CMD_B2,)
             hit = self._stash_get(which, expect_epoch, addr, allowed)
-            if hit:
+            if hit and (min_tmono <= 0.0 or float(hit.get("tmono", 0.0) or 0.0) >= min_tmono):
                 return hit
 
         deadline = now_mono() + max(0.0, timeout)
@@ -2295,44 +2507,23 @@ class LinePoller(threading.Thread):
             item_epoch = int(item.get("epoch", -1))
             if item_epoch != expect_epoch:
                 continue
+            item_tmono = float(item.get("tmono", 0.0) or 0.0)
+            if min_tmono > 0.0 and item_tmono < min_tmono:
+                continue
 
             frame = item.get("frame") or b""
 
-            if expected_req_cmd in ("A1", "A2", "B2"):
-                if resp_match_expected(frame, expected_serial_id=expected_serial_id, expected_req_cmd=str(expected_req_cmd)):
-                    return item
-                else:
-                    if record_unmatched:
-                        self.record_unmatched()
-                    self._stash_put(item)
-                    continue
-            else:
-                if expected_serial_id is not None:
-                    addr = int(item.get("addr", -1))
-                    if addr != (int(expected_serial_id) & 0xFF):
-                        if record_unmatched:
-                            self.record_unmatched()
-                        self._stash_put(item)
-                        continue
-
-                    if expected_cmds is not None:
-                        cmd = int(item.get("cmd", -1)) & 0xFF
-                        if cmd not in expected_cmds:
-                            if record_unmatched:
-                                self.record_unmatched()
-                            self._stash_put(item)
-                            continue
-                        try:
-                            if not checksum_ok_lenient(frame):
-                                if record_unmatched:
-                                    self.record_unmatched()
-                                continue
-                        except Exception:
-                            pass
-
-                    return item
-
+            if self._item_matches_expected(
+                item,
+                expected_serial_id=expected_serial_id,
+                expected_req_cmd=expected_req_cmd,
+                expected_cmds=expected_cmds,
+            ):
                 return item
+
+            if record_unmatched:
+                self.record_unmatched()
+            self._stash_put(item)
 
         return None
 
@@ -2346,14 +2537,27 @@ class LinePoller(threading.Thread):
         use_stash_first: bool = True,
         record_unmatched: bool = True,
     ) -> Optional[dict]:
+        self._clear_rx_window_for_send(which)
         if not self._send_frame(which, frame, meta):
             return None
+        min_tmono = float(meta.get("_send_tmono", 0.0) or 0.0)
+        if self.ring_mode:
+            return self._wait_match_ring(
+                which,
+                expected_serial_id=meta.get("serial_id"),
+                expected_req_cmd=meta.get("req_cmd"),
+                expected_cmds=meta.get("_expected_cmds"),
+                timeout=timeout,
+                min_tmono=min_tmono,
+                record_unmatched=record_unmatched,
+            )
         return self._wait_match_from_queue(
             which,
             expected_serial_id=meta.get("serial_id"),
             expected_req_cmd=meta.get("req_cmd"),
             expected_cmds=meta.get("_expected_cmds"),
             timeout=timeout,
+            min_tmono=min_tmono,
             use_stash_first=use_stash_first,
             record_unmatched=record_unmatched,
         )
@@ -2517,6 +2721,29 @@ class LinePoller(threading.Thread):
 
         return ok_any
 
+    def _send_bb_and_wait_ack(self, side: str, frame: bytes, meta: dict) -> Optional[dict]:
+        extra_retries = max(0, int(SY_CMD_BB_CMD_RETRIES))
+        total_attempts = 1 + extra_retries
+
+        for attempt in range(1, total_attempts + 1):
+            resp_item = self._send_and_wait(
+                side,
+                frame,
+                meta,
+                timeout=float(DEBUG_TUNING["WAIT_RESPONSE_TIMEOUT_SEC"]),
+                use_stash_first=(attempt == 1),
+            )
+            if resp_item is not None:
+                return resp_item
+
+            if attempt < total_attempts:
+                self.log(
+                    f"[CmdRetry] BB missing 0x05, resend {attempt}/{extra_retries} "
+                    f"side={side} meta={meta}"
+                )
+
+        return None
+
     def run(self):
         self.log("thread started.")
         while running:
@@ -2589,7 +2816,7 @@ class LinePoller(threading.Thread):
                     if i == 1:
                         self._clear_side(side)
 
-                    # ✅ 无回帧命令：只发不等
+                    # ✅ 无回帧命令（当前默认仅 CC）：只发不等
                     if meta.get("_no_resp_mode", False):
                         ok_send = self._send_frame(side, cmd_frame, meta)
                         if not ok_send:
@@ -2617,13 +2844,16 @@ class LinePoller(threading.Thread):
                         break
 
                     # ✅ 有回帧命令：原逻辑不变
-                    resp_item = self._send_and_wait(
-                        side,
-                        cmd_frame,
-                        meta,
-                        timeout=float(DEBUG_TUNING["WAIT_RESPONSE_TIMEOUT_SEC"]),
-                        use_stash_first=True,
-                    )
+                    if dl_cmd == CMD_BB:
+                        resp_item = self._send_bb_and_wait_ack(side, cmd_frame, meta)
+                    else:
+                        resp_item = self._send_and_wait(
+                            side,
+                            cmd_frame,
+                            meta,
+                            timeout=float(DEBUG_TUNING["WAIT_RESPONSE_TIMEOUT_SEC"]),
+                            use_stash_first=True,
+                        )
                     if resp_item is not None:
                         # ✅ SAFE(建议#1)：先 mark_done（至少本地），防 Redis 抖动导致命令重复执行
                         self._cmd_mark_done(msg_id)
@@ -2978,7 +3208,8 @@ def main():
     emit_event(
         f"timing wait={float(DEBUG_TUNING['WAIT_RESPONSE_TIMEOUT_SEC']):.3f}s auto_sleep={int(DEBUG_TUNING['AUTO_SLEEP_ENABLE'])} "
         f"after_sleep={ADAPT.get_sleep():.3f}s a2_burst={int(A2_BURST_ENABLE)} "
-        f"probe={int(PROBE_ENABLE)}@{PROBE_INTERVAL_SEC:.0f}s/{PROBE_TIMEOUT_SEC:.2f}s no_resp_cmds={[hex(x) for x in sorted(NO_RESP_REQ_CMDS)]}",
+        f"probe={int(PROBE_ENABLE)}@{PROBE_INTERVAL_SEC:.0f}s/{PROBE_TIMEOUT_SEC:.2f}s "
+        f"bb_cmd_retries={SY_CMD_BB_CMD_RETRIES} no_resp_cmds={[hex(x) for x in sorted(NO_RESP_REQ_CMDS)]}",
         category="startup",
     )
     emit_event(

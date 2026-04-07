@@ -2,9 +2,9 @@ name: bt_nms_sy_prod
 
 x-sy-django-image: &sy_django_image
   image: my_django:v5.0.6-sy-prod
-  build:
-    context: ./sy_backend
-    dockerfile: Dockerfile.prod
+  #build:
+  #  context: ./sy_backend
+  #  dockerfile: Dockerfile.prod
 
 services:
   redis:

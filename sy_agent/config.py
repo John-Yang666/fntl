@@ -40,7 +40,8 @@ CONFIG = {
         "confirm_delay_sec": 0.08,
         "confirm_timeout_sec": 0.25,
         "confirm_a1": True,
-        "no_resp_cmds": ["BB", "CC"],
+        "bb_cmd_retries": 3,
+        "no_resp_cmds": ["CC"],
     },
     "time_sync": {
         "enable": False,

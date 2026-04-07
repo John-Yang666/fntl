@@ -24,6 +24,45 @@ REDIS_STREAM_MAXLEN = int(os.getenv("REDIS_STREAM_MAXLEN", "200000"))
 # =======================
 _redis = None
 
+FRAME_HEADER = b"\x7F\x7F"
+FRAME_FOOTER = b"\xF7\xF7"
+FIXED_DEVICE_ADDRESS = 0x01
+NO_TIME_FILL = 0xFFFFFFFF
+RESERVED_BYTES = b"\x00\x00"
+
+FUNCTION_CODE_RESERVED = 0x00
+FUNCTION_CODE_DIRECTION1_QHJ = 0x01
+FUNCTION_CODE_DIRECTION2_QHJ = 0x02
+FUNCTION_CODE_SET_TIME = 0x03
+FUNCTION_CODE_SET_SEND_PERIOD = 0x04
+FUNCTION_CODE_RESET_NETWORK_BOARD = 0x05
+FUNCTION_CODE_RESET_DIRECTION1_CPU_I = 0x06
+FUNCTION_CODE_RESET_DIRECTION1_CPU_II = 0x07
+FUNCTION_CODE_RESET_DIRECTION2_CPU_I = 0x08
+FUNCTION_CODE_RESET_DIRECTION2_CPU_II = 0x09
+FUNCTION_CODE_HEARTBEAT = 0x0A
+FUNCTION_CODE_RECONNECT = 0x0B
+FUNCTION_CODE_READ_DEVICE_CONFIG = 0x0C
+
+QHJ_OPERATION_FUNCTION_CODES = {
+    FUNCTION_CODE_DIRECTION1_QHJ,
+    FUNCTION_CODE_DIRECTION2_QHJ,
+}
+
+
+def _to_byte(value, *, field_name: str) -> int:
+    byte_value = int(value)
+    if not 0 <= byte_value <= 0xFF:
+        raise ValueError(f"{field_name} must be between 0 and 255")
+    return byte_value
+
+
+def _to_uint32(value, *, field_name: str) -> int:
+    uint32_value = int(value)
+    if not 0 <= uint32_value <= 0xFFFFFFFF:
+        raise ValueError(f"{field_name} must be between 0 and 4294967295")
+    return uint32_value
+
 
 def _get_redis():
     global _redis
@@ -35,16 +74,29 @@ def _get_redis():
 
 
 def create_packet(address, function_code, unix_time, operation) -> bytes:
+    del address  # BT 下行控制命令协议地址固定为 0x01
+
+    function_code = _to_byte(function_code, field_name="function_code")
+    unix_time = _to_uint32(unix_time, field_name="unix_time")
+    operation = _to_byte(operation, field_name="operation")
+
     packet = bytearray(16)
-    packet[0:2] = b"\x7F\x7F"
-    packet[2] = address
+    packet[0:2] = FRAME_HEADER
+    packet[2] = FIXED_DEVICE_ADDRESS
     packet[3] = function_code
-    packet[4:8] = struct.pack("<I", unix_time)
-    packet[8] = operation
-    packet[9:12] = b"\xFF\xFF\xFF"
+
+    if function_code == FUNCTION_CODE_SET_TIME:
+        packet[4:8] = struct.pack("<I", unix_time)
+    else:
+        packet[4:8] = struct.pack("<I", NO_TIME_FILL)
+
+    packet[8] = operation if function_code in QHJ_OPERATION_FUNCTION_CODES else 0x00
+    packet[9] = operation if function_code == FUNCTION_CODE_SET_SEND_PERIOD else 0x00
+    packet[10:12] = RESERVED_BYTES
+
     checksum = sum(packet[2:12]) & 0xFFFF
     packet[12:14] = struct.pack("<H", checksum)
-    packet[14:16] = b"\xF7\xF7"
+    packet[14:16] = FRAME_FOOTER
     return bytes(packet)
 
 
