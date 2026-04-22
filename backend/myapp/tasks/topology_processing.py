@@ -4,7 +4,7 @@ import time
 from django.core.cache import cache
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from consts import TOPOLOGY_TIMEOUT
+from myapp.runtime_config import get_topology_timeout
 
 _last_pushed_topology_signature = {}
 _last_pushed_topology_monotonic = {}
@@ -12,13 +12,14 @@ TOPOLOGY_PUSH_HEARTBEAT_SEC = float(os.getenv("TOPOLOGY_PUSH_HEARTBEAT_SEC", "30
 
 
 def _resolve_topology_cache_timeout():
-    if TOPOLOGY_TIMEOUT is None:
+    topology_timeout = get_topology_timeout()
+    if topology_timeout is None:
         return None
 
     try:
-        timeout = int(TOPOLOGY_TIMEOUT)
+        timeout = int(topology_timeout)
     except (TypeError, ValueError):
-        return TOPOLOGY_TIMEOUT
+        return topology_timeout
 
     if timeout <= 0:
         return None

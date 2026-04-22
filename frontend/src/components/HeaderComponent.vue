@@ -6,18 +6,20 @@
       <el-tab-pane label="设备监控" name="main"></el-tab-pane>
       <el-tab-pane :label="activeAlertsTabLabel" name="activeAlerts"></el-tab-pane>
       <el-tab-pane label="记录查询" name="records"></el-tab-pane>
+      <el-tab-pane v-if="isSuperuser" label="系统设置" name="systemSettings"></el-tab-pane>
       <el-tab-pane label="帮助与支持" name="fourth"></el-tab-pane>
     </el-tabs>
 
     <div class="action-buttons">
-      <el-button @click="pauseAlerts">暂停告警声</el-button>
+      <div class="sound-control">
+        <span class="sound-label">声音</span>
+        <el-switch
+          v-model="soundEnabled"
+          @change="toggleSound"
+        />
+      </div>
 
-      <el-switch
-        v-model="soundEnabled"
-        @change="toggleSound"
-        active-text="声音"
-        style="margin: 0 8px;"
-      />
+      <el-button @click="pauseAlerts">暂停告警声</el-button>
 
       <el-button @click="toggleTestSound">
         {{ isTestingSound ? '停止' : '试音' }}
@@ -41,16 +43,16 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import type { MessageHandler, TabsPaneContext } from 'element-plus';
-import axios from 'axios';
 import { useUserStore } from '@/stores/userStore';
 import { ElMessage } from 'element-plus';
 import { loadSelectedDeviceKeys } from '@/utils/selectedDevices';
-import { SYSTEMS, makeDeviceKey, getApiBase } from '@/utils/systems';
+import { SYSTEMS, SYSTEM_LABELS, makeDeviceKey, type SystemType } from '@/utils/systems';
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 
 const props = defineProps({
@@ -59,16 +61,21 @@ const props = defineProps({
 const activeName = ref(props.selectedTab);
 
 const username = computed(() => userStore.user?.username ?? null);
+const isSuperuser = computed(() => userStore.isSuperuser);
 const selectedDevices = ref<string[]>([]);
 const hasAlerts = ref(false);
 const activeAlertsTabLabel = ref('当前告警');
 
-const soundEnabled = ref<boolean>(false);
+const soundEnabled = ref<boolean>(true);
 const alertAudio = ref<HTMLAudioElement | null>(null);
 const isAudioPrimed = ref(false);
 const pendingAlertPlayback = ref(false);
 const hasShownAutoplayWarning = ref(false);
 let autoplayWarningMessage: MessageHandler | null = null;
+const endedAlertMessages: Record<SystemType, MessageHandler | null> = {
+  bt: null,
+  sy: null,
+};
 
 const isTestingSound = ref(false);
 
@@ -86,9 +93,34 @@ const handleClick = (tab: TabsPaneContext) => {
     case 'main': router.push('/main'); break;
     case 'records': router.push('/records'); break;
     case 'activeAlerts': router.push('/alerts'); break;
+    case 'systemSettings': router.push('/runtime-config'); break;
     case 'fourth': router.push('/help'); break;
     default: console.log('未知标签页');
   }
+};
+
+const syncActiveTabWithRoute = () => {
+  if (route.path.startsWith('/runtime-config') && isSuperuser.value) {
+    activeName.value = 'systemSettings';
+    return;
+  }
+
+  if (route.path.startsWith('/alerts')) {
+    activeName.value = 'activeAlerts';
+    return;
+  }
+
+  if (route.path.startsWith('/records')) {
+    activeName.value = 'records';
+    return;
+  }
+
+  if (route.path.startsWith('/help')) {
+    activeName.value = 'fourth';
+    return;
+  }
+
+  activeName.value = 'main';
 };
 
 // -------- 声音控制 --------
@@ -161,7 +193,7 @@ const handleAudioInteraction = async () => {
     closeAutoplayWarning();
   }
 
-  if (primed && pendingAlertPlayback.value && soundEnabled.value && hasAlerts.value) {
+  if (primed && pendingAlertPlayback.value && soundEnabled.value) {
     pendingAlertPlayback.value = false;
     void playAlertSound();
   }
@@ -190,6 +222,39 @@ const closeAutoplayWarning = () => {
     autoplayWarningMessage = null;
   }
   hasShownAutoplayWarning.value = false;
+};
+
+const openEndedAlertNotice = (system: SystemType) => {
+  if (endedAlertMessages[system]) {
+    return;
+  }
+
+  endedAlertMessages[system] = ElMessage({
+    type: 'warning',
+    message: `${SYSTEM_LABELS[system]} 有告警结束，请查看历史告警记录。`,
+    duration: 0,
+    showClose: true,
+    onClose: () => {
+      endedAlertMessages[system] = null;
+    },
+  });
+};
+
+const closeEndedAlertNotice = (system?: SystemType) => {
+  if (system) {
+    if (endedAlertMessages[system]) {
+      endedAlertMessages[system]?.close();
+      endedAlertMessages[system] = null;
+    }
+    return;
+  }
+
+  SYSTEMS.forEach((item) => {
+    if (endedAlertMessages[item]) {
+      endedAlertMessages[item]?.close();
+      endedAlertMessages[item] = null;
+    }
+  });
 };
 
 const pauseAlerts = async () => {
@@ -251,16 +316,25 @@ const toggleSound = () => {
 
 // -------- 告警检测 --------
 let intervalId: number;
-let previousAlertSnapshot = '';
+let previousAlertKeysBySystem: Record<SystemType, Set<string>> = {
+  bt: new Set<string>(),
+  sy: new Set<string>(),
+};
+
+const buildAlertKey = (system: SystemType, deviceId: number, alarmCode: number) =>
+  `${system}:${deviceId}-${alarmCode}`;
 
 const checkAlerts = async () => {
   const settledResponses = await Promise.allSettled(
     SYSTEMS.map(async (system) => ({
       system,
-      alerts: (await axios.get(`${getApiBase(system)}/active-alarms/`)).data as Array<{
+      alerts: await userStore.requestWithAuth<Array<{
         device_id: number;
         alarm_code: number;
-      }>,
+      }>>(system, {
+        method: 'get',
+        url: '/active-alarms/',
+      }),
     })),
   );
 
@@ -284,28 +358,47 @@ const checkAlerts = async () => {
       })),
   );
 
-  const currentSnapshot = filteredAlerts
-    .map(a => `${a.system}:${a.device_id}-${a.alarm_code}`)
-    .sort()
-    .join('|');
+  const currentAlertKeysBySystem: Record<SystemType, Set<string>> = {
+    bt: new Set<string>(),
+    sy: new Set<string>(),
+  };
 
-  if (currentSnapshot !== previousAlertSnapshot) {
+  filteredAlerts.forEach((alert) => {
+    currentAlertKeysBySystem[alert.system].add(buildAlertKey(alert.system, alert.device_id, alert.alarm_code));
+  });
+
+  let hasNewAlerts = false;
+  SYSTEMS.forEach((system) => {
+    const currentAlertKeys = currentAlertKeysBySystem[system];
+    const previousAlertKeys = previousAlertKeysBySystem[system];
+    const systemHasNewAlerts = Array.from(currentAlertKeys).some((key) => !previousAlertKeys.has(key));
+    const systemHasEndedAlerts = Array.from(previousAlertKeys).some((key) => !currentAlertKeys.has(key));
+
+    if (systemHasNewAlerts) {
+      hasNewAlerts = true;
+    }
+
+    if (systemHasEndedAlerts) {
+      openEndedAlertNotice(system);
+    }
+  });
+
+  if (hasNewAlerts) {
     ssDel('alertSoundPaused');
   }
-  previousAlertSnapshot = currentSnapshot;
+
+  previousAlertKeysBySystem = currentAlertKeysBySystem;
 
   const count = filteredAlerts.length;
   if (count > 0) {
     activeAlertsTabLabel.value = `当前告警 (${count})`;
     hasAlerts.value = true;
-    if (soundEnabled.value) {
+    if (soundEnabled.value && hasNewAlerts) {
       void playAlertSound();
     }
   } else {
     activeAlertsTabLabel.value = '当前告警';
     hasAlerts.value = false;
-    ssDel('alertSoundPaused');
-    stopAlertSound();
   }
 };
 
@@ -341,10 +434,11 @@ const cancelLogout = () => console.log('Logout canceled');
 
 // -------- 生命周期 --------
 onMounted(async () => {
+  syncActiveTabWithRoute();
   selectedDevices.value = await loadSelectedDeviceKeys();
 
   const storedSoundEnabled = soundPrefGet();
-  soundEnabled.value = storedSoundEnabled ? JSON.parse(storedSoundEnabled) : false;
+  soundEnabled.value = storedSoundEnabled ? JSON.parse(storedSoundEnabled) : true;
   soundPrefSet(soundEnabled.value);
   ensureAlertAudio();
   window.addEventListener('pointerdown', handleAudioInteraction, true);
@@ -356,16 +450,21 @@ onMounted(async () => {
   }
 
   await checkAlerts();
-  if (hasAlerts.value && soundEnabled.value) {
+  if (soundEnabled.value && (hasAlerts.value || pendingAlertPlayback.value)) {
     void playAlertSound();
   }
   intervalId = window.setInterval(checkAlerts, 3000);
 });
 
+watch(() => route.path, () => {
+  syncActiveTabWithRoute();
+}, { immediate: true });
+
 onBeforeUnmount(() => {
   clearInterval(intervalId);
   stopAlertSound();
   closeAutoplayWarning();
+  closeEndedAlertNotice();
   alertAudio.value = null;
   isAudioPrimed.value = false;
   window.removeEventListener('pointerdown', handleAudioInteraction, true);
@@ -425,6 +524,17 @@ onBeforeUnmount(() => {
   right: 132px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 20px;
+}
+
+.sound-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sound-label {
+  font-weight: 600;
+  color: #1f2937;
 }
 </style>

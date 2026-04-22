@@ -3,9 +3,35 @@ from django.utils import timezone
 from myapp.models import Device, SwitchData, AlarmActive, AnalogData, RelayAction, AlarmData, UserOperation, UploadedFile, HelpFaqEntry
 
 class DeviceSerializer(serializers.ModelSerializer):
+    depot = serializers.SerializerMethodField()
+    line = serializers.SerializerMethodField()
+
     class Meta:
         model = Device
-        fields = '__all__'
+        fields = [
+            'id',
+            'device_id',
+            'name',
+            'depot',
+            'line',
+            'ip_address',
+            'x_coordinate',
+            'y_coordinate',
+            'direction1_neighbor_id',
+            'direction1_neighbor_direction',
+            'direction2_neighbor_id',
+            'direction2_neighbor_direction',
+            'remark',
+            'alarm_filters',
+            'direction1_enabled',
+            'direction2_enabled',
+        ]
+
+    def get_depot(self, obj):
+        return obj.depot_name or None
+
+    def get_line(self, obj):
+        return obj.line_name or None
 
 class SwitchDataSerializer(serializers.ModelSerializer):
     class Meta:
@@ -37,8 +63,8 @@ class RelayActionSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class UserOperationSerializer(serializers.ModelSerializer):
-    device_id = serializers.IntegerField(source='device.device_id', read_only=True)
-    device_name = serializers.CharField(source='device.name', read_only=True)
+    device_id = serializers.IntegerField(source='device.device_id', read_only=True, allow_null=True)
+    device_name = serializers.CharField(source='device.name', read_only=True, allow_null=True)
 
     class Meta:
         model = UserOperation

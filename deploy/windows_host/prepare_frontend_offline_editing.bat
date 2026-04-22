@@ -11,6 +11,8 @@ pushd "%ROOT%"
 echo [INFO] Pulling Node build image...
 docker pull node:22 || goto :fail
 
+echo [INFO] Maintenance/dev workflow only. This path keeps frontend source code on the target machine.
+
 echo [INFO] Preparing offline npm cache in frontend\npm-cache ...
 docker run --rm ^
   -v "%ROOT%\frontend:/app" ^
@@ -20,6 +22,7 @@ docker run --rm ^
 
 echo [INFO] Done.
 echo [INFO] You can now edit frontend source files offline and use build_and_apply_frontend_dist_offline.bat
+echo [INFO] Do not use this workflow for protected deployments.
 popd
 call :hold
 exit /b 0

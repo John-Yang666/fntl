@@ -3,10 +3,7 @@ from django.urls import path, include # type: ignore
 from django.views.generic import RedirectView  # 导入 RedirectView
 from rest_framework.routers import DefaultRouter # type: ignore
 from myapp import views
-from rest_framework_simplejwt.views import ( # type: ignore
-    TokenObtainPairView,
-    TokenRefreshView,
-)
+from myapp.auth_views import RuntimeConfigTokenObtainPairView, RuntimeConfigTokenRefreshView
 
 # 标准资源操作：用于标准的 ViewSet，适合处理标准的模型操作。
 router = DefaultRouter()
@@ -32,9 +29,10 @@ urlpatterns = [
     path('api/active-alarms/', views.ActiveAlarmListView.as_view()),
     path('api/active-alarms/<int:device_id>/<int:alarm_code>/confirm/', views.ConfirmAlarmView.as_view()),
     #path('api/alerts-amount/', views.AlertsAmountView.as_view()),
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/token/', RuntimeConfigTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', RuntimeConfigTokenRefreshView.as_view(), name='token_refresh'),
     path('api/user/', views.UserDetailView.as_view(), name='user_detail'),
+    path('api/runtime-config/', views.RuntimeConfigView.as_view(), name='runtime_config'),
     path('api/help-faq/', views.HelpFaqView.as_view(), name='help_faq'),
     path('api/download/<int:pk>/', views.download_file, name='file-download'),
     path('api/device-flags/<int:device_id>/', views.DeviceFlagsView.as_view(), name='device-flags'),

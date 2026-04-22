@@ -3,9 +3,44 @@ from django.utils import timezone
 from myapp.models import Device, SwitchData, AlarmActive, RelayAction, AlarmData, UserOperation, UploadedFile, ChangeBitEvent
 
 class DeviceSerializer(serializers.ModelSerializer):
+    depot = serializers.SerializerMethodField()
+    line = serializers.SerializerMethodField()
+
     class Meta:
         model = Device
-        fields = '__all__'
+        fields = [
+            'id',
+            'device_id',
+            'name',
+            'depot',
+            'line',
+            'ip_address',
+            'x_coordinate',
+            'y_coordinate',
+            'direction1_neighbor_id',
+            'direction1_neighbor_direction',
+            'direction2_neighbor_id',
+            'direction2_neighbor_direction',
+            'direction3_enabled',
+            'supports_auto_switch',
+            'direction3_neighbor_id',
+            'direction3_neighbor_direction',
+            'remark',
+            'alarm_filters',
+            'direction1_enabled',
+            'direction2_enabled',
+            'direction1_cable_alarm_linkage',
+            'direction2_cable_alarm_linkage',
+            'manual_address',
+            'is_dynamic_addressing',
+            'sealed_base_addr_bcd',
+        ]
+
+    def get_depot(self, obj):
+        return obj.depot_name or None
+
+    def get_line(self, obj):
+        return obj.line_name or None
 
 class SwitchDataSerializer(serializers.ModelSerializer):
     class Meta:
@@ -32,8 +67,8 @@ class RelayActionSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class UserOperationSerializer(serializers.ModelSerializer):
-    device_id = serializers.IntegerField(source='device.device_id', read_only=True)
-    device_name = serializers.CharField(source='device.name', read_only=True)
+    device_id = serializers.IntegerField(source='device.device_id', read_only=True, allow_null=True)
+    device_name = serializers.CharField(source='device.name', read_only=True, allow_null=True)
 
     class Meta:
         model = UserOperation
@@ -103,6 +138,8 @@ class ChangeBitEventSimpleSerializer(serializers.ModelSerializer):
 
 
 class DeviceDetailSerializer(serializers.ModelSerializer):
+    depot = serializers.SerializerMethodField()
+    line = serializers.SerializerMethodField()
     latest_switch = serializers.SerializerMethodField()
     latest_change = serializers.SerializerMethodField()
 
@@ -142,3 +179,9 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
         if not ev:
             return None
         return ChangeBitEventSimpleSerializer(ev).data
+
+    def get_depot(self, obj):
+        return obj.depot_name or None
+
+    def get_line(self, obj):
+        return obj.line_name or None

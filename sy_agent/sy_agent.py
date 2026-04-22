@@ -40,7 +40,6 @@ sy_agent.py (Redis Streams) - Receiver Threads + Frame Queues (生产版：最�
 """
 
 import os
-import importlib.util
 import sys
 import time
 import json
@@ -57,6 +56,8 @@ import copy
 import serial
 from serial import SerialException
 import redis
+
+from protected_runtime import agent_config_path, write_json_file
 
 
 # ============================================================
@@ -130,10 +131,15 @@ DEBUG_TUNING = {
     "PENDING_CLAIM_COUNT": 20,
 }
 
-CONFIG_PY_PATH = Path(__file__).with_name("config.py")
+CONFIG_JSON_ENV = "SY_AGENT_CONFIG_JSON"
 CONFIG_PATH: Path
 
 DEFAULT_CONFIG = {
+    "agent": {
+        "ip": "",
+        "name": "",
+        "role": "main",
+    },
     "redis": {
         "host": "localhost",
         "port": 36380,
@@ -208,36 +214,47 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return base
 
 
-def _load_py_config(path: Path) -> dict:
-    spec = importlib.util.spec_from_file_location("sy_agent_runtime_config", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"unable to load config module: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    loaded = getattr(module, "CONFIG", None)
+def _load_json_config(path: Path) -> dict:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"unable to load json config: {path}: {exc}") from exc
     if not isinstance(loaded, dict):
-        raise TypeError(f"{path} must define CONFIG = {{...}}")
+        raise TypeError(f"{path} must define a JSON object")
     return loaded
 
 
 def _load_config() -> dict:
     global CONFIG_PATH
 
-    if not CONFIG_PY_PATH.exists():
-        raise FileNotFoundError(f"missing config file: {CONFIG_PY_PATH}")
+    env_json = os.environ.get(CONFIG_JSON_ENV, "").strip()
+    if env_json:
+        CONFIG_PATH = Path(env_json).expanduser().resolve()
+        loaded = _load_json_config(CONFIG_PATH)
+        if "lines" not in loaded:
+            raise KeyError(f"{CONFIG_PATH} must define lines")
+        if not isinstance(loaded.get("lines"), list):
+            raise TypeError(f"{CONFIG_PATH} lines must be a list")
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        return _deep_merge(config, loaded)
 
-    CONFIG_PATH = CONFIG_PY_PATH
-    loaded = _load_py_config(CONFIG_PATH)
+    CONFIG_PATH = agent_config_path("sy_agent")
+    if not CONFIG_PATH.exists():
+        write_json_file(CONFIG_PATH, copy.deepcopy(DEFAULT_CONFIG))
+    loaded = _load_json_config(CONFIG_PATH)
     if "lines" not in loaded:
-        raise KeyError(f"{CONFIG_PATH} must define CONFIG['lines']")
+        raise KeyError(f"{CONFIG_PATH} must define lines")
     if not isinstance(loaded.get("lines"), list):
-        raise TypeError(f"{CONFIG_PATH} CONFIG['lines'] must be a list")
+        raise TypeError(f"{CONFIG_PATH} lines must be a list")
     config = copy.deepcopy(DEFAULT_CONFIG)
     return _deep_merge(config, loaded)
 
 
 CONFIG = _load_config()
 DEBUG_TUNING = CONFIG["debug_tuning"]
+AGENT_CONFIG = CONFIG.get("agent", {})
 REDIS_CONFIG = CONFIG["redis"]
 STREAM_CONFIG = CONFIG["stream"]
 CMD_CONFIG = CONFIG["cmd"]
@@ -246,6 +263,60 @@ A2_BURST_CONFIG = CONFIG["a2_burst"]
 SERIAL_CONFIG = CONFIG["serial"]
 PROBE_CONFIG = CONFIG.get("probe", {})
 UI_CONFIG = CONFIG.get("ui", {})
+
+def _safe_agent_token(value: str) -> str:
+    text = str(value or "").strip()
+    out = []
+    for ch in text:
+        if ch.isalnum() or ch in ("-", "_", "."):
+            out.append(ch)
+        else:
+            out.append("_")
+    token = "".join(out).strip("._")
+    return token or "agent"
+
+
+def _detect_private_ipv4() -> str:
+    candidates: List[str] = []
+    try:
+        for item in socket.getaddrinfo(socket.gethostname(), None, family=socket.AF_INET):
+            ip = str(item[4][0])
+            if ip and ip not in candidates:
+                candidates.append(ip)
+    except Exception:
+        pass
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("8.8.8.8", 80))
+            ip = str(sock.getsockname()[0])
+            if ip and ip not in candidates:
+                candidates.insert(0, ip)
+        finally:
+            sock.close()
+    except Exception:
+        pass
+
+    for ip in candidates:
+        if ip.startswith(("10.", "192.168.", "172.")) and ip != "127.0.0.1":
+            return ip
+    for ip in candidates:
+        if ip != "127.0.0.1":
+            return ip
+    return "127.0.0.1"
+
+
+def _resolve_agent_ip(preferred: Optional[str]) -> str:
+    text = str(preferred or "").strip()
+    return text or _detect_private_ipv4()
+
+
+AGENT_IP = _resolve_agent_ip(AGENT_CONFIG.get("ip"))
+AGENT_NAME = str(AGENT_CONFIG.get("name", "")).strip() or socket.gethostname()
+AGENT_ROLE = str(AGENT_CONFIG.get("role", "main")).strip() or "main"
+AGENT_TOKEN = _safe_agent_token(AGENT_IP)
+
 
 # ============================================================
 # Redis Streams 配置
@@ -258,8 +329,10 @@ SY_RAW_STREAM = str(STREAM_CONFIG["raw_stream"])
 SY_RAW_STREAM_MAXLEN = int(STREAM_CONFIG["raw_stream_maxlen"])
 
 SY_CMD_STREAM = str(STREAM_CONFIG["cmd_stream"])
-SY_CMD_GROUP = str(STREAM_CONFIG["cmd_group"])
-SY_CMD_CONSUMER = str(STREAM_CONFIG["cmd_consumer"])
+SY_CMD_GROUP_BASE = str(STREAM_CONFIG["cmd_group"])
+SY_CMD_CONSUMER_BASE = str(STREAM_CONFIG["cmd_consumer"])
+SY_CMD_GROUP = f"{SY_CMD_GROUP_BASE}:{AGENT_TOKEN}"
+SY_CMD_CONSUMER = f"{SY_CMD_CONSUMER_BASE}:{AGENT_TOKEN}"
 
 SY_CMD_BLOCK_MS = int(STREAM_CONFIG["cmd_block_ms"])
 SY_CMD_COUNT = int(STREAM_CONFIG["cmd_count"])
@@ -290,6 +363,11 @@ SY_CMD_CONFIRM_DELAY_SEC = float(CMD_CONFIG["confirm_delay_sec"])
 SY_CMD_CONFIRM_TIMEOUT_SEC = float(CMD_CONFIG["confirm_timeout_sec"])
 SY_CMD_CONFIRM_A1 = bool(CMD_CONFIG["confirm_a1"])
 SY_CMD_BB_CMD_RETRIES = int(CMD_CONFIG.get("bb_cmd_retries", 3))
+SUBAGENT_CONTROL_STREAM = "sy-subagent-control"
+SUBAGENT_STATUS_TTL_SEC = 15
+SUBAGENT_STATUS_REFRESH_SEC = 5.0
+NMS_ROUTE_KEY_PREFIX = "sy:route:nms:"
+NMS_ROUTE_TTL_SEC = max(15, int(SUBAGENT_STATUS_REFRESH_SEC * 3))
 
 
 def _parse_hex_cmd_list(values) -> List[int]:
@@ -1384,6 +1462,8 @@ class RedisConn:
 
             agent_info = {
                 "host": socket.gethostname(),
+                "agent_ip": AGENT_IP,
+                "agent_name": AGENT_NAME,
                 "consumer": SY_CMD_CONSUMER,
                 "pid": os.getpid(),
             }
@@ -1435,6 +1515,21 @@ class RedisConn:
         except Exception as e:
             self.mark_down(str(e))
             raise
+
+    def set_text(self, key: str, value: str, ttl_sec: Optional[int] = None) -> None:
+        try:
+            r = self.get_client()
+            if ttl_sec and int(ttl_sec) > 0:
+                r.set(key, str(value), ex=int(ttl_sec))
+            else:
+                r.set(key, str(value))
+        except Exception as e:
+            self.mark_down(str(e))
+            raise
+
+    def set_json(self, key: str, data: dict, ttl_sec: Optional[int] = None) -> None:
+        payload = json.dumps(data, ensure_ascii=False)
+        self.set_text(key, payload, ttl_sec=ttl_sec)
 
     def keepalive_loop(self):
         while running:
@@ -1765,9 +1860,10 @@ class LinePoller(threading.Thread):
 
     def link_state(self, which: str, nowt: Optional[float] = None) -> str:
         nowt = time.monotonic() if nowt is None else float(nowt)
-        if self.port_state(which) == "DIS":
+        port_state = self.port_state(which)
+        if port_state == "dis":
             return "dis"
-        if self.port_state(which) == "DOWN":
+        if port_state == "down":
             return "down"
 
         rx = self.rx_head if which == "head" else self.rx_tail
@@ -2586,6 +2682,8 @@ class LinePoller(threading.Thread):
         msg = {
             "payload_hex": hex_str,
             "ts": int(time.time()),
+            "agent_ip": AGENT_IP,
+            "agent_name": AGENT_NAME,
             "line_id": self.line_id,
             "port": side,
             "serial_id": serial_id,
@@ -2655,15 +2753,27 @@ class LinePoller(threading.Thread):
             h = "UP" if (self.ser_head and self.ser_head.is_open) else "DOWN"
             t = "UP" if (self.ser_tail and self.ser_tail.is_open) else "DOWN"
 
-            rx_h_qfull = self.rx_head.drop_q_full if self.rx_head else 0
-            rx_t_qfull = self.rx_tail.drop_q_full if self.rx_tail else 0
+            snap = self.get_ui_snapshot(nowt)
+            status_payload = {
+                "redis": "UP" if self.redis_conn.is_ready() else "DOWN",
+                "ports": f"{h}/{t}",
+                "preferred": snap["preferred"],
+                "port": snap["port"],
+                "link": snap["link"],
+                "down_for": snap["down_for"],
+                "devices": snap["devices"],
+                "a1_timeout": snap["a1_timeout"],
+                "a2_timeout": snap["a2_timeout"],
+                "cmd_timeout": snap["cmd_timeout"],
+                "unmatched": snap["unmatched"],
+                "qfull": snap["qfull"],
+                "queue": snap["queue"],
+                "last_ok": snap["last_ok"],
+                "after_sleep": f"{ADAPT.get_sleep():.3f}s",
+            }
 
             emit_event(
-                f"[STATUS] redis={'UP' if self.redis_conn.is_ready() else 'DOWN'} "
-                f"ports(head/tail)={h}/{t} after_sleep={ADAPT.get_sleep():.3f}s "
-                f"a1_timeout={self.a1_no_resp_count} a2_timeout={self.a2_no_resp_count} cmd_timeout={self.cmd_no_resp_count} "
-                f"drop_unmatched={self.drop_unmatched} "
-                f"rx_drop_qfull(head/tail)={rx_h_qfull}/{rx_t_qfull}",
+                f"[STATUS] {json.dumps(status_payload, ensure_ascii=False, separators=(',', ':'))}",
                 category="poll",
                 line_id=self.line_id,
                 line_name=self.name,
@@ -3027,9 +3137,68 @@ def _enqueue_cmd_from_fields(*, msg_id, fields, poller: LinePoller) -> Tuple[boo
     return True, "enqueued"
 
 
+def _route_key_for_nms(nms_id: int) -> str:
+    return f"{NMS_ROUTE_KEY_PREFIX}{int(nms_id)}"
+
+
+def _publish_route_mappings(redis_conn: RedisConn) -> None:
+    if not redis_conn.is_ready():
+        return
+    for nms_id in sorted(nms_to_line):
+        try:
+            redis_conn.set_text(_route_key_for_nms(int(nms_id)), AGENT_IP, ttl_sec=NMS_ROUTE_TTL_SEC)
+        except Exception:
+            return
+
+
+def route_refresh_thread(redis_conn: RedisConn):
+    last_ok = 0.0
+    while running:
+        if redis_conn.is_ready():
+            try:
+                _publish_route_mappings(redis_conn)
+                nowt = now_mono()
+                if (nowt - last_ok) >= 60.0:
+                    emit_event(
+                        f"[Route] refreshed {len(nms_to_line)} nms routes => {AGENT_IP}",
+                        category="startup",
+                        record_event=False,
+                        plain_output=False,
+                    )
+                    last_ok = nowt
+            except Exception:
+                pass
+        time.sleep(SUBAGENT_STATUS_REFRESH_SEC)
+
+
+def _command_target_state(data: dict) -> Tuple[str, Optional[int], str]:
+    nms_id = data.get("nms_id")
+    if nms_id is None:
+        nms_id = data.get("device_id")
+    if nms_id is None:
+        return "invalid", None, "missing_nms_id"
+
+    try:
+        nms_id_int = int(nms_id)
+    except Exception:
+        return "invalid", None, "invalid_nms_id"
+
+    target_agent_ip = str(data.get("target_agent_ip") or "").strip()
+    if target_agent_ip and target_agent_ip != AGENT_IP:
+        return "ignore", nms_id_int, f"target_agent_ip={target_agent_ip}"
+
+    poller = nms_to_line.get(nms_id_int)
+    if poller is None:
+        if target_agent_ip:
+            return "invalid", nms_id_int, "targeted_unroutable_nms_id"
+        return "ignore", nms_id_int, "not_local_nms_id"
+
+    return "accept", nms_id_int, ""
+
+
 def redis_command_thread(redis_conn: RedisConn):
     emit_event(
-        f"[CmdStream] start. stream={SY_CMD_STREAM}, group={SY_CMD_GROUP}, consumer={SY_CMD_CONSUMER}",
+        f"[CmdStream] start. stream={SY_CMD_STREAM}, group={SY_CMD_GROUP}, consumer={SY_CMD_CONSUMER}, agent_ip={AGENT_IP}",
         category="cmd",
     )
 
@@ -3071,6 +3240,26 @@ def redis_command_thread(redis_conn: RedisConn):
             emit_event(
                 f"[CmdStream][DLQ] ack failed id={_b2s(msg_id)} reason={reason} err={e}",
                 category="dlq",
+                level="ERROR",
+                )
+
+    def ack_ignore(msg_id, reason: str, extra: Optional[dict] = None):
+        try:
+            redis_conn.xack(SY_CMD_STREAM, SY_CMD_GROUP, msg_id)
+            if DEBUG_TUNING.get("LOG_REDIS_STATE", True):
+                detail = ""
+                if extra:
+                    detail = " " + " ".join(f"{k}={extra[k]}" for k in sorted(extra))
+                emit_event(
+                    f"[CmdIgnore] id={_b2s(msg_id)} reason={reason}{detail}",
+                    category="cmd",
+                    record_event=False,
+                    plain_output=False,
+                )
+        except Exception as e:
+            emit_event(
+                f"[CmdIgnore] ack failed id={_b2s(msg_id)} reason={reason} err={e}",
+                category="cmd",
                 level="ERROR",
             )
 
@@ -3116,9 +3305,12 @@ def redis_command_thread(redis_conn: RedisConn):
                                 dlq_and_ack(msg_id, fields, "pending_json_parse_failed")
                                 continue
 
-                            nms_id = data.get("nms_id") or data.get("device_id")
-                            if nms_id is None:
-                                dlq_and_ack(msg_id, fields, "pending_missing_nms_id", extra={"data": data})
+                            state, nms_id, reason = _command_target_state(data)
+                            if state == "ignore":
+                                ack_ignore(msg_id, f"pending_{reason}", extra={"nms_id": nms_id or "-"})
+                                continue
+                            if state == "invalid" or nms_id is None:
+                                dlq_and_ack(msg_id, fields, f"pending_{reason}", extra={"data": data})
                                 continue
 
                             poller = nms_to_line.get(int(nms_id))
@@ -3173,9 +3365,12 @@ def redis_command_thread(redis_conn: RedisConn):
                         dlq_and_ack(msg_id, fields, "json_parse_failed")
                         continue
 
-                    nms_id = data.get("nms_id") or data.get("device_id")
-                    if nms_id is None:
-                        dlq_and_ack(msg_id, fields, "missing_nms_id", extra={"data": data})
+                    state, nms_id, reason = _command_target_state(data)
+                    if state == "ignore":
+                        ack_ignore(msg_id, reason, extra={"nms_id": nms_id or "-"})
+                        continue
+                    if state == "invalid" or nms_id is None:
+                        dlq_and_ack(msg_id, fields, reason, extra={"data": data})
                         continue
 
                     poller = nms_to_line.get(int(nms_id))
@@ -3213,7 +3408,8 @@ def main():
         category="startup",
     )
     emit_event(
-        f"agent host={socket.gethostname()} consumer={SY_CMD_CONSUMER} pid={os.getpid()} config={CONFIG_PATH}",
+        f"agent host={socket.gethostname()} agent_ip={AGENT_IP} agent_name={AGENT_NAME} role={AGENT_ROLE} "
+        f"consumer={SY_CMD_CONSUMER} pid={os.getpid()} config={CONFIG_PATH}",
         category="startup",
     )
 
@@ -3257,6 +3453,8 @@ def main():
 
     t_cmd = threading.Thread(target=redis_command_thread, args=(redis_conn,), daemon=True)
     t_cmd.start()
+    t_route = threading.Thread(target=route_refresh_thread, args=(redis_conn,), daemon=True)
+    t_route.start()
 
     try:
         while running:

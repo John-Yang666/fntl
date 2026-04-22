@@ -18,7 +18,8 @@ import redis
 
 from myapp.models import Device, AlarmActive, AlarmData
 from myapp.tasks.topology_processing import process_topology_status
-from consts import ALARM_DELAY, COMMUNICATION_TIMEOUT, ALARM_CODES
+from consts import ALARM_CODES
+from myapp.runtime_config import get_alarm_delay_map, get_communication_timeout
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -54,13 +55,13 @@ def get_comm_status_from_raw(device_id: int, raw_time: str | None, raw_monotonic
             elapsed = now_monotonic - float(raw_monotonic)
             if elapsed < 0:
                 elapsed = 0.0
-            comm_ok = elapsed <= COMMUNICATION_TIMEOUT
+            comm_ok = elapsed <= get_communication_timeout()
             return comm_ok, last_comm
         except (TypeError, ValueError) as e:
             logger.warning(f"[comm] invalid monotonic value for device {device_id}: {e}")
 
     # 兼容旧数据：单调字段缺失或不可用时，回退到 wall-clock。
-    comm_ok = (now - last_comm).total_seconds() <= COMMUNICATION_TIMEOUT
+    comm_ok = (now - last_comm).total_seconds() <= get_communication_timeout()
     return comm_ok, last_comm
 
 
@@ -216,6 +217,7 @@ def summarize_alarms():
         alarm_data_to_create: list[AlarmData] = []
         active_alarms_to_create: list[AlarmActive] = []
         active_alarm_ids_to_delete: set[str] = set()
+        alarm_delay_map = get_alarm_delay_map()
 
         # ------- 每台设备：生成 0 号/非 0 号告警 -------
         for device_id in device_ids_cache:
@@ -274,7 +276,7 @@ def summarize_alarms():
                     if timezone.is_naive(alarm_start_time):
                         alarm_start_time = timezone.make_aware(alarm_start_time, timezone=timezone.utc)
 
-                    delay_seconds = ALARM_DELAY.get(alarm_code, 5)
+                    delay_seconds = alarm_delay_map.get(alarm_code, 5)
                     delay_elapsed = None
                     start_monotonic = alarm_status.get('start_monotonic')
                     if start_monotonic is not None:

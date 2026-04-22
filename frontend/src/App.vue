@@ -67,7 +67,7 @@ const userStore = useUserStore();
 // 计算属性：判断当前路径是否需要隐藏 HeaderComponent
 const hideHeader = computed(() => route.matched.some((record) => record.meta.hideHeader));
 
-const BLOCKING_OVERLAY_SELECTOR = 'body > .v-modal, body > .el-loading-mask';
+const BLOCKING_OVERLAY_SELECTOR = 'body > .el-overlay, body > .v-modal, body > .el-loading-mask';
 const OVERLAY_CONTENT_SELECTOR = '.el-dialog, .el-drawer, .el-message-box, .el-loading-spinner, .el-loading-text';
 const DIALOG_LIKE_SELECTOR = '.el-dialog, .el-drawer, .el-message-box, [role="dialog"], [aria-modal="true"]';
 const PAGE_LOCK_STORAGE_KEY = 'manual_page_lock';
@@ -131,9 +131,11 @@ const isDarkBackdrop = (color: string) => {
 const isSuspiciousViewportBlocker = (element: HTMLElement) => {
   if (
     element.id === 'app' ||
+    element.classList.contains('el-overlay') ||
     element.classList.contains('manual-page-lock-overlay') ||
     element.classList.contains('manual-page-lock-panel') ||
     element.classList.contains('page-lock-toggle-button') ||
+    element.closest('.el-overlay') ||
     element.matches(DIALOG_LIKE_SELECTOR) ||
     element.closest(DIALOG_LIKE_SELECTOR)
   ) {

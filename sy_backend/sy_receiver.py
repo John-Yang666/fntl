@@ -24,16 +24,16 @@ from django.core.cache import cache  # noqa: E402
 from django.db import connection, transaction  # noqa: E402
 from django.utils import timezone  # noqa: E402
 
-from consts import (  # noqa: E402
-    HEARTBEAT_TIMEOUT,
-    LAST_COMMUNICATION_TIME_TIMEOUT,
-    PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL,
-)
+from consts import LAST_COMMUNICATION_TIME_TIMEOUT  # noqa: E402
 from myapp.models import (  # noqa: E402
     ChangeBitEvent,
     RawFrameLog,
     RelayAction,
     SwitchData,
+)
+from myapp.runtime_config import (  # noqa: E402
+    get_heartbeat_timeout,
+    get_periodic_device_cache_refresh_interval,
 )
 from myapp.tasks.sy_device_context import (  # noqa: E402
     hash_sy_device_context_cache,
@@ -212,7 +212,7 @@ def refresh_device_context_cache():
                 device_context_map = snapshot
                 last_hash = new_hash
                 logger.info("[device_cache] refreshed devices=%s", len(device_context_map))
-        time.sleep(PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL)
+        time.sleep(get_periodic_device_cache_refresh_interval())
 
 
 def ensure_group(r: redis.Redis, stream: str, group: str):
@@ -822,7 +822,7 @@ def main():
 
     while RUNNING:
         time.sleep(1)
-        if time.monotonic() - last_packet_monotonic > HEARTBEAT_TIMEOUT:
+        if time.monotonic() - last_packet_monotonic > get_heartbeat_timeout():
             logger.error("[sy_receiver] heartbeat timeout, stopping")
             break
 

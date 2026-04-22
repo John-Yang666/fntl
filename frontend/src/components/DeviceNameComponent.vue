@@ -17,15 +17,15 @@
 <script lang="ts" setup>
 import { ref, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import axios from 'axios';
-import { getApiBase, getSystemFromRoute } from '@/utils/systems';
+import { useUserStore } from '@/stores/userStore';
+import { getSystemFromRoute } from '@/utils/systems';
 
 const emit = defineEmits<{
   (e: 'loaded', payload: { name: string; isBackup: boolean; deviceId: number | null }): void
 }>();
 
 const route = useRoute();
-const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
+const userStore = useUserStore();
 const currentDeviceName = ref<string>(''); // 当前设备名称
 const direction1NeighborName = ref<string | null>(null); // 一方向邻站设备名称
 const direction1NeighborDirection = ref<string | null>(null); // 一方向邻站设备方向
@@ -45,8 +45,11 @@ const fetchDeviceDetails = async (id: number) => {
   }
 
   try {
-    const response = await axios.get(`${baseURL()}/devices/retrieve_with_stations/?device_id=${id}`);
-    const device = response.data || {}; // 增加默认空对象
+    const system = getSystemFromRoute(route.params.system);
+    const device = await userStore.requestWithAuth<Record<string, any>>(system, {
+      method: 'get',
+      url: `/devices/retrieve_with_stations/?device_id=${id}`,
+    }) || {};
 
     currentDeviceName.value = device.name || '未知设备';
     direction1NeighborName.value = device.direction1_neighbor_name || null;

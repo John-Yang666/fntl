@@ -4,43 +4,121 @@ from django.db import models
 from django.conf import settings
 from django.contrib.auth.models import Group, Permission, AbstractUser
 from django.contrib.contenttypes.models import ContentType
-from django.db.models.signals import post_migrate
+from django.db.models.signals import post_migrate, post_save, m2m_changed
 from django.dispatch import receiver
+
+SYSTEM_ADMIN_GROUP_NAME = 'System Admin'
+REGULAR_USER_GROUP_NAME = 'Regular User'
+
 
 @receiver(post_migrate)
 def create_user_groups(sender, **kwargs):
-    # 只在 auth 迁移完成时执行，避免太早触发
-    if sender.name != 'django.contrib.auth':
-        return
-    
-    # 创建系统管理员组
-    admin_group, created = Group.objects.get_or_create(name='System Admin')
-    if admin_group.permissions.count() == 0:
-        # 给系统管理员组添加所有权限
-        permissions = Permission.objects.all()
-        admin_group.permissions.set(permissions)
+    # 创建系统管理员组，仅授予浏览后台所需的只读权限
+    admin_group, created = Group.objects.get_or_create(name=SYSTEM_ADMIN_GROUP_NAME)
+    admin_group.permissions.set(Permission.objects.filter(codename__startswith='view_'))
 
     # 创建普通用户组
-    user_group, created = Group.objects.get_or_create(name='Regular User')
-    if user_group.permissions.count() == 0:
-        # 给普通用户组添加查看权限
-        view_permission = Permission.objects.filter(codename__startswith='view_')
-        user_group.permissions.set(view_permission)
+    user_group, created = Group.objects.get_or_create(name=REGULAR_USER_GROUP_NAME)
+    # 普通用户只允许登录前端，不授予后台权限
+    user_group.permissions.clear()
 
 class CustomUser(AbstractUser):
     email = models.EmailField(null=True, blank=True, verbose_name="邮箱")
-    depots = models.JSONField(default=list, null=True, blank=True, verbose_name="可管理车间")
+    depots = models.ManyToManyField("myapp.Depot", blank=True, verbose_name="可管理车间")
 
     class Meta:
         verbose_name = "用户"
         verbose_name_plural = "用户"
 
+    def managed_depots_qs(self):
+        if self.is_superuser:
+            return self.depots.model.objects.all()
+        return self.depots.all()
+
+    @property
+    def manages_all_depots(self):
+        return self.is_superuser
+
+
+def _desired_staff_status(user: CustomUser) -> bool:
+    if user.is_superuser:
+        return True
+    if not user.pk:
+        return False
+    return user.groups.filter(name=SYSTEM_ADMIN_GROUP_NAME).exists()
+
+
+def sync_user_role_flags(user: CustomUser, *, save: bool = True) -> None:
+    desired_is_staff = _desired_staff_status(user)
+    if user.is_staff == desired_is_staff:
+        return
+    user.is_staff = desired_is_staff
+    if save and user.pk:
+        user.save(update_fields=['is_staff'])
+
+
+@receiver(post_save, sender=CustomUser)
+def sync_user_role_flags_on_save(sender, instance, **kwargs):
+    desired_is_staff = _desired_staff_status(instance)
+    if instance.is_staff != desired_is_staff:
+        sender.objects.filter(pk=instance.pk).update(is_staff=desired_is_staff)
+
+
+@receiver(m2m_changed, sender=CustomUser.groups.through)
+def sync_user_role_flags_on_group_change(sender, instance, action, reverse, **kwargs):
+    if reverse or action not in {'post_add', 'post_remove', 'post_clear'}:
+        return
+    sync_user_role_flags(instance)
+
+
+class Depot(models.Model):
+    name = models.CharField(max_length=100, unique=True, verbose_name="车间名称")
+    is_active = models.BooleanField(default=True, verbose_name="启用")
+    remark = models.CharField(max_length=200, blank=True, default="", verbose_name="备注")
+    ordering = models.PositiveIntegerField(default=0, verbose_name="排序")
+
+    class Meta:
+        verbose_name = "车间"
+        verbose_name_plural = "车间"
+        ordering = ["ordering", "name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Line(models.Model):
+    name = models.CharField(max_length=100, unique=True, verbose_name="线路名称")
+    is_active = models.BooleanField(default=True, verbose_name="启用")
+    remark = models.CharField(max_length=200, blank=True, default="", verbose_name="备注")
+    ordering = models.PositiveIntegerField(default=0, verbose_name="排序")
+
+    class Meta:
+        verbose_name = "线路"
+        verbose_name_plural = "线路"
+        ordering = ["ordering", "name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Device(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)  # 使用 UUID 作为主键
     device_id = models.IntegerField(unique=True, verbose_name="设备ID")  # 设备ID列
     name = models.CharField(max_length=100, default="Unnamed Device", verbose_name="设备名称")  # 设备名称列
-    depot = models.CharField(max_length=100, default="Unknown Depot", verbose_name="车间")
-    line = models.CharField(max_length=100, default="Unknown Line", verbose_name="线路")  # 所属线路列
+    depot = models.ForeignKey(
+        "myapp.Depot",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        verbose_name="车间",
+    )
+    line = models.ForeignKey(
+        "myapp.Line",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        verbose_name="线路",
+    )  # 所属线路列
     ip_address = models.GenericIPAddressField(unique=True, verbose_name="IP地址")  # IP地址列
     x_coordinate = models.FloatField(default=0.0, verbose_name="X坐标")  # X坐标
     y_coordinate = models.FloatField(default=0.0, verbose_name="Y坐标")  # Y坐标
@@ -60,6 +138,14 @@ class Device(models.Model):
 
     def __str__(self):
         return f"{self.name} ID: {self.device_id} - IP: {self.ip_address}"
+
+    @property
+    def depot_name(self) -> str:
+        return self.depot.name if self.depot else ""
+
+    @property
+    def line_name(self) -> str:
+        return self.line.name if self.line else ""
 
 class SwitchData(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)  # 使用 UUID 作为主键
@@ -203,7 +289,7 @@ class RelayAction(models.Model):
 
 class UserOperation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)  # 使用 UUID 作为主键
-    device = models.ForeignKey(Device, to_field='device_id', on_delete=models.CASCADE, verbose_name="设备")
+    device = models.ForeignKey(Device, to_field='device_id', on_delete=models.CASCADE, verbose_name="设备", null=True, blank=True)
     function_code = models.CharField(max_length=100, verbose_name="操作码")
     operation = models.CharField(max_length=100, verbose_name="操作名称")
     username = models.CharField(max_length=100, verbose_name="用户名", null=True, blank=True)  # 新增字段
@@ -215,7 +301,8 @@ class UserOperation(models.Model):
         ordering = ['-timestamp']
 
     def __str__(self):
-        return f"{self.device} - {self.function_code} - {self.operation} by {self.username} at {self.timestamp}"
+        device_label = str(self.device) if self.device_id is not None else "系统级操作"
+        return f"{device_label} - {self.function_code} - {self.operation} by {self.username} at {self.timestamp}"
 
 class UploadedFile(models.Model):
     file = models.FileField(upload_to='uploads/', verbose_name="文件")
@@ -245,3 +332,23 @@ class HelpFaqEntry(models.Model):
 
     def __str__(self):
         return f"{self.display_order}. {self.title}"
+
+
+class RuntimeConfig(models.Model):
+    values = models.JSONField(default=dict, verbose_name="运行时配置")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bt_runtime_config_updates",
+        verbose_name="更新人",
+    )
+
+    class Meta:
+        verbose_name = "运行时配置"
+        verbose_name_plural = "运行时配置"
+
+    def __str__(self):
+        return f"RuntimeConfig#{self.pk}"

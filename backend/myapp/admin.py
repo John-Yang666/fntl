@@ -25,10 +25,10 @@ from django.utils.functional import cached_property
 from import_export import resources, fields
 from import_export.admin import ImportExportModelAdmin
 from import_export.forms import ExportForm
-from import_export.widgets import JSONWidget, BooleanWidget, ManyToManyWidget
+from import_export.widgets import BooleanWidget, ManyToManyWidget, ForeignKeyWidget
 
 from .models import (
-    Device, SwitchData, AlarmActive, AnalogData, AlarmData,
+    Depot, Line, Device, SwitchData, AlarmActive, AnalogData, AlarmData,
     RelayAction, UserOperation, UploadedFile, HelpFaqEntry
 )
 from .udp_sender import create_packet
@@ -76,8 +76,8 @@ class EstimatedCountPaginator(Paginator):
 
 
 class LargeTableAdminMixin:
-    paginator = EstimatedCountPaginator
-    show_full_result_count = False
+    paginator = Paginator
+    show_full_result_count = True
     list_per_page = 50
     list_max_show_all = 200
     list_select_related = ("device",)
@@ -92,10 +92,41 @@ class ReadOnlyImportExportAdminMixin(NoAddPermissionAdminMixin):
     def has_import_permission(self, request, *args, **kwargs):
         return False
 
+
+class ReadOnlyForNonSuperuserAdminMixin:
+    def has_add_permission(self, request):
+        if not request.user.is_superuser:
+            return False
+        return super().has_add_permission(request)
+
+    def has_change_permission(self, request, obj=None):
+        if not request.user.is_superuser:
+            return False
+        return super().has_change_permission(request, obj=obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if not request.user.is_superuser:
+            return False
+        return super().has_delete_permission(request, obj=obj)
+
+    def has_import_permission(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            return False
+        parent = getattr(super(), "has_import_permission", None)
+        if parent is None:
+            return False
+        return parent(request, *args, **kwargs)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not request.user.is_superuser:
+            return {}
+        return actions
+
 # ========================
 # ✅ 导出安全基类：屏蔽 stdout/stderr，避免任何输出污染 xlsx 二进制流
 # ========================
-class SafeImportExportModelAdmin(ImportExportModelAdmin):
+class SafeImportExportModelAdmin(ReadOnlyForNonSuperuserAdminMixin, ImportExportModelAdmin):
     """
     有些部署组合下（容器日志、调试捕获、错误输出等），stdout/stderr 可能污染导出响应体，
     导致“文件名正确但内容变成日志/乱码”。此处强制屏蔽导出动作期间的输出。
@@ -111,7 +142,7 @@ class SafeImportExportModelAdmin(ImportExportModelAdmin):
 # ========================
 # 通用权限过滤基类
 # ========================
-class DepotScopedAdmin(admin.ModelAdmin):
+class DepotScopedAdmin(ReadOnlyForNonSuperuserAdminMixin, admin.ModelAdmin):
     """
     通用 Admin 权限控制：根据 user.depots 限制数据范围。
     可通过 depot_filter_field 配置字段路径（支持 device__depot）。
@@ -125,8 +156,10 @@ class DepotScopedAdmin(admin.ModelAdmin):
         if user.is_superuser:
             return qs
 
-        if hasattr(user, 'depots') and isinstance(user.depots, list):
-            return qs.filter(**{f"{self.depot_filter_field}__in": user.depots})
+        if hasattr(user, "managed_depots_qs"):
+            depots_qs = user.managed_depots_qs()
+            if depots_qs.exists():
+                return qs.filter(**{f"{self.depot_filter_field}__in": depots_qs})
 
         return qs.none()
 
@@ -153,8 +186,41 @@ class DepotScopedAdmin(admin.ModelAdmin):
         return super().changelist_view(request, extra_context=extra_context)
 
 
+class StrictNameManyToManyWidget(ManyToManyWidget):
+    def clean(self, value, row=None, **kwargs):
+        if value in (None, ""):
+            return self.model.objects.none()
+
+        names = [item.strip() for item in str(value).split(self.separator) if item.strip()]
+        if not names:
+            return self.model.objects.none()
+
+        queryset = self.model.objects.filter(**{f"{self.field}__in": names})
+        found_names = set(queryset.values_list(self.field, flat=True))
+        missing_names = [name for name in names if name not in found_names]
+        if missing_names:
+            raise ValidationError(f"以下名称不存在，请先在后台配置：{', '.join(missing_names)}")
+        return queryset
+
+
+@admin.register(Depot)
+class DepotAdmin(ReadOnlyForNonSuperuserAdminMixin, admin.ModelAdmin):
+    list_display = ("name", "is_active", "ordering", "remark")
+    search_fields = ("name", "remark")
+    list_filter = ("is_active",)
+    ordering = ("ordering", "name")
+
+
+@admin.register(Line)
+class LineAdmin(ReadOnlyForNonSuperuserAdminMixin, admin.ModelAdmin):
+    list_display = ("name", "is_active", "ordering", "remark")
+    search_fields = ("name", "remark")
+    list_filter = ("is_active",)
+    ordering = ("ordering", "name")
+
+
 @admin.register(HelpFaqEntry)
-class HelpFaqEntryAdmin(admin.ModelAdmin):
+class HelpFaqEntryAdmin(ReadOnlyForNonSuperuserAdminMixin, admin.ModelAdmin):
     list_display = ("display_order", "title", "updated_at")
     ordering = ("display_order", "id")
 
@@ -580,7 +646,11 @@ class CustomUserResource(resources.ModelResource):
     email = fields.Field(attribute='email', column_name='邮箱')
     is_active = fields.Field(attribute='is_active', column_name='是否激活', widget=BooleanWidget())
     is_staff = fields.Field(attribute='is_staff', column_name='是否为管理员', widget=BooleanWidget())
-    depots = fields.Field(attribute='depots', column_name='可管理车间', widget=JSONWidget())
+    depots = fields.Field(
+        attribute='depots',
+        column_name='可管理车间',
+        widget=StrictNameManyToManyWidget(Depot, field='name', separator=', ')
+    )
     groups = fields.Field(
         attribute='groups',
         column_name='用户组',
@@ -600,7 +670,7 @@ class CustomUserResource(resources.ModelResource):
 
     def before_import_row(self, row, row_number=None, **kwargs):
         if not row.get('可管理车间'):
-            row['可管理车间'] = '[]'
+            row['可管理车间'] = ''
 
         group_names = [g.strip() for g in (row.get('用户组') or '').split(',') if g.strip()]
         for group_name in group_names:
@@ -615,15 +685,78 @@ class CustomUserResource(resources.ModelResource):
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin, SafeImportExportModelAdmin):
+    restricted_permission_fields = {'is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions', 'depots'}
     resource_class = CustomUserResource
-    list_display = ('username', 'email', 'is_staff', 'is_active', 'depots')
+    list_display = ('username', 'email', 'is_staff', 'is_active', 'depots_display')
     search_fields = ('username', 'email')
     ordering = ('username',)
     fieldsets = UserAdmin.fieldsets + (('车间管理', {'fields': ('depots',)}),)
     add_fieldsets = UserAdmin.add_fieldsets + (('车间管理', {'fields': ('depots',)}),)
+    filter_horizontal = UserAdmin.filter_horizontal + ('depots',)
+    readonly_fields = UserAdmin.readonly_fields + ('last_login', 'date_joined')
 
     class Media:
         css = {'all': ('admin/css/widgets.css',)}
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.exclude(is_superuser=True)
+
+    def has_change_permission(self, request, obj=None):
+        if not request.user.is_superuser:
+            return False
+        if obj is not None and obj.is_superuser and not request.user.is_superuser:
+            return False
+        return super().has_change_permission(request, obj=obj)
+
+    def has_add_permission(self, request):
+        if not request.user.is_superuser:
+            return False
+        return super().has_add_permission(request)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj is not None and obj.is_superuser and not request.user.is_superuser:
+            return False
+        if not request.user.is_superuser:
+            return False
+        return super().has_delete_permission(request, obj=obj)
+
+    def has_import_permission(self, request):
+        if not request.user.is_superuser:
+            return False
+        return super().has_import_permission(request)
+
+    def _strip_restricted_fields(self, fieldsets):
+        sanitized = []
+        for name, options in fieldsets:
+            fields = options.get('fields', ())
+            if isinstance(fields, str):
+                fields = (fields,)
+            filtered_fields = tuple(field for field in fields if field not in self.restricted_permission_fields)
+            if not filtered_fields:
+                continue
+            sanitized.append((name, {**options, 'fields': filtered_fields}))
+        return tuple(sanitized)
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj=obj)
+        if request.user.is_superuser:
+            return fieldsets
+        return self._strip_restricted_fields(fieldsets)
+
+    def get_add_fieldsets(self, request):
+        fieldsets = super().get_add_fieldsets(request)
+        if request.user.is_superuser:
+            return fieldsets
+        return self._strip_restricted_fields(fieldsets)
+
+    def depots_display(self, obj):
+        if getattr(obj, "manages_all_depots", False):
+            return '全部车间'
+        return ', '.join(obj.depots.order_by('ordering', 'name').values_list('name', flat=True))
+    depots_display.short_description = '可管理车间'
 
 
 # ========================
@@ -713,8 +846,8 @@ class RelayActionAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, Dep
 class DeviceResource(resources.ModelResource):
     device_id = fields.Field(column_name='设备id', attribute='device_id')
     name = fields.Field(column_name='设备名称', attribute='name')
-    depot = fields.Field(column_name='车间', attribute='depot')
-    line = fields.Field(column_name='线路', attribute='line')
+    depot = fields.Field(column_name='车间', attribute='depot', widget=ForeignKeyWidget(Depot, 'name'))
+    line = fields.Field(column_name='线路', attribute='line', widget=ForeignKeyWidget(Line, 'name'))
     ip_address = fields.Field(column_name='IP地址', attribute='ip_address')
     x_coordinate = fields.Field(column_name='X坐标', attribute='x_coordinate')
     y_coordinate = fields.Field(column_name='Y坐标', attribute='y_coordinate')
@@ -829,6 +962,7 @@ def send_reconnect_command(modeladmin, request, queryset):
 @admin.register(Device)
 class DeviceAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
     resource_class = DeviceResource
+    autocomplete_fields = ('depot', 'line')
     list_display = (
         'device_id', 'name', 'depot', 'line', 'ip_address',
         'x_coordinate', 'y_coordinate',
@@ -836,16 +970,21 @@ class DeviceAdmin(DepotScopedAdmin, SafeImportExportModelAdmin):
         'direction2_neighbor_id', 'direction2_neighbor_direction',
         'direction1_enabled', 'direction2_enabled',
     )
-    search_fields = ('device_id', 'name', 'depot', 'line', 'ip_address')
+    search_fields = ('device_id', 'name', 'depot__name', 'line__name', 'ip_address')
     list_filter = ('depot', 'line', 'direction1_enabled', 'direction2_enabled')
     actions = [send_reconnect_command]
+
+    def has_import_permission(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            return False
+        return super().has_import_permission(request, *args, **kwargs)
 
 
 # ========================
 # 文件上传（不限制权限）
 # ========================
 @admin.register(UploadedFile)
-class UploadedFileAdmin(admin.ModelAdmin):
+class UploadedFileAdmin(ReadOnlyForNonSuperuserAdminMixin, admin.ModelAdmin):
     list_display = ('id', 'name', 'upload_time', 'file_link')
     search_fields = ('name', )
     list_filter = ('upload_time',)

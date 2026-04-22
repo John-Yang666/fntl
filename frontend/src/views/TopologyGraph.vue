@@ -43,15 +43,14 @@
 
 <script lang="ts" setup>
 import { onMounted, onUnmounted, ref, watch } from 'vue';
-import axios from 'axios';
 import { useRoute, useRouter } from 'vue-router';
+import { useUserStore } from '@/stores/userStore';
 import {
   reconcilePinnedDeviceKeys,
   reconcileSelectedDeviceKeys,
 } from '@/utils/selectedDevices';
 import {
   SYSTEMS,
-  getApiBase,
   getWsBase,
   makeDeviceKey,
   type SystemType,
@@ -87,6 +86,8 @@ interface TopologyStatus {
   direction3_line_status?: string;
 }
 
+type TopologyStatusResponseEntry = TopologyStatus | { error?: string };
+
 const topologyContainer = ref<HTMLDivElement | null>(null);
 const canvasWidth = ref(960);
 const canvasHeight = ref(800);
@@ -105,6 +106,7 @@ let blinkState = true;
 
 const route = useRoute();
 const router = useRouter();
+const userStore = useUserStore();
 const pinnedDeviceKeys = ref<Set<string>>(new Set());
 
 const topologySockets: Record<SystemType, WebSocket | null> = {
@@ -187,19 +189,22 @@ const fetchDevices = async () => {
   try {
     const responses = await Promise.allSettled(
       SYSTEMS.map(async (system) => {
-        const response = await axios.get(`${getApiBase(system)}/devices-list/`);
+        const response = await userStore.requestWithAuth<Record<string, Array<{
+          device_id: number;
+          name: string;
+          ip_address: string;
+          x_coordinate: number;
+          y_coordinate: number;
+          direction1_neighbor_id: number | null;
+          direction2_neighbor_id: number | null;
+          direction3_neighbor_id?: number | null;
+        }>>>(system, {
+          method: 'get',
+          url: '/devices-list/',
+        });
         return {
           system,
-          data: response.data as Record<string, Array<{
-            device_id: number;
-            name: string;
-            ip_address: string;
-            x_coordinate: number;
-            y_coordinate: number;
-            direction1_neighbor_id: number | null;
-            direction2_neighbor_id: number | null;
-            direction3_neighbor_id?: number | null;
-          }>>,
+          data: response,
         };
       }),
     );
@@ -290,15 +295,21 @@ const applyTopologyStatus = (system: SystemType, status: TopologyStatus) => {
 
 const fetchTopologyStatuses = async (system: SystemType) => {
   try {
-    const response = await axios.get(`${getApiBase(system)}/all-topology-status/`);
-    const statuses = response.data.topology_statuses || {};
+    const response = await userStore.requestWithAuth<{ topology_statuses?: Record<string, TopologyStatusResponseEntry> }>(
+      system,
+      {
+        method: 'get',
+        url: '/all-topology-status/',
+      },
+    );
+    const statuses = response.topology_statuses || {};
 
     for (const line in groupedDevices.value) {
       groupedDevices.value[line]
         .filter((station) => station.system === system)
         .forEach((station) => {
           const status = statuses[String(station.device_id)];
-          if (status && !status.error) {
+          if (status && 'device_status' in status) {
             station.status = status.device_status ?? '未知状态';
             station.direction1_line_status = status.direction1_line_status ?? '未知状态';
             station.direction2_line_status = status.direction2_line_status ?? '未知状态';
@@ -347,7 +358,9 @@ const connectTopologyWebSocket = (system: SystemType) => {
   }
 
   clearReconnectTimer(system);
-  const socket = new WebSocket(`${getWsBase(system)}/ws/topology/`);
+  const token = userStore.auth[system].token;
+  const query = token ? `?token=${encodeURIComponent(token)}` : '';
+  const socket = new WebSocket(`${getWsBase(system)}/ws/topology/${query}`);
   topologySockets[system] = socket;
   topologySocketConnected[system] = false;
 

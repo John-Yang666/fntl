@@ -131,7 +131,7 @@
   const editorVisible = ref(false);
   const draftFaqItems = ref<FaqDraftItem[]>([]);
 
-  const canEditFaq = computed(() => userStore.getUser('bt')?.username === 'admin');
+  const canEditFaq = computed(() => !!userStore.getUser('bt')?.is_superuser);
 
   function makeLocalKey(): string {
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;

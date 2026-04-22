@@ -18,7 +18,7 @@ from confluent_kafka import Consumer, Producer
 from myapp.models import Device
 
 # 参数配置
-from consts import HEARTBEAT_TIMEOUT, PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL
+from myapp.runtime_config import get_heartbeat_timeout, get_periodic_device_cache_refresh_interval
 
 # 日志设置
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -62,10 +62,11 @@ def load_device_cache():
         return {}
 
 # === 周期性刷新设备缓存 ===
-def periodic_device_cache_refresher(interval=PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL):
+def periodic_device_cache_refresher():
     global device_cache
     last_hash = None
     while not should_exit.is_set():
+        interval = get_periodic_device_cache_refresh_interval()
         time.sleep(interval)
         new_cache = load_device_cache()
         new_hash = hash(frozenset(new_cache.items()))
@@ -167,7 +168,7 @@ def receiver():
 
     while not should_exit.is_set():
         time.sleep(1)
-        if (datetime.now(timezone.utc) - last_packet_time).total_seconds() > HEARTBEAT_TIMEOUT:
+        if (datetime.now(timezone.utc) - last_packet_time).total_seconds() > get_heartbeat_timeout():
             logger.error("Heartbeat timeout! Exiting UDP receiver...")
             should_exit.set()
 

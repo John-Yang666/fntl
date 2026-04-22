@@ -49,10 +49,10 @@
 </template>
 
 <script setup lang="ts">
-import axios from 'axios';
 import { computed, onMounted, ref } from 'vue';
+import { useUserStore } from '@/stores/userStore';
 import { loadSelectedDeviceKeys } from '@/utils/selectedDevices';
-import { SYSTEMS, getApiBase, makeDeviceKey, type SystemType } from '@/utils/systems';
+import { SYSTEMS, makeDeviceKey, type SystemType } from '@/utils/systems';
 
 interface Alert {
   system: SystemType;
@@ -72,19 +72,23 @@ const selectedAlarmMeaning = ref('');
 const deviceNames = ref<string[]>([]);
 const alarmMeanings = ref<string[]>([]);
 const selectedDeviceKeys = ref<string[]>([]);
+const userStore = useUserStore();
 
 const fetchAlerts = async () => {
   const settledResponses = await Promise.allSettled(
     SYSTEMS.map(async (system) => ({
       system,
-      alerts: (await axios.get(`${getApiBase(system)}/active-alarms/`)).data as Array<{
+      alerts: await userStore.requestWithAuth<Array<{
         device_id: number;
         device_name: string;
         alarm_code: number;
         alarm_meaning: string;
         timestamp: string;
         confirmed: boolean;
-      }>,
+      }>>(system, {
+        method: 'get',
+        url: '/active-alarms/',
+      }),
     })),
   );
 
@@ -138,7 +142,10 @@ const filteredAlerts = computed(() => {
 
 const confirmAlert = async (alert: Alert) => {
   try {
-    await axios.post(`${getApiBase(alert.system)}/active-alarms/${alert.device_id}/${alert.alarm_code}/confirm/`);
+    await userStore.requestWithAuth(alert.system, {
+      method: 'post',
+      url: `/active-alarms/${alert.device_id}/${alert.alarm_code}/confirm/`,
+    });
     alert.confirmed = true;
   } catch (error) {
     console.error('确认告警失败：', error);

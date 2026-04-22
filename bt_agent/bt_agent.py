@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
+from collections import deque
+import json
 import os
 import threading
 import logging
 import socket
 import queue
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from pathlib import Path
 import copy
+
+from protected_runtime import agent_config_path, write_json_file
 
 # Redis 依赖：宿主机跑 redis_stream 时需要
 try:
@@ -22,7 +25,7 @@ if TYPE_CHECKING:
     from redis import Redis as RedisClient
 
 
-CONFIG_PY_PATH = Path(__file__).with_name("config.py")
+CONFIG_JSON_ENV = "BT_AGENT_CONFIG_JSON"
 CONFIG_PATH: Path
 
 DEFAULT_CONFIG = {
@@ -60,26 +63,26 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return base
 
 
-def _load_py_config(path: Path) -> dict:
-    spec = importlib.util.spec_from_file_location("bt_agent_runtime_config", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"unable to load config module: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    loaded = getattr(module, "CONFIG", None)
+def _load_json_config(path: Path) -> dict:
+    loaded = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
-        raise TypeError(f"{path} must define CONFIG = {{...}}")
+        raise TypeError(f"{path} must contain a JSON object")
     return loaded
 
 
 def _load_config() -> dict:
     global CONFIG_PATH
-
-    if not CONFIG_PY_PATH.exists():
-        raise FileNotFoundError(f"missing config file: {CONFIG_PY_PATH}")
-
-    CONFIG_PATH = CONFIG_PY_PATH
-    loaded = _load_py_config(CONFIG_PATH)
+    runtime_config = str(os.environ.get(CONFIG_JSON_ENV, "")).strip()
+    if runtime_config:
+        CONFIG_PATH = Path(runtime_config)
+        if not CONFIG_PATH.exists():
+            raise FileNotFoundError(f"missing runtime config file: {CONFIG_PATH}")
+        loaded = _load_json_config(CONFIG_PATH)
+    else:
+        CONFIG_PATH = agent_config_path("bt_agent")
+        if not CONFIG_PATH.exists():
+            write_json_file(CONFIG_PATH, copy.deepcopy(DEFAULT_CONFIG))
+        loaded = _load_json_config(CONFIG_PATH)
     config = copy.deepcopy(DEFAULT_CONFIG)
     return _deep_merge(config, loaded)
 
@@ -134,6 +137,10 @@ udp_packet_count = 0
 # =======================
 # 工具函数
 # =======================
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+
+
 def calculate_checksum(data: bytes) -> bytes:
     checksum = sum(data) & 0xFFFF
     return checksum.to_bytes(2, byteorder="little")
@@ -149,6 +156,181 @@ def _fmt_payload(b: bytes, max_show: int = 32) -> str:
         return f"{head}...{tail}"
     except Exception:
         return "<unprintable-bytes>"
+
+
+class AgentStats:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._started_mono = time.monotonic()
+        self._started_wall = time.time()
+        self._send_queue: queue.Queue | None = None
+        self._host: dict[str, Any] = {
+            "udp_socket_ok": False,
+            "redis_ok": False,
+            "cmd_thread_alive": False,
+            "send_queue_depth": 0,
+            "uptime_sec": 0.0,
+            "valid_packets": 0,
+            "malformed_packets": 0,
+            "checksum_errors": 0,
+            "blocked_packets": 0,
+            "analog_packets": 0,
+            "redis_publish_errors": 0,
+            "cmd_received": 0,
+            "cmd_acked": 0,
+            "send_ok": 0,
+            "send_errors": 0,
+            "last_packet_at": None,
+            "last_send_at": None,
+        }
+        self._per_ip: dict[str, dict[str, Any]] = {}
+
+    def _ensure_ip(self, ip: str) -> dict[str, Any]:
+        state = self._per_ip.get(ip)
+        if state is None:
+            state = {
+                "ip": ip,
+                "last_seen": None,
+                "last_valid_seen": None,
+                "valid_packets": 0,
+                "malformed_packets": 0,
+                "checksum_errors": 0,
+                "analog_packets": 0,
+                "send_ok": 0,
+                "send_errors": 0,
+                "recent_valid": deque(),
+            }
+            self._per_ip[ip] = state
+        return state
+
+    def set_send_queue(self, send_queue_ref: queue.Queue) -> None:
+        with self._lock:
+            self._send_queue = send_queue_ref
+
+    def set_udp_socket_ok(self, ok: bool) -> None:
+        with self._lock:
+            self._host["udp_socket_ok"] = bool(ok)
+
+    def set_redis_ok(self, ok: bool) -> None:
+        with self._lock:
+            self._host["redis_ok"] = bool(ok)
+
+    def set_cmd_thread_alive(self, alive: bool) -> None:
+        with self._lock:
+            self._host["cmd_thread_alive"] = bool(alive)
+
+    def note_valid_packet(self, ip: str, *, analog: bool = False) -> None:
+        now_wall = time.time()
+        with self._lock:
+            state = self._ensure_ip(ip)
+            self._host["valid_packets"] += 1
+            self._host["last_packet_at"] = now_wall
+            state["last_seen"] = now_wall
+            state["last_valid_seen"] = now_wall
+            state["valid_packets"] += 1
+            state["recent_valid"].append(now_wall)
+            if analog:
+                self._host["analog_packets"] += 1
+                state["analog_packets"] += 1
+
+    def note_malformed_packet(self, ip: str | None = None) -> None:
+        with self._lock:
+            self._host["malformed_packets"] += 1
+            if ip:
+                state = self._ensure_ip(ip)
+                state["last_seen"] = time.time()
+                state["malformed_packets"] += 1
+
+    def note_checksum_error(self, ip: str) -> None:
+        with self._lock:
+            self._host["checksum_errors"] += 1
+            state = self._ensure_ip(ip)
+            state["last_seen"] = time.time()
+            state["checksum_errors"] += 1
+
+    def note_blocked_packet(self) -> None:
+        with self._lock:
+            self._host["blocked_packets"] += 1
+
+    def note_send_ok(self, ip: str) -> None:
+        now_wall = time.time()
+        with self._lock:
+            self._host["send_ok"] += 1
+            self._host["last_send_at"] = now_wall
+            self._ensure_ip(ip)["send_ok"] += 1
+
+    def note_send_error(self, ip: str) -> None:
+        now_wall = time.time()
+        with self._lock:
+            self._host["send_errors"] += 1
+            self._host["last_send_at"] = now_wall
+            self._ensure_ip(ip)["send_errors"] += 1
+
+    def note_cmd_received(self) -> None:
+        with self._lock:
+            self._host["cmd_received"] += 1
+
+    def note_cmd_acked(self) -> None:
+        with self._lock:
+            self._host["cmd_acked"] += 1
+
+    def note_redis_publish_error(self) -> None:
+        with self._lock:
+            self._host["redis_publish_errors"] += 1
+
+    def snapshot(self) -> dict[str, Any]:
+        now_wall = time.time()
+        now_mono = time.monotonic()
+        with self._lock:
+            send_depth = 0
+            if self._send_queue is not None:
+                try:
+                    send_depth = int(self._send_queue.qsize())
+                except Exception:
+                    send_depth = 0
+            host = dict(self._host)
+            host["send_queue_depth"] = send_depth
+            host["uptime_sec"] = round(now_mono - self._started_mono, 1)
+            ips: list[dict[str, Any]] = []
+            for ip in sorted(self._per_ip):
+                state = self._per_ip[ip]
+                recent_valid = state["recent_valid"]
+                while recent_valid and (now_wall - float(recent_valid[0])) > 10.0:
+                    recent_valid.popleft()
+                ips.append(
+                    {
+                        "ip": ip,
+                        "last_seen": state["last_seen"],
+                        "last_valid_seen": state["last_valid_seen"],
+                        "valid_packets": state["valid_packets"],
+                        "malformed_packets": state["malformed_packets"],
+                        "checksum_errors": state["checksum_errors"],
+                        "analog_packets": state["analog_packets"],
+                        "send_ok": state["send_ok"],
+                        "send_errors": state["send_errors"],
+                        "rate_10s": round(len(recent_valid) / 10.0, 2),
+                    }
+                )
+        return {
+            "ts": _now_iso(),
+            "host": host,
+            "ips": ips,
+        }
+
+
+class StatusEmitter(threading.Thread):
+    def __init__(self, stats: AgentStats, stop_event: threading.Event):
+        super().__init__(daemon=True)
+        self._stats = stats
+        self._stop_event = stop_event
+
+    def run(self) -> None:
+        while not self._stop_event.is_set():
+            print(f"[BT_STATUS] {json.dumps(self._stats.snapshot(), ensure_ascii=False)}", flush=True)
+            self._stop_event.wait(1.0)
+
+
+AGENT_STATS = AgentStats()
 
 
 # =======================
@@ -175,6 +357,7 @@ class MessageBus:
             decode_responses=False,
         )
         self._redis.ping()
+        AGENT_STATS.set_redis_ok(True)
 
         # 确保 cmd stream + group 存在（MKSTREAM）
         self._ensure_group(REDIS_CMD_STREAM_KEY, REDIS_CMD_GROUP)
@@ -228,6 +411,7 @@ class MessageBus:
             stop_event=self._cmd_thread_stop,
         )
         self._cmd_thread.start()
+        AGENT_STATS.set_cmd_thread_alive(True)
 
     def close(self) -> None:
         try:
@@ -236,6 +420,8 @@ class MessageBus:
                 self._cmd_thread.join(timeout=2)
         except Exception:
             pass
+        AGENT_STATS.set_cmd_thread_alive(False)
+        AGENT_STATS.set_redis_ok(False)
 
 
 # =======================
@@ -255,6 +441,8 @@ class UdpCommunicationThread(threading.Thread):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 << 20)  # 1MB
         except Exception:
             pass
+        AGENT_STATS.set_send_queue(send_queue)
+        AGENT_STATS.set_udp_socket_ok(True)
 
     def run(self):
         logger.info(f"UDP通信线程已启动，监听 {HOST_IP}:{HOST_PORT}")
@@ -276,7 +464,9 @@ class UdpCommunicationThread(threading.Thread):
                     # 注意：这里仍按旧逻辑发到 HOST_PORT（38315）
                     self.socket.sendto(send_data, (target_ip, HOST_PORT))
                     sent += 1
+                    AGENT_STATS.note_send_ok(target_ip)
                 except OSError as e:
+                    AGENT_STATS.note_send_error(target_ip)
                     err_no = getattr(e, "errno", None)
                     err_str = os.strerror(err_no) if isinstance(err_no, int) else str(e)
                     logger.error(
@@ -294,6 +484,7 @@ class UdpCommunicationThread(threading.Thread):
                         exc_info=False,
                     )
                 except Exception as e:
+                    AGENT_STATS.note_send_error(target_ip)
                     logger.error(
                         (
                             "发送数据失败(非OSError) | 目标=%s:%s | 字节数=%d | 载荷(HEX片段)=%s | "
@@ -318,6 +509,7 @@ class UdpCommunicationThread(threading.Thread):
             except socket.timeout:
                 continue
             except Exception as e:
+                AGENT_STATS.set_udp_socket_ok(False)
                 logger.error(f"接收数据时出错: {e}", exc_info=False)
                 continue
 
@@ -328,12 +520,14 @@ class UdpCommunicationThread(threading.Thread):
             logger.info(f"收到来自 {source_ip}:{source_port} 的数据包")
 
             if source_ip in BLOCKED_IPS:
+                AGENT_STATS.note_blocked_packet()
                 logger.info(f"忽略被屏蔽的IP: {source_ip}")
                 continue
 
             frame_head = data[:2]
             frame_tail = data[-2:]
             if frame_head != b"\x7f\x7f" or frame_tail != b"\xf7\xf7":
+                AGENT_STATS.note_malformed_packet(source_ip)
                 logger.error("丢弃了一个格式错误的数据包：帧头或帧尾无效")
                 continue
 
@@ -341,6 +535,7 @@ class UdpCommunicationThread(threading.Thread):
             checksum = data[-4:-2]
             calculated_checksum = calculate_checksum(payload)
             if checksum != calculated_checksum:
+                AGENT_STATS.note_checksum_error(source_ip)
                 logger.error(
                     f"校验和错误：接收的校验和 {checksum.hex()}，计算的校验和 {calculated_checksum.hex()}"
                 )
@@ -348,12 +543,18 @@ class UdpCommunicationThread(threading.Thread):
 
             function_code = data[3]
             if function_code == 0x01:
+                AGENT_STATS.note_valid_packet(source_ip, analog=True)
                 self.handle_analog_data(data, addr)
+            else:
+                AGENT_STATS.note_valid_packet(source_ip)
 
             # 发布 packet -> packet stream
             try:
                 self.bus.publish_packet(source_ip, data)
+                AGENT_STATS.set_redis_ok(True)
             except Exception as e:
+                AGENT_STATS.note_redis_publish_error()
+                AGENT_STATS.set_redis_ok(False)
                 logger.error(f"发布数据包失败(redis): {e}", exc_info=True)
 
     def stop(self):
@@ -362,6 +563,7 @@ class UdpCommunicationThread(threading.Thread):
             self.socket.close()
         except Exception:
             pass
+        AGENT_STATS.set_udp_socket_ok(False)
         logger.info("UDP通信线程已停止。")
 
     def handle_analog_data(self, data, addr):
@@ -421,6 +623,7 @@ class RedisCmdSubscriber(threading.Thread):
         logger.info(
             f"[redis] 开始监听 CMD stream={self.stream_key} group={self.group} consumer={self.consumer} ..."
         )
+        AGENT_STATS.set_cmd_thread_alive(True)
 
         # 启动先确保一次（避免 NOGROUP）
         try:
@@ -437,9 +640,11 @@ class RedisCmdSubscriber(threading.Thread):
                     count=REDIS_STREAM_COUNT,
                     block=REDIS_STREAM_BLOCK_MS,
                 )
+                AGENT_STATS.set_redis_ok(True)
             except Exception as e:
                 msg = str(e)
                 if "NOGROUP" in msg:
+                    AGENT_STATS.set_redis_ok(False)
                     logger.warning(f"[redis] group missing (NOGROUP), recreate then retry: {msg}")
                     try:
                         self._ensure_group()
@@ -448,6 +653,7 @@ class RedisCmdSubscriber(threading.Thread):
                     time.sleep(0.2)
                     continue
 
+                AGENT_STATS.set_redis_ok(False)
                 logger.error(f"[redis] xreadgroup error: {e}")
                 time.sleep(0.5)
                 continue
@@ -474,21 +680,27 @@ class RedisCmdSubscriber(threading.Thread):
                         target_ip = ip_b.decode(errors="ignore").strip()
                         if not target_ip:
                             self.r.xack(self.stream_key, self.group, entry_id)
+                            AGENT_STATS.note_cmd_acked()
                             continue
 
                         if target_ip in BLOCKED_IPS:
+                            AGENT_STATS.note_cmd_received()
                             logger.info(f"[redis] 忽略被屏蔽的IP: {target_ip}")
                             self.r.xack(self.stream_key, self.group, entry_id)
+                            AGENT_STATS.note_cmd_acked()
                             continue
 
+                        AGENT_STATS.note_cmd_received()
                         self.send_queue.put((target_ip, payload))
                         logger.info(f"[redis] 收到 CMD，目标IP: {target_ip}，数据大小: {len(payload)} 字节")
 
                         self.r.xack(self.stream_key, self.group, entry_id)
+                        AGENT_STATS.note_cmd_acked()
 
                     except Exception as e:
                         logger.error(f"[redis] 处理 CMD 失败: {e}", exc_info=True)
                         # 不 ack：留 pending（需要时可加 XCLAIM 超时转移）
+        AGENT_STATS.set_cmd_thread_alive(False)
 
 
 # =======================
@@ -496,14 +708,19 @@ class RedisCmdSubscriber(threading.Thread):
 # =======================
 async def main():
     logger.info("启动主程序...")
+    status_stop_event = threading.Event()
+    status_emitter = StatusEmitter(AGENT_STATS, status_stop_event)
+    status_emitter.start()
 
     while True:
         try:
             bus = MessageBus()
             break
         except RuntimeError:
+            status_stop_event.set()
             raise
         except Exception as e:
+            AGENT_STATS.set_redis_ok(False)
             logger.warning(
                 "Redis Streams 未就绪，%ss 后重试: host=%s port=%s err=%s",
                 REDIS_STARTUP_RETRY_SEC,
@@ -518,6 +735,7 @@ async def main():
     logger.info("Blocked IP count = %d", len(BLOCKED_IPS))
 
     send_queue: queue.Queue = queue.Queue()
+    AGENT_STATS.set_send_queue(send_queue)
 
     udp_thread = UdpCommunicationThread(send_queue, bus)
     udp_thread.start()
@@ -535,6 +753,8 @@ async def main():
         except Exception:
             pass
 
+        status_stop_event.set()
+        status_emitter.join(timeout=2)
         logger.info("程序退出，已清理资源。")
 
 

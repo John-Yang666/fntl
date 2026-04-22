@@ -27,7 +27,7 @@ SY_ALARM_MEANINGS = {
 }
 
 # 通信超时参数（秒）(0号告警延时参数)
-COMMUNICATION_TIMEOUT = 10 #生产环境建议设为60
+COMMUNICATION_TIMEOUT = 60
 
 # 告警延时参数（秒）
 SY_ALARM_DELAY = {

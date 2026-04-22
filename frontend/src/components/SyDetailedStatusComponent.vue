@@ -262,12 +262,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import axios from 'axios';
-import { getApiBase, getSystemFromRoute } from '@/utils/systems';
+import { useUserStore } from '@/stores/userStore';
+import { getSystemFromRoute } from '@/utils/systems';
 
 /* ---------------- 路由 & 基础 URL ---------------- */
 const route = useRoute();
-const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
+const userStore = useUserStore();
 
 const deviceId = ref<number>(
   parseInt(Array.isArray(route.params.index) ? route.params.index[0] : (route.params.index as string), 10)
@@ -504,7 +504,10 @@ function cableStatusClass(ok: boolean, hasCableTest: boolean): string {
 async function fetchDeviceBase() {
   try {
     error.value = null;
-    const { data } = await axios.get<DeviceBase>(`${baseURL()}/device-detail/${deviceId.value}/`);
+    const data = await userStore.requestWithAuth<DeviceBase>(getSystemFromRoute(route.params.system), {
+      method: 'get',
+      url: `/device-detail/${deviceId.value}/`,
+    });
     deviceBase.value = data;
   } catch (e) {
     console.error('fetchDeviceBase error', e);
@@ -518,7 +521,10 @@ async function fetchDeviceSwitchData() {
   try {
     error.value = null;
 
-    const { data } = await axios.get<any>(`${baseURL()}/device_switch_data/${deviceId.value}/`);
+    const data = await userStore.requestWithAuth<any>(getSystemFromRoute(route.params.system), {
+      method: 'get',
+      url: `/device_switch_data/${deviceId.value}/`,
+    });
     const sw: LatestSwitch | null = (data?.latest_switch ?? data) || null;
 
     if (sw && typeof sw.hex === 'string') {

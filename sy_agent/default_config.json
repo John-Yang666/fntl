@@ -1,0 +1,165 @@
+{
+  "agent": {
+    "ip": "",
+    "name": "",
+    "role": "main"
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 36380,
+    "db": 0
+  },
+  "stream": {
+    "raw_stream": "sy.raw",
+    "raw_stream_maxlen": 200000,
+    "cmd_stream": "sy-serial-commands",
+    "cmd_group": "sy_agent_cmd_group",
+    "cmd_consumer": "sy-agent-1",
+    "cmd_block_ms": 1000,
+    "cmd_count": 10
+  },
+  "cmd": {
+    "dlq_stream": "sy-serial-commands.dlq",
+    "dlq_maxlen": 50000,
+    "done_key_prefix": "sy:cmd_done:",
+    "done_ttl_sec": 3600,
+    "done_local_ttl_sec": 600,
+    "dlq_dedupe_prefix": "sy:cmd_dlq:",
+    "dlq_dedupe_ttl_sec": 600,
+    "try_key_prefix": "sy:cmd_try:",
+    "try_ttl_sec": 3600,
+    "max_tries": 20,
+    "inflight_ttl_sec": 3.0,
+    "no_resp_enable": true,
+    "confirm_delay_sec": 0.08,
+    "confirm_timeout_sec": 0.25,
+    "confirm_a1": true,
+    "bb_cmd_retries": 3,
+    "no_resp_cmds": [
+      "CC"
+    ]
+  },
+  "time_sync": {
+    "enable": false,
+    "interval_sec": 3600
+  },
+  "a2_burst": {
+    "enable": true,
+    "max": 3,
+    "timeout_sec": 0.06,
+    "budget_sec": 0.16
+  },
+  "serial": {
+    "default_baudrate": 19200,
+    "timeout": 0.0
+  },
+  "probe": {
+    "enable": true,
+    "interval_sec": 45.0,
+    "timeout_sec": 0.12,
+    "queue_threshold": 32,
+    "cooldown_after_fault_sec": 15.0
+  },
+  "ui": {
+    "mode": "dashboard",
+    "refresh_sec": 1.0,
+    "event_buffer_size": 20,
+    "ansi": "auto"
+  },
+  "debug_tuning": {
+    "AFTER_WRITE_SLEEP_SEC": 0.035,
+    "ENABLE_AFTER_WRITE_SLEEP": true,
+    "WAIT_RESPONSE_TIMEOUT_SEC": 0.2,
+    "RX_IDLE_SLEEP_SEC": 0.002,
+    "AUTO_SLEEP_ENABLE": true,
+    "AUTO_SLEEP_WINDOW": 80,
+    "AUTO_SLEEP_PCTL": 95,
+    "AUTO_SLEEP_MARGIN_SEC": 0.005,
+    "AUTO_SLEEP_MIN_SEC": 0.01,
+    "AUTO_SLEEP_MAX_SEC": 0.08,
+    "AUTO_SLEEP_UPDATE_EVERY": 8,
+    "AUTO_SLEEP_PRINT_EVERY_SEC": 5.0,
+    "AUTO_SLEEP_NO_RESP_BUMP_SEC": 0.005,
+    "AUTO_SLEEP_NO_RESP_STREAK": 2,
+    "AUTO_SLEEP_NO_RESP_COOLDOWN_SEC": 0.8,
+    "AUTO_SLEEP_DECAY_OK_STREAK": 40,
+    "AUTO_SLEEP_DECAY_STEP_SEC": 0.002,
+    "RTS_TOGGLE": false,
+    "RTS_TX_LEVEL": 1,
+    "RTS_RX_LEVEL": 0,
+    "RTS_PRE_DELAY_SEC": 0.001,
+    "RTS_POST_DELAY_SEC": 0.002,
+    "REDIS_RETRY_MIN_SEC": 1.0,
+    "REDIS_RETRY_MAX_SEC": 10.0,
+    "REDIS_DOWN_PAUSE_SEC": 0.5,
+    "SERIAL_RETRY_MIN_SEC": 1.0,
+    "SERIAL_RETRY_MAX_SEC": 30.0,
+    "SERIAL_RX_ERROR_LIMIT": 5,
+    "RX_THREAD_DEAD_REOPEN": true,
+    "STALL_WATCHDOG_ENABLE": true,
+    "STALL_NOFRAME_SEC": 15.0,
+    "STALL_GRACE_AFTER_OPEN_SEC": 2.0,
+    "STALL_COOLDOWN_SEC": 15.0,
+    "LOG_SEND": false,
+    "LOG_RECV_OK": false,
+    "LOG_NO_RESP": true,
+    "LOG_RX_STATS": true,
+    "LOG_MATCH_DETAIL": false,
+    "LOG_REDIS_STATE": true,
+    "LOG_PORT_STATE": true,
+    "STATUS_PRINT_EVERY_SEC": 10.0,
+    "MAX_READ_ONCE": 4096,
+    "MAX_SOFTBUF": 8192,
+    "PENDING_RETRY_ENABLE": true,
+    "PENDING_MIN_IDLE_MS": 5000,
+    "PENDING_CLAIM_EVERY_SEC": 2.0,
+    "PENDING_CLAIM_COUNT": 20
+  },
+  "lines": [
+    {
+      "line_id": 1,
+      "name": "Line-1",
+      "head_port": "COM3",
+      "tail_port": "NONE",
+      "baudrate": 19200,
+      "timeout": 0.0,
+      "devices": [
+        {
+          "serial_id": 1,
+          "nms_id": 1,
+          "a1_interval": 5.0
+        },
+        {
+          "serial_id": 2,
+          "nms_id": 2,
+          "a1_interval": 5.0
+        }
+      ]
+    },
+    {
+      "line_id": 2,
+      "name": "Line-2",
+      "head_port": "COM5",
+      "tail_port": "NONE",
+      "baudrate": 19200,
+      "timeout": 0.0,
+      "devices": [
+        {
+          "serial_id": 2,
+          "nms_id": 4,
+          "a1_interval": 5.0
+        },
+        {
+          "serial_id": 3,
+          "nms_id": 5,
+          "a1_interval": 5.0
+        },
+        {
+          "serial_id": 4,
+          "nms_id": 6,
+          "a1_interval": 5.0
+        }
+      ]
+    }
+  ]
+}

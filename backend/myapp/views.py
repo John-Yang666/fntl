@@ -29,16 +29,83 @@ from rest_framework.permissions import IsAuthenticated, AllowAny # type: ignore
 from rest_framework import status
 from django.contrib.auth import get_user_model
 from django.db import connection, transaction
-from consts import COMMUNICATION_TIMEOUT
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from .runtime_config import (
+    build_runtime_config_payload,
+    get_communication_timeout,
+    save_runtime_config_values,
+)
 
 User = get_user_model()
 
 FAST_COUNT_CACHE_TTL = 30
 redis_comm_client = redis.StrictRedis(host='redis', port=6379, db=2, decode_responses=True)
+jwt_authenticator = JWTAuthentication()
 
 
 def _is_truthy_query_param(value):
     return str(value).lower() not in {"0", "false", "no", "off"}
+
+
+def _resolve_request_user(request):
+    user = getattr(request, "user", None)
+    if getattr(user, "is_authenticated", False):
+        return user
+
+    if hasattr(request, "_resolved_jwt_user"):
+        return request._resolved_jwt_user
+
+    try:
+        auth_result = jwt_authenticator.authenticate(request)
+    except Exception:
+        auth_result = None
+
+    resolved_user = auth_result[0] if auth_result else user
+    request._resolved_jwt_user = resolved_user
+    return resolved_user
+
+
+def _require_authenticated_request_user(request):
+    user = _resolve_request_user(request)
+    if getattr(user, "is_authenticated", False):
+        return user, None
+    return None, JsonResponse({"detail": "Authentication credentials were not provided."}, status=401)
+
+
+def _filter_device_queryset_for_user(queryset, user):
+    if not getattr(user, "is_authenticated", False):
+        return queryset.none()
+    if user.is_superuser:
+        return queryset
+    if hasattr(user, "managed_depots_qs"):
+        depots_qs = user.managed_depots_qs()
+        if depots_qs.exists():
+            return queryset.filter(depot__in=depots_qs)
+    return queryset.none()
+
+
+def _filter_device_queryset_for_request(queryset, request):
+    return _filter_device_queryset_for_user(queryset, _resolve_request_user(request))
+
+
+def _filter_related_device_queryset_for_request(queryset, request, device_field="device__depot"):
+    user = _resolve_request_user(request)
+    if not getattr(user, "is_authenticated", False):
+        return queryset.none()
+    if user.is_superuser:
+        return queryset
+    if hasattr(user, "managed_depots_qs"):
+        depots_qs = user.managed_depots_qs()
+        if depots_qs.exists():
+            return queryset.filter(**{f"{device_field}__in": depots_qs})
+    return queryset.none()
+
+
+def _apply_device_line_name_filter(queryset, request):
+    line_name = request.query_params.get("device__line")
+    if line_name:
+        queryset = queryset.filter(device__line__name=line_name)
+    return queryset
 
 
 def _query_is_unfiltered(queryset):
@@ -100,7 +167,7 @@ def _is_device_comm_online(device_id: int) -> bool:
             elapsed = now_monotonic - float(raw_monotonic)
             if elapsed < 0:
                 elapsed = 0.0
-            return elapsed <= COMMUNICATION_TIMEOUT
+            return elapsed <= get_communication_timeout()
         except (TypeError, ValueError):
             pass
 
@@ -109,7 +176,13 @@ def _is_device_comm_online(device_id: int) -> bool:
     except Exception:
         return False
 
-    return (now - last_comm).total_seconds() <= COMMUNICATION_TIMEOUT
+    return (now - last_comm).total_seconds() <= get_communication_timeout()
+
+
+def _ensure_superuser(request):
+    if not request.user.is_superuser:
+        return Response({"detail": "只有超级用户可以执行该操作。"}, status=status.HTTP_403_FORBIDDEN)
+    return None
 
 class UserDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -137,8 +210,9 @@ class HelpFaqView(APIView):
         return Response(serializer.data)
 
     def put(self, request):
-        if request.user.username != 'admin':
-            return Response({'detail': '只有 admin 用户可以编辑 FAQ。'}, status=status.HTTP_403_FORBIDDEN)
+        permission_error = _ensure_superuser(request)
+        if permission_error is not None:
+            return permission_error
 
         serializer = HelpFaqEntryWriteSerializer(data=request.data, many=True)
         serializer.is_valid(raise_exception=True)
@@ -175,6 +249,30 @@ class HelpFaqView(APIView):
 
         items = HelpFaqEntry.objects.all().order_by('display_order', 'id')
         return Response(HelpFaqEntrySerializer(items, many=True).data)
+
+
+class RuntimeConfigView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        permission_error = _ensure_superuser(request)
+        if permission_error is not None:
+            return permission_error
+        return Response(build_runtime_config_payload())
+
+    def put(self, request):
+        permission_error = _ensure_superuser(request)
+        if permission_error is not None:
+            return permission_error
+
+        try:
+            payload = save_runtime_config_values(
+                values=request.data.get("values"),
+                user=request.user,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
     
 def pgadmin_link_view(request):
     return render(request, 'pgadmin_link.html')
@@ -195,6 +293,12 @@ def reset_periodic_tasks(request):
 
 class TopologyStatusView(View):#从缓存读取用于拓扑图的信息
     def get(self, request, device_id):
+        _user, error_response = _require_authenticated_request_user(request)
+        if error_response is not None:
+            return error_response
+        if not _filter_device_queryset_for_request(Device.objects.all(), request).filter(device_id=device_id).exists():
+            return JsonResponse({"detail": "Not found."}, status=404)
+
         topology_key = f"device_{device_id}_topology_status"
         topology_status = cache.get(topology_key)
         
@@ -205,7 +309,11 @@ class TopologyStatusView(View):#从缓存读取用于拓扑图的信息
         
 class AllTopologyStatusView(View):
     def get(self, request):
-        devices = Device.objects.all()
+        _user, error_response = _require_authenticated_request_user(request)
+        if error_response is not None:
+            return error_response
+
+        devices = _filter_device_queryset_for_request(Device.objects.all(), request)
         topology_statuses = {}
 
         for device in devices:
@@ -220,6 +328,12 @@ class AllTopologyStatusView(View):
 
 class SwitchStatusView(View):#从缓存读取开关量信息
     def get(self, request, device_id):
+        _user, error_response = _require_authenticated_request_user(request)
+        if error_response is not None:
+            return error_response
+        if not _filter_device_queryset_for_request(Device.objects.all(), request).filter(device_id=device_id).exists():
+            return JsonResponse({"detail": "Not found."}, status=404)
+
         if not _is_device_comm_online(device_id):
             cache.delete(f"device_{device_id}_switch_status")
             return JsonResponse({"error": "Device offline"}, status=404)
@@ -247,6 +361,12 @@ class SwitchStatusView(View):#从缓存读取开关量信息
 
 class AnalogStatusView(View):# 从缓存读取模拟量信息
     def get(self, request, device_id):
+        _user, error_response = _require_authenticated_request_user(request)
+        if error_response is not None:
+            return error_response
+        if not _filter_device_queryset_for_request(Device.objects.all(), request).filter(device_id=device_id).exists():
+            return JsonResponse({"detail": "Not found."}, status=404)
+
         analog_key = f"device_{device_id}_analog_status"
         analog_status = cache.get(analog_key)
         
@@ -261,10 +381,10 @@ class DeviceViewSet(viewsets.ModelViewSet):
     serializer_class = DeviceSerializer
     filter_backends = [DjangoFilterBackend]  # 启用过滤器
     filterset_fields = ['device_id']  # 允许通过 `device_id` 过滤
-    permission_classes = [AllowAny]  # ✅ 允许匿名访问
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Device.objects.all()  # ✅ 不做用户限制
+        return _filter_device_queryset_for_request(Device.objects.all(), self.request)
 
     '''def get_queryset(self):
         user = self.request.user
@@ -299,11 +419,11 @@ class DeviceViewSet(viewsets.ModelViewSet):
 
         try:
             # 查询主设备
-            device = Device.objects.get(device_id=device_id)
+            device = self.get_queryset().get(device_id=device_id)
 
             # 查询邻站设备（批量）
             neighbor_ids = [device.direction1_neighbor_id, device.direction2_neighbor_id]
-            neighbors = Device.objects.filter(device_id__in=[nid for nid in neighbor_ids if nid])
+            neighbors = self.get_queryset().filter(device_id__in=[nid for nid in neighbor_ids if nid])
 
             # 建立邻站 ID 和名称的映射
             neighbor_map = {neighbor.device_id: neighbor.name for neighbor in neighbors}
@@ -332,8 +452,10 @@ class DeviceViewSet(viewsets.ModelViewSet):
             return Response({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
 
 class DeviceFlagsView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, device_id: int):
-        device = get_object_or_404(Device, device_id=device_id)
+        device = get_object_or_404(_filter_device_queryset_for_request(Device.objects.all(), request), device_id=device_id)
         return Response({
             "direction1_enabled": device.direction1_enabled,
             "direction2_enabled": device.direction2_enabled,
@@ -342,6 +464,10 @@ class DeviceFlagsView(APIView):
 class SwitchDataViewSet(viewsets.ModelViewSet):# 从数据库读取开关量信息
     queryset = SwitchData.objects.all()
     serializer_class = SwitchDataSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return _filter_related_device_queryset_for_request(super().get_queryset(), self.request)
 
 class CustomPageNumberPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
@@ -352,13 +478,14 @@ class AnalogDataViewSet(viewsets.ModelViewSet):
     serializer_class = AnalogDataSerializer
     pagination_class = CustomPageNumberPagination
     filter_backends = [DjangoFilterBackend]
+    permission_classes = [IsAuthenticated]
     filterset_fields = {
         'timestamp': ['gte', 'lte'],
         'device': ['exact']
     }
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = _filter_related_device_queryset_for_request(super().get_queryset(), self.request)
         device_id = self.request.query_params.get('device')
         if device_id is not None:
             queryset = queryset.filter(device_id=device_id)
@@ -370,83 +497,19 @@ class RelayActionViewSet(viewsets.ModelViewSet):
     serializer_class = RelayActionSerializer
     pagination_class = CustomPageNumberPagination
     filter_backends = [DjangoFilterBackend]
+    permission_classes = [IsAuthenticated]
     filterset_fields = {
         'timestamp': ['gte', 'lte'],
         'device': ['exact'],
-        'device__line': ['exact'],
     }
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = _filter_related_device_queryset_for_request(super().get_queryset(), self.request)
         device_id = self.request.query_params.get('device')
         if device_id is not None:
             queryset = queryset.filter(device_id=device_id)
+        queryset = _apply_device_line_name_filter(queryset, self.request)
         queryset = queryset.order_by('-timestamp')
         return queryset
-
-class UserOperationViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = UserOperation.objects.all()
-    serializer_class = UserOperationSerializer
-    pagination_class = CustomPageNumberPagination
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = {
-        'timestamp': ['gte', 'lte'],
-        'device': ['exact'],
-        'device__line': ['exact'],
-    }
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        device_id = self.request.query_params.get('device')
-        if device_id is not None:
-            queryset = queryset.filter(device_id=device_id)
-        return queryset.order_by('-timestamp')
-
-class ActiveAlarmListView(APIView):
-    def get(self, request):
-        alarms = AlarmActive.objects.select_related('device').all()
-        serializer = AlarmActiveSerializer(alarms, many=True)
-        return Response(serializer.data)
-    
-class ConfirmAlarmView(APIView):
-    def post(self, request, device_id, alarm_code):
-        try:
-            alarm = AlarmActive.objects.get(device__device_id=device_id, alarm_code=alarm_code)
-            alarm.is_confirmed = True
-            alarm.save()
-            return Response({'message': '告警已确认'}, status=status.HTTP_200_OK)
-        except AlarmActive.DoesNotExist:
-            return Response({'error': '找不到告警'}, status=status.HTTP_404_NOT_FOUND)
-    
-class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = AlarmData.objects.all()
-    serializer_class = AlarmDataSerializer
-    pagination_class = CustomPageNumberPagination
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = {
-        'timestamp_start': ['gte', 'lte'],
-        'device': ['exact'],
-        'device__line': ['exact'],
-        'alarm_code': ['exact'],
-        'is_confirmed': ['exact'],
-    }
-
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .select_related("device")
-            .only(
-                "id",
-                "device",
-                "device__device_id",
-                "device__name",
-                "alarm_code",
-                "timestamp_start",
-                "timestamp_end",
-                "is_confirmed",
-            )
-            .order_by("-timestamp_start")
-        )
 
     def list(self, request, *args, **kwargs):
         if _is_truthy_query_param(request.query_params.get("include_count", "1")):
@@ -468,7 +531,135 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="count")
     def count(self, request):
-        queryset = self.filter_queryset(AlarmData.objects.all())
+        queryset = self.filter_queryset(self.get_queryset())
+        estimated_count = _estimated_queryset_count(queryset)
+        approximate = estimated_count is not None
+        total_count = estimated_count if approximate else queryset.count()
+        return Response({"count": total_count, "approximate": approximate})
+
+class UserOperationViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = UserOperation.objects.all()
+    serializer_class = UserOperationSerializer
+    pagination_class = CustomPageNumberPagination
+    filter_backends = [DjangoFilterBackend]
+    permission_classes = [IsAuthenticated]
+    filterset_fields = {
+        'timestamp': ['gte', 'lte'],
+        'device': ['exact'],
+    }
+
+    def get_queryset(self):
+        queryset = _filter_related_device_queryset_for_request(super().get_queryset(), self.request)
+        device_id = self.request.query_params.get('device')
+        if device_id is not None:
+            queryset = queryset.filter(device_id=device_id)
+        queryset = _apply_device_line_name_filter(queryset, self.request)
+        return queryset.order_by('-timestamp')
+
+    def list(self, request, *args, **kwargs):
+        if _is_truthy_query_param(request.query_params.get("include_count", "1")):
+            return super().list(request, *args, **kwargs)
+
+        queryset = self.filter_queryset(self.get_queryset())
+        paginator = self.paginator
+        page_size = paginator.get_page_size(request) if paginator else None
+        page_size = page_size or 20
+
+        try:
+            page_number = max(int(request.query_params.get("page", "1")), 1)
+        except (TypeError, ValueError):
+            page_number = 1
+
+        offset = (page_number - 1) * page_size
+        serializer = self.get_serializer(queryset[offset:offset + page_size], many=True)
+        return Response({"count": None, "results": serializer.data})
+
+    @action(detail=False, methods=["get"], url_path="count")
+    def count(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        estimated_count = _estimated_queryset_count(queryset)
+        approximate = estimated_count is not None
+        total_count = estimated_count if approximate else queryset.count()
+        return Response({"count": total_count, "approximate": approximate})
+
+class ActiveAlarmListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        alarms = _filter_related_device_queryset_for_request(
+            AlarmActive.objects.select_related('device').all(),
+            request,
+        )
+        serializer = AlarmActiveSerializer(alarms, many=True)
+        return Response(serializer.data)
+    
+class ConfirmAlarmView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, device_id, alarm_code):
+        try:
+            alarm = _filter_related_device_queryset_for_request(
+                AlarmActive.objects.select_related("device").all(),
+                request,
+            ).get(device__device_id=device_id, alarm_code=alarm_code)
+            alarm.is_confirmed = True
+            alarm.save()
+            return Response({'message': '告警已确认'}, status=status.HTTP_200_OK)
+        except AlarmActive.DoesNotExist:
+            return Response({'error': '找不到告警'}, status=status.HTTP_404_NOT_FOUND)
+    
+class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = AlarmData.objects.all()
+    serializer_class = AlarmDataSerializer
+    pagination_class = CustomPageNumberPagination
+    filter_backends = [DjangoFilterBackend]
+    permission_classes = [IsAuthenticated]
+    filterset_fields = {
+        'timestamp_start': ['gte', 'lte'],
+        'device': ['exact'],
+        'alarm_code': ['exact'],
+        'is_confirmed': ['exact'],
+    }
+
+    def get_queryset(self):
+        queryset = (
+            _filter_related_device_queryset_for_request(super().get_queryset(), self.request)
+            .select_related("device")
+            .only(
+                "id",
+                "device",
+                "device__device_id",
+                "device__name",
+                "alarm_code",
+                "timestamp_start",
+                "timestamp_end",
+                "is_confirmed",
+            )
+            .order_by("-timestamp_start")
+        )
+        return _apply_device_line_name_filter(queryset, self.request)
+
+    def list(self, request, *args, **kwargs):
+        if _is_truthy_query_param(request.query_params.get("include_count", "1")):
+            return super().list(request, *args, **kwargs)
+
+        queryset = self.filter_queryset(self.get_queryset())
+        paginator = self.paginator
+        page_size = paginator.get_page_size(request) if paginator else None
+        page_size = page_size or 20
+
+        try:
+            page_number = max(int(request.query_params.get("page", "1")), 1)
+        except (TypeError, ValueError):
+            page_number = 1
+
+        offset = (page_number - 1) * page_size
+        serializer = self.get_serializer(queryset[offset:offset + page_size], many=True)
+        return Response({"count": None, "results": serializer.data})
+
+    @action(detail=False, methods=["get"], url_path="count")
+    def count(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
         estimated_count = _estimated_queryset_count(queryset)
         approximate = estimated_count is not None
         total_count = estimated_count if approximate else queryset.count()
@@ -489,16 +680,24 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
 
 class DeviceListView(View):  # 返回按线路分组的设备列表
     def get(self, request):
-        devices = Device.objects.all().order_by('device_id')  # 按 device_id 排序
+        _user, error_response = _require_authenticated_request_user(request)
+        if error_response is not None:
+            return error_response
+
+        devices = _filter_device_queryset_for_request(
+            Device.objects.select_related("line", "depot").all(),
+            request,
+        ).order_by('device_id')
         grouped_devices = {}
 
         for device in devices:
-            line = device.line
+            line = device.line_name or "未配置线路"
             if line not in grouped_devices:
                 grouped_devices[line] = []
             grouped_devices[line].append({
                 'device_id': device.device_id,
                 'name': device.name,
+                'depot': device.depot_name or None,
                 'ip_address': device.ip_address,
                 'x_coordinate': device.x_coordinate,
                 'y_coordinate': device.y_coordinate,
@@ -594,6 +793,30 @@ class UploadedFileViewSet(viewsets.ModelViewSet):
     queryset = UploadedFile.objects.all().order_by('-upload_time')
     serializer_class = UploadedFileSerializer
     parser_classes = [MultiPartParser, FormParser]
+
+    def create(self, request, *args, **kwargs):
+        permission_error = _ensure_superuser(request)
+        if permission_error is not None:
+            return permission_error
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        permission_error = _ensure_superuser(request)
+        if permission_error is not None:
+            return permission_error
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        permission_error = _ensure_superuser(request)
+        if permission_error is not None:
+            return permission_error
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        permission_error = _ensure_superuser(request)
+        if permission_error is not None:
+            return permission_error
+        return super().destroy(request, *args, **kwargs)
 
 def download_file(request, pk):
     try:

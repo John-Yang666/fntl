@@ -169,17 +169,17 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import axios from 'axios';
+import { useUserStore } from '@/stores/userStore';
 import { parseSwitchStatus } from '@/utils/statusParser';
 import type { Board, DeviceStatus, RelayStatus } from '@/utils/types';
 import { getFromDB, saveToDB } from '@/utils/indexedDB';
 import BoardStatusComponent from './BoardStatusComponent.vue';
 import CustomTableColumn from './CustomTableColumn.vue';
-import { getApiBase, getSystemFromRoute, makeDeviceKey, type SystemType } from '@/utils/systems';
+import { getSystemFromRoute, makeDeviceKey, type SystemType } from '@/utils/systems';
 
 /* ---------------- 参数 & 路由 ---------------- */
 const route       = useRoute();
-const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
+const userStore = useUserStore();
 const device_id   = ref<number>(
   parseInt(
     Array.isArray(route.params.index)
@@ -306,7 +306,10 @@ const direction2Enabled = ref<boolean>(true);
 
 const fetchDirectionFlags = async () => {
   try {
-    const { data } = await axios.get(`${baseURL()}/device-flags/${device_id.value}/`);
+    const data = await userStore.requestWithAuth<any>(getSystemFromRoute(route.params.system), {
+      method: 'get',
+      url: `/device-flags/${device_id.value}/`,
+    });
     direction1Enabled.value = !!data.direction1_enabled;
     direction2Enabled.value = !!data.direction2_enabled;
   } catch (e) {
@@ -363,7 +366,10 @@ function getBitValueFromChar(byte: string, bitIndex: number): string {
 const fetchSwitchStatus = async () => {
   error.value = null;
   try {
-    const { data } = await axios.get(`${baseURL()}/switch-status/${device_id.value}/`);
+    const data = await userStore.requestWithAuth<any>(getSystemFromRoute(route.params.system), {
+      method: 'get',
+      url: `/switch-status/${device_id.value}/`,
+    });
     const bin = Array.from(Uint8Array.from(atob(data.switch_status), c => c.charCodeAt(0)))
       .map(b => b.toString(2).padStart(8,'0')).join('');
 

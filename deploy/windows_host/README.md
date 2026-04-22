@@ -1,133 +1,72 @@
-# Windows host deployment for bt_agent and sy_agent
+# Windows Host Deployment
 
-This layout is for running `bt_agent` and `sy_agent` directly on a Windows host with the host Python installation.
+## Protected Deploy
 
-## Expected layout on the Windows host
+Build the protected Windows bundle on an internal build machine:
 
-Clone or copy this repo to a stable path:
+```powershell
+cd deploy/windows_host
+.\build_protected_agents.ps1
+```
+
+Bundle output:
 
 ```text
-D:\BT_NMS\
-  bt_agent\
-  sy_agent\
-  deploy\windows_host\
+deploy/windows_host/artifacts/windows_agents/
+  apps/
+  scripts/
+  templates/
 ```
 
-## First-time setup
-
-From `cmd.exe`:
-
-```bat
-cd /d D:\BT_NMS\deploy\windows_host
-```
-
-Then edit:
-
-- `bt_agent\config.py`
-- `sy_agent\config.py`
-
-## Start commands
-
-Start each agent in its own console:
-
-```bat
-cd /d D:\BT_NMS\deploy\windows_host
-run_bt_agent.bat
-run_sy_agent.bat
-```
-
-Start both:
-
-```bat
-cd /d D:\BT_NMS\deploy\windows_host
-start_agents_on_boot.bat
-```
-
-For Windows boot or Startup-folder use:
-
-```bat
-cd /d D:\BT_NMS\deploy\windows_host
-start_agents_on_boot.bat
-```
-
-## Frontend offline update helpers
-
-Build and export the production frontend image on a Windows machine with internet:
-
-```bat
-cd /d D:\BT_NMS\deploy\windows_host
-build_and_export_frontend_prod_image.bat
-```
-
-This writes:
+Copy only that bundle to the Windows deployment machine. Start from:
 
 ```text
-D:\BT_NMS\deploy\windows_host\artifacts\my_vue_prod.tar
+scripts\run_bt_agent_ui.bat
+scripts\run_sy_agent_ui.bat
+scripts\run_sy_agent_sub_ui.bat
+scripts\run_agents.bat
 ```
 
-On the offline Windows deployment machine, import that tar and recreate the frontend container:
+Protected deploy uses compiled `exe` programs only. The target machine does not need Python.
 
-```bat
-cd /d D:\BT_NMS\deploy\windows_host
-import_and_update_frontend_prod_image.bat
-```
-
-You may also pass a custom tar path:
-
-```bat
-import_and_update_frontend_prod_image.bat E:\packages\my_vue_prod.tar
-```
-
-## Small offline frontend edits on the production machine
-
-If the production machine itself needs small frontend source changes and must apply them offline, use host-built `dist` instead of rebuilding `my_vue:prod`.
-
-One-time online preparation:
-
-```bat
-cd /d D:\BT_NMS\deploy\windows_host
-prepare_frontend_offline_editing.bat
-```
-
-After that, each offline update is:
-
-1. Edit files under `D:\BT_NMS\frontend\src`
-2. Rebuild and apply:
-
-```bat
-cd /d D:\BT_NMS\deploy\windows_host
-build_and_apply_frontend_dist_offline.bat
-```
-
-This command rebuilds `frontend\dist` offline using local npm cache and recreates the `vue` service with:
+Editable runtime data lives under:
 
 ```text
-docker-compose-prod.yml
-docker-compose-prod.frontend-local.yml
+%ProgramData%\BT_NMS\bt_agent\
+  config.json
+  runtime_config.json
+  bt_agent_ui.sqlite3
+
+%ProgramData%\BT_NMS\sy_agent\
+  config.json
+  runtime_config.json
+  runtime_sub_agent_config.json
+  sy_agent_ui.sqlite3
+  sy_agent_sub_ui.sqlite3
 ```
 
-So the production frontend serves `D:\BT_NMS\frontend\dist` from the host.
+Notes:
 
-## Notes
+- `bt_agent.exe` and `sy_agent.exe` read external `config.json` by default
+- UI programs also persist their local state to sqlite under `%ProgramData%\BT_NMS`
+- When a UI starts a child agent, it writes `runtime_config.json` and passes it through `BT_AGENT_CONFIG_JSON` or `SY_AGENT_CONFIG_JSON`
+- Existing restart/backoff behavior stays in the bat wrappers
 
-- Both agents read runtime configuration from their own Python config files:
-  - `bt_agent\config.py`
-  - `sy_agent\config.py`
-- `sy_agent` terminal UI is configured in `sy_agent\config.py` under `ui`:
-  - `mode = "dashboard"`: default top-style single-screen refresh view
-  - `mode = "plain"`: compact rolling text logs for troubleshooting or log capture
-  - `refresh_sec`: dashboard refresh interval in seconds
-  - `event_buffer_size`: recent event count shown at the bottom of the dashboard
-  - `ansi = "auto" | "always" | "never"`: set to `never` if Windows `cmd` ANSI refresh looks wrong
-- `sy_agent` background health probe is configured in `sy_agent\config.py` under `probe`:
-  - `enable`: probe the non-preferred side in the background
-  - `interval_sec`: probe interval; keep this low-frequency
-  - `timeout_sec`: probe timeout for the backup side A2 read
-  - `queue_threshold`: skip probing if receive queues are already busy
-  - `cooldown_after_fault_sec`: skip probing for a short time after recent `NoResp` or `Unmatch`
-- The scripts use the host Python from `py -3` first, then fall back to `python`.
-- `bt_agent` blocked IPs are configured through `filters.blocked_ips` in `bt_agent\config.py`.
-- Default ports in code are different:
-  - `bt_agent`: Redis `36379`, UDP listen `38315`
-  - `sy_agent`: Redis `36380`
-- `start_agents_on_boot.bat` now opens two visible `cmd` windows and keeps them open with live agent output.
+## Maintenance / Dev
+
+The source-based scripts in this folder are now maintenance-only workflows for internal use:
+
+- `prepare_frontend_offline_editing.bat`
+- `build_and_apply_frontend_dist_offline.bat`
+- `build_and_export_frontend_prod_image.bat`
+- `import_and_update_frontend_prod_image.bat`
+
+Use these only on trusted maintenance machines where keeping source code is acceptable.
+
+## Runtime Config
+
+- `bt_agent` blocks IPs through `filters.blocked_ips` in `%ProgramData%\BT_NMS\bt_agent\config.json`
+- `sy_agent` terminal UI settings remain under the `ui` section of `%ProgramData%\BT_NMS\sy_agent\config.json`
+- `sy_agent` probe settings remain under the `probe` section of `%ProgramData%\BT_NMS\sy_agent\config.json`
+
+Legacy `.py` config import/export remains available inside the UI as a development-only compatibility path. Protected deployment should use JSON only.

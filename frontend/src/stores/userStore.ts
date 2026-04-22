@@ -221,8 +221,12 @@ export const useUserStore = defineStore('user', {
     user: (state: UserState): User | null => state.auth.bt.user || state.auth.sy.user,
     isAuthenticated: (state: UserState): boolean =>
       SYSTEMS.some((system) => !!state.auth[system].token),
+    isSuperuser: (state: UserState): boolean =>
+      SYSTEMS.some((system) => !!state.auth[system].user?.is_superuser),
     isSystemAuthenticated: (state: UserState): (system: SystemType) => boolean =>
       (system: SystemType): boolean => !!state.auth[system].token,
+    isSystemSuperuser: (state: UserState): (system: SystemType) => boolean =>
+      (system: SystemType): boolean => !!state.auth[system].user?.is_superuser,
     getUser: (state: UserState): (system: SystemType) => User | null =>
       (system: SystemType): User | null => state.auth[system].user,
     hasPermission: (state: UserState): (permission: string) => boolean =>

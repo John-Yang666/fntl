@@ -115,7 +115,6 @@ services:
     expose:
       - "8000"
     volumes:
-      - ./backend:/app
       - static_data:/app/staticfiles
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
@@ -199,8 +198,6 @@ services:
     container_name: bt_nms_udp_receiver0
     command: python udp_receiver.py
     working_dir: /app
-    volumes:
-      - ./backend:/app
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
     environment:
@@ -241,8 +238,6 @@ services:
     container_name: bt_nms_summarize_alarms_container0
     command: python summarize_alarms_container.py
     working_dir: /app
-    volumes:
-      - ./backend:/app
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
     environment:
@@ -273,8 +268,6 @@ services:
     container_name: bt_nms_celery_worker0
     command: celery -A myproject worker --loglevel=info --pool=threads --concurrency=2 --without-gossip --without-mingle --without-heartbeat
     working_dir: /app
-    volumes:
-      - ./backend:/app
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
     environment:
@@ -316,8 +309,6 @@ services:
     container_name: bt_nms_celery_beat0
     command: celery -A myproject beat --loglevel=info
     working_dir: /app
-    volumes:
-      - ./backend:/app
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
     environment:

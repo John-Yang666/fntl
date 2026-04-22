@@ -52,14 +52,14 @@
 
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
-import axios from 'axios';
+import { useUserStore } from '@/stores/userStore';
 import {
   reconcilePinnedDeviceKeys,
   reconcileSelectedDeviceKeys,
   savePinnedDeviceKeys,
   saveSelectedDeviceKeys,
 } from '@/utils/selectedDevices';
-import { SYSTEMS, getApiBase, makeDeviceKey, type SystemType } from '@/utils/systems';
+import { SYSTEMS, makeDeviceKey, type SystemType } from '@/utils/systems';
 
 interface Device {
   key: string;
@@ -74,6 +74,7 @@ const allDevices = ref<Device[]>([]);
 const selectedDevices = ref<string[]>([]);
 const pinnedDevices = ref<string[]>([]);
 const DEVICE_SETTINGS_CHANGED_EVENT = 'device-settings-changed';
+const userStore = useUserStore();
 
 const deviceOptions = computed(() => {
   return [...allDevices.value]
@@ -94,13 +95,16 @@ const fetchDevices = async () => {
   try {
     const responses = await Promise.allSettled(
       SYSTEMS.map(async (system) => {
-        const response = await axios.get(`${getApiBase(system)}/devices-list/`);
+        const response = await userStore.requestWithAuth<Record<string, Array<{
+          device_id: number;
+          name: string;
+        }>>>(system, {
+          method: 'get',
+          url: '/devices-list/',
+        });
         return {
           system,
-          data: response.data as Record<string, Array<{
-            device_id: number;
-            name: string;
-          }>>,
+          data: response,
         };
       }),
     );

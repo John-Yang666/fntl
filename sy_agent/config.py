@@ -10,6 +10,11 @@ def make_devices(start_serial_id: int, end_serial_id: int, *, nms_offset: int = 
 
 
 CONFIG = {
+    "agent": {
+        "ip": "",
+        "name": "",
+        "role": "main",
+    },
     "redis": {
         "host": "localhost",
         "port": 36380,

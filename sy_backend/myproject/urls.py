@@ -5,12 +5,9 @@ from django.urls import path, include  # type: ignore
 from django.views.generic import RedirectView  # type: ignore
 
 from rest_framework.routers import DefaultRouter  # type: ignore
-from rest_framework_simplejwt.views import (  # type: ignore
-    TokenObtainPairView,
-    TokenRefreshView,
-)
 
 from myapp import views
+from myapp.auth_views import RuntimeConfigTokenObtainPairView, RuntimeConfigTokenRefreshView
 
 # 标准资源操作：用于标准的 ViewSet，适合处理标准的模型操作。
 router = DefaultRouter()
@@ -78,11 +75,12 @@ urlpatterns = [
     ),
 
     # JWT 认证
-    path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/token/", RuntimeConfigTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("api/token/refresh/", RuntimeConfigTokenRefreshView.as_view(), name="token_refresh"),
 
     # 当前登录用户信息
     path("api/user/", views.UserDetailView.as_view(), name="user_detail"),
+    path("api/runtime-config/", views.RuntimeConfigView.as_view(), name="runtime_config"),
 
     # 文件下载
     path("api/download/<int:pk>/", views.download_file, name="file-download"),

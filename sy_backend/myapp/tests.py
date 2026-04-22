@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from myapp.models import AlarmActive, ChangeBitEvent, Device, RelayAction, SwitchData
+from myapp.models import AlarmActive, ChangeBitEvent, Depot, Device, Line, RelayAction, SwitchData
 from myapp.tasks.extract_sy_alarms_task import build_sy_alarm_state
 from sy_receiver import SyFrameMessage, process_message_batch
 import sy_receiver
@@ -62,13 +62,15 @@ class FakeRedisClient:
 class SyAlarmExtractionTests(TestCase):
     def setUp(self):
         cache.clear()
+        self.depot = Depot.objects.create(name="A")
+        self.line = Line.objects.create(name="L1")
 
     def test_cable_linkage_reads_neighbor_bytes_cache(self):
         Device.objects.create(
             device_id=1,
             name="本站设备",
-            depot="A",
-            line="L1",
+            depot=self.depot,
+            line=self.line,
             ip_address="10.0.0.1",
             direction1_cable_alarm_linkage=True,
             direction1_neighbor_id=2,
@@ -77,8 +79,8 @@ class SyAlarmExtractionTests(TestCase):
         Device.objects.create(
             device_id=2,
             name="邻站设备",
-            depot="A",
-            line="L1",
+            depot=self.depot,
+            line=self.line,
             ip_address="10.0.0.2",
         )
 
@@ -103,11 +105,13 @@ class SyReceiverBatchTests(TestCase):
         self.fake_redis = FakeRedisClient()
         self.redis_patcher = patch.object(sy_receiver, "redis_client2", self.fake_redis)
         self.redis_patcher.start()
+        self.depot = Depot.objects.create(name="A")
+        self.line = Line.objects.create(name="L1")
         self.device = Device.objects.create(
             device_id=1,
             name="测试设备",
-            depot="A",
-            line="L1",
+            depot=self.depot,
+            line=self.line,
             ip_address="10.0.0.1",
         )
         sy_receiver.device_context_map = {
@@ -188,11 +192,13 @@ class SySummarizeIterationTests(TestCase):
         self.fake_redis = FakeRedisClient()
         self.redis_patcher = patch.object(sy_summarize, "redis_client", self.fake_redis)
         self.redis_patcher.start()
+        self.depot = Depot.objects.create(name="A")
+        self.line = Line.objects.create(name="L1")
         Device.objects.create(
             device_id=1,
             name="测试设备",
-            depot="A",
-            line="L1",
+            depot=self.depot,
+            line=self.line,
             ip_address="10.0.0.1",
         )
 

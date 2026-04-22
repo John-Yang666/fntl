@@ -19,7 +19,8 @@ import redis
 
 from myapp.models import Device, AlarmActive, AlarmData
 from myapp.tasks.topology_processing import process_topology_status
-from consts import ALARM_DELAY, COMMUNICATION_TIMEOUT, ALARM_CODES
+from consts import ALARM_CODES
+from myapp.runtime_config import get_alarm_delay_map, get_communication_timeout
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -47,7 +48,7 @@ def get_comm_status(device_id: int, now: datetime):
     except Exception as e:
         logger.error(f"[comm] parse error for device {device_id}: {e}")
         return None, None
-    comm_ok = (now - last_comm).total_seconds() <= COMMUNICATION_TIMEOUT
+    comm_ok = (now - last_comm).total_seconds() <= get_communication_timeout()
     return comm_ok, last_comm
 
 def hydrate_cache_from_db(device_id: int):
@@ -84,6 +85,7 @@ def hydrate_cache_from_db(device_id: int):
 def summarize_alarms():
     while True:
         current_time = timezone.now()
+        alarm_delay_map = get_alarm_delay_map()
 
         # ------- 每台设备：生成 0 号/非 0 号告警 -------
         for device in Device.objects.all():
@@ -143,7 +145,7 @@ def summarize_alarms():
                             alarm_start_time = timezone.make_aware(alarm_start_time, timezone=timezone.utc)
 
                         # 延时判定
-                        if (current_time - alarm_start_time).total_seconds() > ALARM_DELAY.get(alarm_code, 5):
+                        if (current_time - alarm_start_time).total_seconds() > alarm_delay_map.get(alarm_code, 5):
                             alarms_of_this_device[alarm_code] = {'bit_value': 1}
                             if not AlarmActive.objects.filter(device_id=device_id, alarm_code=alarm_code).exists():
                                 AlarmActive.objects.create(

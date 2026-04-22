@@ -22,11 +22,13 @@ from django.core.cache import cache  # noqa: E402
 from django.db import connection, transaction  # noqa: E402
 
 from myapp.models import AnalogData, RelayAction, SwitchData  # noqa: E402
+from myapp.runtime_config import (  # noqa: E402
+    get_heartbeat_timeout,
+    get_periodic_device_cache_refresh_interval,
+    get_switch_data_timeout,
+)
 from consts import (  # noqa: E402
-    HEARTBEAT_TIMEOUT,
     LAST_COMMUNICATION_TIME_TIMEOUT,
-    PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL,
-    SWITCH_DATA_TIMEOUT,
 )
 from ingest_common import (  # noqa: E402
     build_alarms_state,
@@ -99,9 +101,10 @@ def apply_device_cache(snapshot) -> bool:
     return True
 
 
-def periodic_device_cache_refresher(interval=PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL):
+def periodic_device_cache_refresher():
     last_hash = None
     while not should_exit.is_set():
+        interval = get_periodic_device_cache_refresh_interval()
         snapshot = load_device_cache(logger)
         if snapshot is None:
             logger.warning("[device_cache] refresh skipped due to DB read failure, keep previous snapshot")
@@ -165,6 +168,9 @@ def process_packet_batch(messages):
     if not messages:
         return metrics
 
+    switch_data_timeout = get_switch_data_timeout()
+    heartbeat_timeout = get_heartbeat_timeout()
+
     latest_hb_by_device = {}
     for msg in messages:
         latest_hb_by_device[msg.device_id] = msg
@@ -199,11 +205,11 @@ def process_packet_batch(messages):
         non_dedup_messages.append(msg)
 
         if msg.length == 54:
-            ttl = SWITCH_DATA_TIMEOUT
+            ttl = switch_data_timeout
         elif msg.length == 20:
-            ttl = HEARTBEAT_TIMEOUT
+            ttl = heartbeat_timeout
         else:
-            ttl = max(SWITCH_DATA_TIMEOUT, HEARTBEAT_TIMEOUT)
+            ttl = max(switch_data_timeout, heartbeat_timeout)
 
         last_raw_updates[msg.device_id] = (msg.data, ttl, msg.length == 54)
 
@@ -213,7 +219,7 @@ def process_packet_batch(messages):
             dedup_pipe.set(f"device:{device_id}:last_raw", last_raw, ex=ttl)
             if is_switch_packet:
                 packet_hash = hashlib.sha256(last_raw).hexdigest().encode()
-                dedup_pipe.set(f"device_{device_id}_last_switch_packet_hash", packet_hash, ex=SWITCH_DATA_TIMEOUT)
+                dedup_pipe.set(f"device_{device_id}_last_switch_packet_hash", packet_hash, ex=get_switch_data_timeout())
         dedup_pipe.execute()
 
     if not non_dedup_messages:

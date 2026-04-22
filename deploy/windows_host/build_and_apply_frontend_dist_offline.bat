@@ -23,6 +23,7 @@ if not exist "%ROOT%\frontend\npm-cache\_cacache" (
 pushd "%ROOT%"
 
 echo [INFO] Building frontend dist offline from local source...
+echo [INFO] Maintenance/dev workflow only. Protected deploys should ship dist or image artifacts, not source.
 docker run --rm --network none ^
   -v "%ROOT%\frontend:/app" ^
   -w /app ^

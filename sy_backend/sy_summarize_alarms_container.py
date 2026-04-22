@@ -14,8 +14,9 @@ from django.core.cache import cache  # noqa: E402
 from django.utils import timezone  # noqa: E402
 import redis  # noqa: E402
 
-from consts import COMMUNICATION_TIMEOUT, SY_ALARM_CODES, SY_ALARM_DELAY  # noqa: E402
+from consts import SY_ALARM_CODES  # noqa: E402
 from myapp.models import AlarmActive, AlarmData, Device  # noqa: E402
+from myapp.runtime_config import get_alarm_delay_map, get_communication_timeout  # noqa: E402
 from myapp.tasks.extract_sy_alarms_task import build_sy_alarm_state  # noqa: E402
 from myapp.tasks.sy_device_context import (  # noqa: E402
     hash_sy_device_context_cache,
@@ -115,11 +116,11 @@ def get_comm_status_from_raw(
             elapsed = now_monotonic - float(raw_monotonic)
             if elapsed < 0:
                 elapsed = 0.0
-            return elapsed <= COMMUNICATION_TIMEOUT, last_comm
+            return elapsed <= get_communication_timeout(), last_comm
         except (TypeError, ValueError) as exc:
             logger.warning("[comm] invalid monotonic device=%s err=%s", device_id, exc)
 
-    return (now - last_comm).total_seconds() <= COMMUNICATION_TIMEOUT, last_comm
+    return (now - last_comm).total_seconds() <= get_communication_timeout(), last_comm
 
 
 def build_comm_status_map(device_ids: list[int], now: datetime, now_monotonic: float):
@@ -268,6 +269,7 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
     state = state or {}
     current_time = timezone.now()
     current_monotonic = time.monotonic()
+    alarm_delay_map = get_alarm_delay_map()
 
     device_ids_cache = state.get("device_ids_cache", [])
     next_device_cache_refresh = state.get("next_device_cache_refresh", 0.0)
@@ -463,7 +465,7 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
             if timezone.is_naive(alarm_start_time):
                 alarm_start_time = timezone.make_aware(alarm_start_time, timezone=timezone.utc)
 
-            delay_seconds = SY_ALARM_DELAY.get(alarm_code, 5)
+            delay_seconds = alarm_delay_map.get(alarm_code, 5)
             if (current_time - alarm_start_time).total_seconds() <= delay_seconds:
                 continue
 

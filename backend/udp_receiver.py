@@ -15,7 +15,6 @@ import django  # noqa
 
 django.setup()  # noqa
 
-from consts import PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL  # noqa: E402
 from ingest_common import (  # noqa: E402
     PacketMessage,
     ensure_stream_group,
@@ -24,6 +23,7 @@ from ingest_common import (  # noqa: E402
     parse_router_entry,
     read_stream_entries,
 )
+from myapp.runtime_config import get_periodic_device_cache_refresh_interval  # noqa: E402
 import udp_receiver_worker as worker_impl  # noqa: E402
 
 
@@ -56,9 +56,10 @@ def apply_device_cache(snapshot) -> bool:
     return True
 
 
-def periodic_device_cache_refresher(interval=PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL):
+def periodic_device_cache_refresher():
     last_hash = None
     while not should_exit.is_set():
+        interval = get_periodic_device_cache_refresh_interval()
         snapshot = load_device_cache(logger)
         if snapshot is None:
             logger.warning("[device_cache] refresh skipped due to DB read failure, keep previous snapshot")

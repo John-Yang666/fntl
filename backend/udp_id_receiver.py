@@ -20,7 +20,12 @@ import redis
 import hashlib
 from confluent_kafka import Consumer
 from myapp.models import Device
-from consts import LAST_COMMUNICATION_TIME_TIMEOUT, SWITCH_DATA_TIMEOUT, HEARTBEAT_TIMEOUT, PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL
+from consts import LAST_COMMUNICATION_TIME_TIMEOUT
+from myapp.runtime_config import (
+    get_heartbeat_timeout,
+    get_periodic_device_cache_refresh_interval,
+    get_switch_data_timeout,
+)
 
 # 日志设置
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -62,10 +67,11 @@ def load_device_cache():
         return set()
 
 # === 周期性刷新设备缓存 ===
-def periodic_device_cache_refresher(interval=PERIODIC_DEVICE_CACHE_REFRESH_INTERVAL):
+def periodic_device_cache_refresher():
     global device_cache
     last_device_ids_hash = None
     while not should_exit.is_set():
+        interval = get_periodic_device_cache_refresh_interval()
         time.sleep(interval)
         new_cache = load_device_cache()
         new_hash = hash(frozenset(new_cache))
@@ -120,7 +126,7 @@ def handle_packet(data):
 
         if len(data) == 54:
             redis_key_hash = f"device_{device_id}_last_switch_packet_hash"
-            redis_client.set(redis_key_hash, packet_hash.encode(), ex=SWITCH_DATA_TIMEOUT)
+            redis_client.set(redis_key_hash, packet_hash.encode(), ex=get_switch_data_timeout())
             send_packet_to_stream(data)
             logger.info(f"Switch data from device {device_id} sent to stream.")
         elif len(data) == 20:
@@ -179,7 +185,7 @@ def receiver():
 
     while not should_exit.is_set():
         time.sleep(1)
-        if (datetime.now(timezone.utc) - last_packet_time).total_seconds() > HEARTBEAT_TIMEOUT:
+        if (datetime.now(timezone.utc) - last_packet_time).total_seconds() > get_heartbeat_timeout():
             logger.error("Heartbeat timeout! Exiting UDP receiver...")
             should_exit.set()
             exit(1)

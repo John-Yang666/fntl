@@ -13,7 +13,7 @@
         :key="station.uniqueKey" 
         :index="station.uniqueKey"
         @click="navigateToDevice(station)">
-        {{ station.name }}
+        {{ formatStationLabel(station) }}
       </el-menu-item>
     </el-sub-menu>
   </el-menu>
@@ -22,8 +22,8 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import axios from 'axios';
-import { SYSTEMS, getApiBase, getSystemFromRoute, makeDeviceKey, type SystemType } from '@/utils/systems';
+import { useUserStore } from '@/stores/userStore';
+import { SYSTEMS, getSystemFromRoute, makeDeviceKey, type SystemType } from '@/utils/systems';
 
 interface Device {
   system: SystemType;
@@ -31,6 +31,7 @@ interface Device {
   device_id: number;
   name: string;
   ip_address: string;
+  depot?: string;
 }
 
 interface GroupedDevices {
@@ -42,20 +43,25 @@ const activeDeviceKey = ref<string | undefined>(undefined);
 
 const router = useRouter();
 const route = useRoute();
+const userStore = useUserStore();
 const emit = defineEmits(['device-selected']);
 
 const fetchDevices = async () => {
   try {
     const responses = await Promise.allSettled(
       SYSTEMS.map(async (system) => {
-        const response = await axios.get(`${getApiBase(system)}/devices-list/`);
+        const response = await userStore.requestWithAuth<Record<string, Array<{
+          device_id: number;
+          name: string;
+          ip_address: string;
+          depot?: string;
+        }>>>(system, {
+          method: 'get',
+          url: '/devices-list/',
+        });
         return {
           system,
-          data: response.data as Record<string, Array<{
-            device_id: number;
-            name: string;
-            ip_address: string;
-          }>>,
+          data: response,
         };
       }),
     );
@@ -122,6 +128,14 @@ const handleOpen = (key: string, keyPath: string[]) => {
 
 const handleClose = (key: string, keyPath: string[]) => {
   console.log(key, keyPath);
+};
+
+const formatStationLabel = (station: Device) => {
+  if (!station.depot) {
+    return station.name;
+  }
+
+  return `${station.name}（${station.depot}）`;
 };
 
 const navigateToDevice = (station: Device) => {

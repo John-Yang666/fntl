@@ -1,5 +1,26 @@
 <template>
   <div class="records-view">
+    <section class="system-selector-card">
+      <div class="system-selector-row">
+        <h2 class="system-selector-title">设备选择</h2>
+        <el-select v-model="selectedSystem" class="system-selector" style="width: 140px;">
+          <el-option v-for="system in systems" :key="system" :label="labels[system]" :value="system" />
+        </el-select>
+      </div>
+    </section>
+
+    <section v-if="canOpenAdmin" class="system-summary-card">
+      <div class="summary-header">
+        <h2>打开后端界面</h2>
+        <div class="summary-actions">
+          <el-button @click="openAdmin(selectedSystem, 'alarmdata')">历史告警记录</el-button>
+          <el-button @click="openAdmin(selectedSystem, 'relayaction')">继电器动作记录</el-button>
+          <el-button @click="openAdmin(selectedSystem, 'useroperation')">用户操作记录</el-button>
+          <el-button @click="openAdmin(selectedSystem, 'device')">设备信息</el-button>
+        </div>
+      </div>
+    </section>
+
     <section class="filter-section">
       <div class="filter-header">
         <h2>记录查询</h2>
@@ -10,12 +31,6 @@
       </div>
 
       <el-form inline class="query-form">
-        <el-form-item label="系统">
-          <el-select v-model="selectedSystem" style="width: 140px;">
-            <el-option v-for="system in systems" :key="system" :label="labels[system]" :value="system" />
-          </el-select>
-        </el-form-item>
-
         <el-form-item label="时间范围">
           <el-date-picker
             v-model="timeRange"
@@ -84,32 +99,6 @@
         show-icon
         :title="errors.devices"
       />
-    </section>
-
-    <section class="system-summary-card">
-      <div class="summary-header">
-        <h2>{{ labels[selectedSystem] }} 记录概览</h2>
-        <div class="summary-actions">
-          <span class="summary-actions-label">打开后端界面：</span>
-          <el-button @click="openAdmin(selectedSystem, 'alarmdata')">历史告警记录</el-button>
-          <el-button @click="openAdmin(selectedSystem, 'relayaction')">继电器动作记录</el-button>
-          <el-button @click="openAdmin(selectedSystem, 'useroperation')">用户操作记录</el-button>
-        </div>
-      </div>
-      <div class="summary-stats">
-        <div class="stat-card">
-          <span class="stat-label">历史告警</span>
-          <strong>{{ alertsTotalText }}</strong>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">继电器动作</span>
-          <strong>{{ relayPagination.total }}</strong>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">用户操作</span>
-          <strong>{{ userOperationPagination.total }}</strong>
-        </div>
-      </div>
     </section>
 
     <section class="table-section">
@@ -189,7 +178,7 @@
       <div class="section-header">
         <h2>继电器动作</h2>
         <div class="section-actions">
-          <span class="section-count">{{ relayPagination.total }} 条</span>
+          <span class="section-count">{{ relayTotalText }} 条</span>
           <el-button v-if="errors.relayActions" size="small" @click="retryRelayActions">重试</el-button>
         </div>
       </div>
@@ -232,7 +221,7 @@
       <div class="section-header">
         <h2>用户操作记录</h2>
         <div class="section-actions">
-          <span class="section-count">{{ userOperationPagination.total }} 条</span>
+          <span class="section-count">{{ userOperationTotalText }} 条</span>
           <el-button v-if="errors.userOperations" size="small" @click="retryUserOperations">重试</el-button>
         </div>
       </div>
@@ -247,8 +236,16 @@
       />
 
       <el-table :data="userOperations" stripe v-loading="loading.userOperations">
-        <el-table-column prop="device_id" label="设备ID" width="100" />
-        <el-table-column prop="device_name" label="设备名称" min-width="180" />
+        <el-table-column prop="device_id" label="设备ID" width="100">
+          <template #default="{ row }">
+            {{ row.device_id ?? '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="device_name" label="设备名称" min-width="180">
+          <template #default="{ row }">
+            {{ row.device_name || '系统级操作' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="function_code" label="操作码" min-width="120" />
         <el-table-column prop="operation" label="操作名称" min-width="150" />
         <el-table-column prop="username" label="用户名" min-width="120">
@@ -280,9 +277,9 @@
 
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import axios from 'axios';
 import { ElMessage } from 'element-plus';
-import { SYSTEM_LABELS, SYSTEMS, getApiBase, getSystemOrigin, type SystemType } from '@/utils/systems';
+import { useUserStore } from '@/stores/userStore';
+import { SYSTEM_LABELS, SYSTEMS, getSystemOrigin, type SystemType } from '@/utils/systems';
 
 interface DeviceOption {
   device_id: number;
@@ -313,8 +310,8 @@ interface RelayActionRecord {
 
 interface UserOperationRecord {
   id: string;
-  device_id: number;
-  device_name: string;
+  device_id: number | null;
+  device_name: string | null;
   function_code: string;
   operation: string;
   username: string | null;
@@ -333,7 +330,30 @@ type CountResponse = {
 
 const systems = SYSTEMS;
 const labels = SYSTEM_LABELS;
-const selectedSystem = ref<SystemType>('bt');
+const RECORDS_SELECTED_SYSTEM_KEY = 'records:selectedSystem';
+const userStore = useUserStore();
+
+const loadStoredSystem = (): SystemType => {
+  if (typeof window === 'undefined') {
+    return 'bt';
+  }
+
+  const storedSystem = window.localStorage.getItem(RECORDS_SELECTED_SYSTEM_KEY);
+  if (storedSystem && systems.includes(storedSystem as SystemType)) {
+    return storedSystem as SystemType;
+  }
+
+  return 'bt';
+};
+
+const persistSelectedSystem = (system: SystemType) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(RECORDS_SELECTED_SYSTEM_KEY, system);
+};
+
+const selectedSystem = ref<SystemType>(loadStoredSystem());
 
 const defaultTimeRange = (): [Date, Date] => {
   const end = new Date();
@@ -384,12 +404,14 @@ const relayPagination = reactive({
   page: 1,
   pageSize: 20,
   total: 0,
+  approximateTotal: false,
 });
 
 const userOperationPagination = reactive({
   page: 1,
   pageSize: 20,
   total: 0,
+  approximateTotal: false,
 });
 
 const isRefreshing = computed(() =>
@@ -412,6 +434,14 @@ const lastUpdatedText = computed(() => {
 
 const alertsTotalText = computed(() => (
   `${alertsPagination.approximateTotal ? '约 ' : ''}${alertsPagination.total}`
+));
+
+const relayTotalText = computed(() => (
+  `${relayPagination.approximateTotal ? '约 ' : ''}${relayPagination.total}`
+));
+
+const userOperationTotalText = computed(() => (
+  `${userOperationPagination.approximateTotal ? '约 ' : ''}${userOperationPagination.total}`
 ));
 
 const formatToLocalTime = (timestamp: string | null): string => {
@@ -465,6 +495,11 @@ const openAdmin = (system: SystemType, model: string) => {
   window.open(`${getSystemOrigin(system)}/admin/myapp/${model}/`, '_blank');
 };
 
+const canOpenAdmin = computed(() => {
+  const user = userStore.getUser(selectedSystem.value);
+  return !!user?.is_staff;
+});
+
 const toStartOfDayIso = (date: Date): string => {
   const value = new Date(date);
   value.setHours(0, 0, 0, 0);
@@ -495,8 +530,13 @@ const loadDevicesForSystem = async () => {
   errors.devices = null;
 
   try {
-    const response = await axios.get(`${getApiBase(selectedSystem.value)}/devices-list/`);
-    const data = response.data as Record<string, Array<{ device_id: number; name: string }>>;
+    const data = await userStore.requestWithAuth<Record<string, Array<{ device_id: number; name: string }>>>(
+      selectedSystem.value,
+      {
+        method: 'get',
+        url: '/devices-list/',
+      },
+    );
 
     const lines = Object.keys(data);
     const devices: DeviceOption[] = [];
@@ -554,8 +594,24 @@ const buildAlertsQuery = (): URLSearchParams => {
 };
 
 const requestAlertsCount = async (query: URLSearchParams): Promise<CountResponse> => {
-  const response = await axios.get(`${getApiBase(selectedSystem.value)}/alerts/count/?${query.toString()}`);
-  return response.data as CountResponse;
+  return userStore.requestWithAuth<CountResponse>(selectedSystem.value, {
+    method: 'get',
+    url: `/alerts/count/?${query.toString()}`,
+  });
+};
+
+const requestRelayActionsCount = async (query: URLSearchParams): Promise<CountResponse> => {
+  return userStore.requestWithAuth<CountResponse>(selectedSystem.value, {
+    method: 'get',
+    url: `/relay-actions/count/?${query.toString()}`,
+  });
+};
+
+const requestUserOperationsCount = async (query: URLSearchParams): Promise<CountResponse> => {
+  return userStore.requestWithAuth<CountResponse>(selectedSystem.value, {
+    method: 'get',
+    url: `/user-operations/count/?${query.toString()}`,
+  });
 };
 
 const fetchAlerts = async (options: { refreshTotal?: boolean } = {}) => {
@@ -568,12 +624,13 @@ const fetchAlerts = async (options: { refreshTotal?: boolean } = {}) => {
     const pageQuery = buildAlertsQuery();
     pageQuery.set('include_count', '0');
 
-    const pageResponse = await axios.get(`${getApiBase(selectedSystem.value)}/alerts/?${pageQuery.toString()}`);
+    const data = await userStore.requestWithAuth<ListResponse<AlertRecord>>(selectedSystem.value, {
+      method: 'get',
+      url: `/alerts/?${pageQuery.toString()}`,
+    });
     if (requestId !== alertsRequestId.value) {
       return;
     }
-
-    const data = pageResponse.data as ListResponse<AlertRecord>;
 
     alerts.value = data.results;
 
@@ -610,9 +667,12 @@ const fetchAlerts = async (options: { refreshTotal?: boolean } = {}) => {
   }
 };
 
-const resolveDeviceName = (deviceId: number, fallbackName?: string): string => {
+const resolveDeviceName = (deviceId: number | null, fallbackName?: string | null): string => {
   if (fallbackName) {
     return fallbackName;
+  }
+  if (deviceId === null) {
+    return '系统级操作';
   }
   return deviceOptions.value.find((device) => device.device_id === deviceId)?.name || `设备 ${deviceId}`;
 };
@@ -625,10 +685,10 @@ const fetchRelayActions = async () => {
     const query = new URLSearchParams();
     query.set('page', String(relayPagination.page));
     query.set('page_size', String(relayPagination.pageSize));
+    query.set('include_count', '0');
     applyCommonFilters(query, 'timestamp');
 
-    const response = await axios.get(`${getApiBase(selectedSystem.value)}/relay-actions/?${query.toString()}`);
-    const data = response.data as ListResponse<{
+    const data = await userStore.requestWithAuth<ListResponse<{
       id: string;
       device?: number;
       device_id?: number;
@@ -636,7 +696,10 @@ const fetchRelayActions = async () => {
       relay: string;
       action: string;
       timestamp: string;
-    }>;
+    }>>(selectedSystem.value, {
+      method: 'get',
+      url: `/relay-actions/?${query.toString()}`,
+    });
 
     relayActions.value = data.results.map((record) => {
       const deviceId = record.device_id ?? record.device ?? 0;
@@ -650,12 +713,22 @@ const fetchRelayActions = async () => {
       };
     });
 
-    relayPagination.total = data.count ?? data.results.length;
+    requestRelayActionsCount(new URLSearchParams(query))
+      .then((countData) => {
+        relayPagination.total = countData.count ?? data.results.length;
+        relayPagination.approximateTotal = Boolean(countData.approximate);
+      })
+      .catch((error) => {
+        console.error('加载继电器动作总数失败:', error);
+        relayPagination.total = data.results.length;
+        relayPagination.approximateTotal = false;
+      });
   } catch (error) {
     console.error('加载继电器动作失败:', error);
     errors.relayActions = '继电器动作加载失败，请重试。';
     relayActions.value = [];
     relayPagination.total = 0;
+    relayPagination.approximateTotal = false;
     throw error;
   } finally {
     loading.relayActions = false;
@@ -670,22 +743,25 @@ const fetchUserOperations = async () => {
     const query = new URLSearchParams();
     query.set('page', String(userOperationPagination.page));
     query.set('page_size', String(userOperationPagination.pageSize));
+    query.set('include_count', '0');
     applyCommonFilters(query, 'timestamp');
 
-    const response = await axios.get(`${getApiBase(selectedSystem.value)}/user-operations/?${query.toString()}`);
-    const data = response.data as ListResponse<{
+    const data = await userStore.requestWithAuth<ListResponse<{
       id: string;
-      device?: number;
-      device_id?: number;
-      device_name?: string;
+      device?: number | null;
+      device_id?: number | null;
+      device_name?: string | null;
       function_code: string;
       operation: string;
       username: string | null;
       timestamp: string;
-    }>;
+    }>>(selectedSystem.value, {
+      method: 'get',
+      url: `/user-operations/?${query.toString()}`,
+    });
 
     userOperations.value = data.results.map((record) => {
-      const deviceId = record.device_id ?? record.device ?? 0;
+      const deviceId = record.device_id ?? record.device ?? null;
       return {
         id: record.id,
         device_id: deviceId,
@@ -696,12 +772,22 @@ const fetchUserOperations = async () => {
         timestamp: record.timestamp,
       };
     });
-    userOperationPagination.total = data.count ?? data.results.length;
+    requestUserOperationsCount(new URLSearchParams(query))
+      .then((countData) => {
+        userOperationPagination.total = countData.count ?? data.results.length;
+        userOperationPagination.approximateTotal = Boolean(countData.approximate);
+      })
+      .catch((error) => {
+        console.error('加载用户操作总数失败:', error);
+        userOperationPagination.total = data.results.length;
+        userOperationPagination.approximateTotal = false;
+      });
   } catch (error) {
     console.error('加载用户操作记录失败:', error);
     errors.userOperations = '用户操作记录加载失败，请重试。';
     userOperations.value = [];
     userOperationPagination.total = 0;
+    userOperationPagination.approximateTotal = false;
     throw error;
   } finally {
     loading.userOperations = false;
@@ -794,7 +880,10 @@ const confirmHistoricalAlert = async (alert: AlertRecord) => {
 
   confirmingAlertIds.value = [...confirmingAlertIds.value, alert.id];
   try {
-    await axios.post(`${getApiBase(selectedSystem.value)}/alerts/${alert.id}/confirm/`);
+    await userStore.requestWithAuth(selectedSystem.value, {
+      method: 'post',
+      url: `/alerts/${alert.id}/confirm/`,
+    });
     alert.is_confirmed = true;
     ElMessage.success('历史告警已确认');
   } catch (error) {
@@ -832,7 +921,8 @@ const handleUserOperationSizeChange = async () => {
   await fetchUserOperations();
 };
 
-watch(selectedSystem, async () => {
+watch(selectedSystem, async (system) => {
+  persistSelectedSystem(system);
   selectedLine.value = '';
   selectedDeviceId.value = 'all';
   alertsPagination.page = 1;
@@ -851,6 +941,7 @@ watch(selectedLine, () => {
 });
 
 onMounted(async () => {
+  persistSelectedSystem(selectedSystem.value);
   await refreshAll(true);
 });
 </script>
@@ -861,6 +952,27 @@ onMounted(async () => {
   flex-direction: column;
   gap: 18px;
   margin-top: 16px;
+}
+
+.system-selector-card {
+  border: 1px solid #dcdfe6;
+  border-radius: 12px;
+  padding: 16px 20px;
+  background: #ffffff;
+}
+
+.system-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.system-selector-title {
+  margin: 0;
+}
+
+.system-selector {
+  max-width: 180px;
 }
 
 .filter-section {
@@ -908,10 +1020,10 @@ onMounted(async () => {
 
 .summary-header {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-start;
   gap: 16px;
-  align-items: flex-start;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
 .summary-header h2 {
@@ -923,37 +1035,7 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.summary-actions-label {
-  color: #5b6b82;
-  font-size: 14px;
-}
-
-.summary-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.stat-card {
-  padding: 14px 16px;
-  border-radius: 10px;
-  background: #eef5ff;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stat-label {
-  color: #5b6b82;
-  font-size: 14px;
-}
-
-.stat-card strong {
-  font-size: 24px;
-  color: #1d4ed8;
+  justify-content: flex-start;
 }
 
 .table-section {

@@ -192,13 +192,16 @@ const sendPacketCommand = async (
 };
 
 const getNeighborInfo = async () => {
-  const response = await axios.get(`${baseURL()}/devices/?device_id=${device_id}`);
+  const response = await userStore.requestWithAuth<any>(getSystemFromRoute(route.params.system), {
+    method: 'get',
+    url: `/devices/?device_id=${device_id}`,
+  });
 
-  if (response.data.results.length === 0) {
+  if (response.results.length === 0) {
     throw new Error('未找到设备信息。');
   }
 
-  const deviceData = response.data.results[0];
+  const deviceData = response.results[0];
   const neighborId = selectedDirection.value === 'direction1'
     ? deviceData.direction1_neighbor_id
     : deviceData.direction2_neighbor_id;

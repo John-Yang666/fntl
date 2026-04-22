@@ -94,7 +94,6 @@ services:
     expose:
       - "8000"
     volumes:
-      - ./sy_backend:/app
       - static_data:/app/staticfiles
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
@@ -172,8 +171,6 @@ services:
     <<: *sy_django_image
     container_name: bt_nms_sy_receiver0
     command: python sy_receiver.py
-    volumes:
-      - ./sy_backend:/app
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
     environment:
@@ -209,8 +206,6 @@ services:
     <<: *sy_django_image
     container_name: bt_nms_sy_summarize_alarms_container0
     command: python sy_summarize_alarms_container.py
-    volumes:
-      - ./sy_backend:/app
     working_dir: /app
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
@@ -232,8 +227,6 @@ services:
     <<: *sy_django_image
     container_name: bt_nms_sy_celery_worker0
     command: celery -A myproject worker --loglevel=info --pool=threads --concurrency=2 --without-gossip --without-mingle --without-heartbeat
-    volumes:
-      - ./sy_backend:/app
     environment:
       - DEBUG=${DEBUG:-false}
       - DJANGO_SETTINGS_MODULE=myproject.settings
@@ -251,8 +244,6 @@ services:
     <<: *sy_django_image
     container_name: bt_nms_sy_celery_beat0
     command: celery -A myproject beat --loglevel=info
-    volumes:
-      - ./sy_backend:/app
     environment:
       - DEBUG=${DEBUG:-false}
       - DJANGO_SETTINGS_MODULE=myproject.settings

@@ -69,7 +69,7 @@ const files = ref<Record<SystemType, UploadedFile[]>>({
 
 const isAdmin = computed(() => {
   const user = userStore.getUser(activeSystem.value);
-  return !!user?.groups?.includes('System Admin') || !!user?.is_superuser;
+  return !!user?.is_superuser;
 });
 
 const currentFiles = computed(() => files.value[activeSystem.value]);

@@ -45,7 +45,7 @@ ALARM_MEANINGS = {
 }
 
 # 通信超时参数（秒）(0号告警延时参数)
-COMMUNICATION_TIMEOUT = 10 #60
+COMMUNICATION_TIMEOUT = 60 #60
 
 # 告警延时参数（秒）
 ALARM_DELAY = {

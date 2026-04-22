@@ -55,6 +55,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/runtime-config',
+    name: 'runtimeConfig',
+    component: () => import('../views/RuntimeConfigView.vue'),
+    meta: { requiresAuth: true, requiresSuperuser: true }
+  },
+  {
     path: '/topology',
     name: 'TopologyGraph',
     component: () => import('../views/TopologyGraph.vue'),
@@ -97,6 +103,10 @@ router.beforeEach(async (to, from, next) => {
     } else {
       try {
         await userStore.ensureUsersLoaded();
+        if (to.matched.some((record) => record.meta.requiresSuperuser) && !userStore.isSuperuser) {
+          next({ path: '/main' });
+          return;
+        }
         next();
       } catch (error) {
         await userStore.logout();

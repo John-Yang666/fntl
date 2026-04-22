@@ -292,16 +292,17 @@ const sendModeToNeighbor = async () => {
   }
 
   try {
-    const res = await axios.get(
-      `${baseURL()}/devices/?device_id=${device_id}`
-    );
+    const res = await userStore.requestWithAuth<any>(getSystemFromRoute(route.params.system), {
+      method: 'get',
+      url: `/devices/?device_id=${device_id}`,
+    });
 
-    if (!res.data.results?.length) {
+    if (!res.results?.length) {
       ElMessage.error('未找到设备信息。');
       return;
     }
 
-    const deviceData = res.data.results[0];
+    const deviceData = res.results[0];
 
     const neighborId =
       selectedDirection.value === 'direction1'

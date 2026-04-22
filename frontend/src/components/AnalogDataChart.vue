@@ -162,9 +162,9 @@
 
 <script lang="ts" setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
-import axios from 'axios';
 import { useRoute } from 'vue-router';
 import { Line } from 'vue-chartjs';
+import { useUserStore } from '@/stores/userStore';
 import {
   Chart as ChartJS,
   type Chart,
@@ -184,7 +184,7 @@ import {
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import zoomPlugin from 'chartjs-plugin-zoom';
-import { getApiBase, getSystemFromRoute, getWsBase } from '@/utils/systems';
+import { getSystemFromRoute, getWsBase } from '@/utils/systems';
 
 type QuickRangeKey = '5m' | '30m' | '2h' | '24h' | 'custom';
 type SeriesKey = 'voltage_1' | 'voltage_2' | 'current_1' | 'current_2';
@@ -477,6 +477,7 @@ ChartJS.register(
 );
 
 const route = useRoute();
+const userStore = useUserStore();
 const rawData = ref<{ analog: AnalogData[]; relay: RelayActionData[] }>({ analog: [], relay: [] });
 const deviceId = ref<number>(parseInt(Array.isArray(route.params.index) ? route.params.index[0] : (route.params.index as string), 10));
 const loading = ref(false);
@@ -982,13 +983,18 @@ const relayAxisBounds = computed(() => ({
 }));
 
 const realtimeEnabled = computed(() => !endTime.value);
+const monitorWsQuery = computed(() => {
+  const system = getSystemFromRoute(route.params.system);
+  const token = userStore.auth[system].token;
+  return token ? `?token=${encodeURIComponent(token)}` : '';
+});
 const directMonitorWsUrl = computed(() => {
   const system = getSystemFromRoute(route.params.system);
-  return `${getWsBase(system)}/ws/device-monitor/${deviceId.value}/`;
+  return `${getWsBase(system)}/ws/device-monitor/${deviceId.value}/${monitorWsQuery.value}`;
 });
 const sameOriginMonitorWsUrl = computed(() => {
   const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${wsScheme}://${window.location.host}/ws/device-monitor/${deviceId.value}/`;
+  return `${wsScheme}://${window.location.host}/ws/device-monitor/${deviceId.value}/${monitorWsQuery.value}`;
 });
 const monitorWsUrls = computed(() => {
   const urls = [sameOriginMonitorWsUrl.value, directMonitorWsUrl.value];
@@ -1545,8 +1551,15 @@ async function fetchAnalogData() {
     params.timestamp__lte = new Date().toISOString();
   }
 
-  const response = await axios.get(`${getApiBase(getSystemFromRoute(route.params.system))}/analog-data/`, { params });
-  rawData.value.analog = sortAnalogRows(filterAllowedAnalogRows(response.data.results ?? []));
+  const response = await userStore.requestWithAuth<{ results?: AnalogData[] }>(
+    getSystemFromRoute(route.params.system),
+    {
+      method: 'get',
+      url: '/analog-data/',
+      params,
+    },
+  );
+  rawData.value.analog = sortAnalogRows(filterAllowedAnalogRows(response.results ?? []));
 }
 
 async function fetchRelayData() {
@@ -1561,8 +1574,15 @@ async function fetchRelayData() {
     params.timestamp__lte = new Date().toISOString();
   }
 
-  const response = await axios.get(`${getApiBase(getSystemFromRoute(route.params.system))}/relay-actions/`, { params });
-  rawData.value.relay = sortRelayRows(filterAllowedRelayRows(response.data.results ?? []));
+  const response = await userStore.requestWithAuth<{ results?: RelayActionData[] }>(
+    getSystemFromRoute(route.params.system),
+    {
+      method: 'get',
+      url: '/relay-actions/',
+      params,
+    },
+  );
+  rawData.value.relay = sortRelayRows(filterAllowedRelayRows(response.results ?? []));
 }
 
 async function fetchData() {
