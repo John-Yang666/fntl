@@ -22,16 +22,23 @@ def my_daily_task(
         ("UserOperation", cleanup_user_operation, user_operation_days),
     ]
 
-    errors = []
+    summary = {}
     for name, fn, days in jobs:
         try:
             result = fn(days)
             print(f"Cleanup {name} result: {result}")
+            summary[name] = result
         except Exception as exc:
-            msg = f"Cleanup {name} failed: {exc}"
+            msg = f"{type(exc).__name__}: {exc}"
             print(msg)
-            errors.append(msg)
+            summary[name] = {
+                "status": "failed",
+                "model": name,
+                "error": msg,
+                "candidate_count": 0,
+                "deleted_count": 0,
+                "export_path": "",
+            }
 
-    if errors:
-        return f"my daily task completed with {len(errors)} error(s)."
-    return "my daily task completed."
+    print(f"Cleanup summary: {summary}")
+    return summary

@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
+from django_celery_beat.models import CrontabSchedule, PeriodicTask
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
@@ -42,6 +43,26 @@ class RuntimeConfigApiTests(APITestCase):
             email="user@example.com",
             password="user123",
         )
+        schedule, _ = CrontabSchedule.objects.get_or_create(
+            minute="0",
+            hour="3",
+            day_of_week="*",
+            day_of_month="*",
+            month_of_year="*",
+        )
+        self.periodic_task, _ = PeriodicTask.objects.get_or_create(
+            name="My Daily Task",
+            defaults={
+                "task": "myapp.tasks.my_daily_task.my_daily_task",
+                "crontab": schedule,
+                "args": "[7, 30, 30, 90, 90, 366]",
+            },
+        )
+        if self.periodic_task.crontab_id != schedule.id or self.periodic_task.args != "[7, 30, 30, 90, 90, 366]":
+            self.periodic_task.task = "myapp.tasks.my_daily_task.my_daily_task"
+            self.periodic_task.crontab = schedule
+            self.periodic_task.args = "[7, 30, 30, 90, 90, 366]"
+            self.periodic_task.save(update_fields=["task", "crontab", "args"])
 
     def test_runtime_config_requires_superuser(self):
         self.client.force_authenticate(user=self.user)
@@ -77,6 +98,42 @@ class RuntimeConfigApiTests(APITestCase):
             self.assertEqual(operation.function_code, "runtime_config_update")
             self.assertEqual(operation.username, self.superuser.username)
 
+    def test_runtime_config_get_returns_cleanup_values(self):
+        self.client.force_authenticate(user=self.superuser)
+        response = self.client.get(reverse("runtime_config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["values"]["CLEANUP_SCHEDULE_TIME"], "03:00")
+        self.assertEqual(response.data["values"]["CLEANUP_RAW_FRAME_LOG_DAYS"], 7)
+
+    def test_runtime_config_put_updates_cleanup_schedule_and_retention(self):
+        payload = build_runtime_config_payload(force_refresh=True)["values"]
+        updated_values = deepcopy(payload)
+        updated_values["CLEANUP_SCHEDULE_TIME"] = "05:15"
+        updated_values["CLEANUP_CHANGE_BIT_EVENT_DAYS"] = 45
+
+        self.client.force_authenticate(user=self.superuser)
+        response = self.client.put(
+            reverse("runtime_config"),
+            {"values": updated_values},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.periodic_task.refresh_from_db()
+        self.assertEqual(self.periodic_task.args, "[7, 30, 45, 90, 90, 366]")
+        self.assertEqual(self.periodic_task.crontab.hour, "5")
+        self.assertEqual(self.periodic_task.crontab.minute, "15")
+        operations = list(UserOperation.objects.order_by("operation"))
+        self.assertEqual(
+            [operation.operation for operation in operations],
+            sorted(
+                [
+                    "修改SY系统设置（CLEANUP_CHANGE_BIT_EVENT_DAYS: 30->45）",
+                    "修改SY系统设置（CLEANUP_SCHEDULE_TIME: 03:00->05:15）",
+                ]
+            ),
+        )
+
     def test_runtime_config_put_same_values_does_not_create_user_operation(self):
         payload = build_runtime_config_payload(force_refresh=True)["values"]
 
@@ -94,6 +151,20 @@ class RuntimeConfigApiTests(APITestCase):
         payload = build_runtime_config_payload(force_refresh=True)["values"]
         invalid_values = deepcopy(payload)
         invalid_values["UNKNOWN_KEY"] = 1
+
+        self.client.force_authenticate(user=self.superuser)
+        response = self.client.put(
+            reverse("runtime_config"),
+            {"values": invalid_values},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_runtime_config_rejects_invalid_cleanup_time(self):
+        payload = build_runtime_config_payload(force_refresh=True)["values"]
+        invalid_values = deepcopy(payload)
+        invalid_values["CLEANUP_SCHEDULE_TIME"] = "99:00"
 
         self.client.force_authenticate(user=self.superuser)
         response = self.client.put(

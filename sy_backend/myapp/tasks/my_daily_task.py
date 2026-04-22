@@ -44,17 +44,24 @@ def my_daily_task(
         ("UserOperation", cleanup_user_operation, user_operation_days),
     ]
 
-    summary = {"success": {}, "failed": {}}
+    summary = {}
 
     for model_name, task_func, days in cleanup_jobs:
         try:
             result = task_func(days)
             print(f"Cleanup {model_name} result: {result}")
-            summary["success"][model_name] = result
+            summary[model_name] = result
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"
             print(f"Cleanup {model_name} failed: {error_msg}")
-            summary["failed"][model_name] = error_msg
+            summary[model_name] = {
+                "status": "failed",
+                "model": model_name,
+                "error": error_msg,
+                "candidate_count": 0,
+                "deleted_count": 0,
+                "export_path": "",
+            }
 
     print(f"Cleanup summary: {summary}")
-    return "my daily task completed."
+    return summary

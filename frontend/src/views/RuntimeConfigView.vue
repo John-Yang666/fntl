@@ -44,7 +44,7 @@
               <el-button
                 type="primary"
                 :loading="systemStates[system].saving"
-                :disabled="!systemStates[system].payload || systemStates[system].payload?.storage_ready === false"
+                :disabled="!systemStates[system].payload || systemStates[system].payload?.storage_ready === false || systemStates[system].payload?.cleanup_ready === false"
                 @click="saveSystem(system)"
               >
                 {{ getSaveButtonLabel(system) }}
@@ -70,6 +70,15 @@
             title="后端运行时配置表尚未迁移完成，当前展示的是默认值，暂时无法保存。"
           />
 
+          <el-alert
+            v-if="systemStates[system].payload?.cleanup_ready === false"
+            class="panel-alert"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="systemStates[system].payload?.cleanup_error || '后端数据清理定时任务缺失，当前展示的是默认值，暂时无法保存。'"
+          />
+
           <el-skeleton :loading="systemStates[system].loading" animated>
             <template #template>
               <div class="skeleton-grid">
@@ -79,14 +88,27 @@
             </template>
 
             <template v-if="systemStates[system].payload">
+              <div class="group-switcher">
+                <button
+                  v-for="group in getAvailableGroups(system)"
+                  :key="`${system}-${group}`"
+                  type="button"
+                  class="group-tag"
+                  :class="{ 'group-tag-active': activeGroups[system] === group }"
+                  @click="activeGroups[system] = group"
+                >
+                  {{ GROUP_LABELS[group] }}
+                </button>
+              </div>
+
               <section
-                v-for="group in GROUP_ORDER"
+                v-for="group in getVisibleGroups(system)"
                 :key="group"
                 class="group-card"
               >
                 <div class="group-header">
                   <h2>{{ GROUP_LABELS[group] }}</h2>
-                  <span>{{ group === 'runtime' ? '业务运行参数' : 'Token 有效期参数' }}</span>
+                  <span>{{ getGroupDescription(group) }}</span>
                 </div>
 
                 <div class="field-grid">
@@ -105,6 +127,21 @@
                           :step="1"
                           controls-position="right"
                           @update:model-value="updateIntegerValue(system, field.key, $event)"
+                        />
+                        <span class="field-default">默认：{{ formatDefaultValue(field.default) }}</span>
+                      </div>
+                    </template>
+
+                    <template v-else-if="field.type === 'time'">
+                      <div class="field-label">{{ field.label }}</div>
+                      <div class="field-input-row">
+                        <el-time-picker
+                          :model-value="getTimeValue(system, field.key)"
+                          format="HH:mm"
+                          value-format="HH:mm"
+                          placeholder="选择时间"
+                          :clearable="false"
+                          @update:model-value="updateTimeValue(system, field.key, $event)"
                         />
                         <span class="field-default">默认：{{ formatDefaultValue(field.default) }}</span>
                       </div>
@@ -187,8 +224,8 @@ import { ElMessage } from 'element-plus';
 import { useUserStore } from '@/stores/userStore';
 import { SYSTEMS, SYSTEM_LABELS, getApiBase, type SystemType } from '@/utils/systems';
 
-type RuntimeConfigGroup = 'runtime' | 'auth';
-type RuntimeConfigFieldType = 'integer' | 'alarm_delay_map';
+type RuntimeConfigGroup = 'runtime' | 'auth' | 'cleanup';
+type RuntimeConfigFieldType = 'integer' | 'alarm_delay_map' | 'time';
 
 interface RuntimeConfigField {
   key: string;
@@ -209,6 +246,8 @@ interface RuntimeConfigPayload {
   updated_at: string | null;
   updated_by: string | null;
   storage_ready?: boolean;
+  cleanup_ready?: boolean;
+  cleanup_error?: string | null;
 }
 
 interface RuntimeConfigState {
@@ -233,9 +272,10 @@ interface SavePasswordDialogState {
   verifying: boolean;
 }
 
-const GROUP_ORDER: RuntimeConfigGroup[] = ['runtime', 'auth'];
+const GROUP_ORDER: RuntimeConfigGroup[] = ['runtime', 'cleanup', 'auth'];
 const GROUP_LABELS: Record<RuntimeConfigGroup, string> = {
   runtime: '运行参数',
+  cleanup: '数据清理',
   auth: '认证参数',
 };
 const ACTIVE_SYSTEM_STORAGE_KEY = 'runtime-config-active-system';
@@ -258,6 +298,10 @@ const systemStates = reactive<Record<SystemType, RuntimeConfigState>>({
     payload: null,
     draftValues: {},
   },
+});
+const activeGroups = reactive<Record<SystemType, RuntimeConfigGroup>>({
+  bt: 'runtime',
+  sy: 'runtime',
 });
 
 const availableSystems = computed<SystemType[]>(() =>
@@ -322,13 +366,40 @@ function getFieldsByGroup(system: SystemType, group: RuntimeConfigGroup): Runtim
   return (systemStates[system].payload?.schema || []).filter((field) => field.group === group);
 }
 
+function getAvailableGroups(system: SystemType): RuntimeConfigGroup[] {
+  const schema = systemStates[system].payload?.schema || [];
+  return GROUP_ORDER.filter((group) => schema.some((field) => field.group === group));
+}
+
+function getVisibleGroups(system: SystemType): RuntimeConfigGroup[] {
+  const groups = getAvailableGroups(system);
+  const activeGroup = activeGroups[system];
+  if (groups.length === 0) {
+    return [];
+  }
+  if (!groups.includes(activeGroup)) {
+    activeGroups[system] = groups[0];
+    return [groups[0]];
+  }
+  return [activeGroup];
+}
+
 function getIntegerValue(system: SystemType, key: string): number {
   const rawValue = systemStates[system].draftValues[key];
   return typeof rawValue === 'number' ? rawValue : Number(rawValue || 0);
 }
 
+function getTimeValue(system: SystemType, key: string): string {
+  const rawValue = systemStates[system].draftValues[key];
+  return typeof rawValue === 'string' ? rawValue : '';
+}
+
 function updateIntegerValue(system: SystemType, key: string, value: number | undefined): void {
   systemStates[system].draftValues[key] = typeof value === 'number' ? value : 0;
+}
+
+function updateTimeValue(system: SystemType, key: string, value: string | null): void {
+  systemStates[system].draftValues[key] = typeof value === 'string' ? value : '';
 }
 
 function getAlarmDelayRows(system: SystemType, field: RuntimeConfigField): AlarmDelayRow[] {
@@ -371,7 +442,20 @@ function formatDefaultValue(value: unknown): string {
   if (typeof value === 'number') {
     return String(value);
   }
+  if (typeof value === 'string') {
+    return value;
+  }
   return '-';
+}
+
+function getGroupDescription(group: RuntimeConfigGroup): string {
+  if (group === 'runtime') {
+    return '业务运行参数';
+  }
+  if (group === 'cleanup') {
+    return '数据保留与定时清理任务';
+  }
+  return 'Token 有效期参数';
 }
 
 function resetToDefaults(system: SystemType): void {
@@ -393,6 +477,15 @@ function validateDraft(system: SystemType): string | null {
     if (field.type === 'integer') {
       if (typeof rawValue !== 'number' || Number.isNaN(rawValue)) {
         return `${field.label} 不能为空。`;
+      }
+    }
+    if (field.type === 'time') {
+      if (typeof rawValue !== 'string' || !/^\d{2}:\d{2}$/.test(rawValue)) {
+        return `${field.label} 必须是 HH:mm 格式。`;
+      }
+      const [hour, minute] = rawValue.split(':').map((item) => Number(item));
+      if (hour > 23 || minute > 59) {
+        return `${field.label} 必须是合法时间。`;
       }
     }
     if (field.type === 'alarm_delay_map') {
@@ -468,9 +561,16 @@ async function loadSystem(system: SystemType): Promise<void> {
     const payload = await userStore.requestWithAuth<RuntimeConfigPayload>(system, {
       method: 'get',
       url: '/runtime-config/',
+      params: {
+        _ts: Date.now(),
+      },
     });
     state.payload = payload;
     state.draftValues = cloneValue(payload.values);
+    const availableGroups = getAvailableGroups(system);
+    if (availableGroups.length > 0 && !availableGroups.includes(activeGroups[system])) {
+      activeGroups[system] = availableGroups[0];
+    }
   } catch (error) {
     state.error = getErrorMessage(error, `${SYSTEM_LABELS[system]} 参数加载失败`);
   } finally {
@@ -640,6 +740,36 @@ onMounted(async () => {
 .skeleton-grid {
   display: grid;
   gap: 18px;
+}
+
+.group-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.group-tag {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475569;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.group-tag:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #2563eb;
+}
+
+.group-tag-active {
+  background: #eff6ff;
+  border-color: rgba(37, 99, 235, 0.35);
+  color: #2563eb;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.12);
 }
 
 .group-card {

@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import timedelta
+import json
+import re
 from typing import Any
 
 from django.conf import settings
@@ -24,6 +26,17 @@ from consts import (
 RUNTIME_CONFIG_CACHE_KEY = "bt_runtime_config_payload"
 RUNTIME_CONFIG_SINGLETON_PK = 1
 ALARM_DELAY_FIELD_KEY = "ALARM_DELAY"
+CLEANUP_TASK_NAME = "My Daily Task"
+CLEANUP_SCHEDULE_TIME_KEY = "CLEANUP_SCHEDULE_TIME"
+CLEANUP_DEFAULT_SCHEDULE_TIME = "03:00"
+CLEANUP_TIME_PATTERN = re.compile(r"^(?P<hour>\d{2}):(?P<minute>\d{2})$")
+CLEANUP_DEFAULT_ARGS = {
+    "CLEANUP_SWITCH_DATA_DAYS": 3,
+    "CLEANUP_ANALOG_DATA_DAYS": 30,
+    "CLEANUP_ALARM_DATA_DAYS": 30,
+    "CLEANUP_RELAY_ACTION_DAYS": 30,
+    "CLEANUP_USER_OPERATION_DAYS": 30,
+}
 
 
 def _jwt_days(setting_key: str) -> int:
@@ -108,6 +121,58 @@ FIELD_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "max": 999999,
         "default": _jwt_days("REFRESH_TOKEN_LIFETIME"),
     },
+    {
+        "key": CLEANUP_SCHEDULE_TIME_KEY,
+        "label": "清理执行时间",
+        "type": "time",
+        "group": "cleanup",
+        "default": CLEANUP_DEFAULT_SCHEDULE_TIME,
+    },
+    {
+        "key": "CLEANUP_SWITCH_DATA_DAYS",
+        "label": "SwitchData 保留天数",
+        "type": "integer",
+        "group": "cleanup",
+        "min": 1,
+        "max": 999999,
+        "default": CLEANUP_DEFAULT_ARGS["CLEANUP_SWITCH_DATA_DAYS"],
+    },
+    {
+        "key": "CLEANUP_ANALOG_DATA_DAYS",
+        "label": "AnalogData 保留天数",
+        "type": "integer",
+        "group": "cleanup",
+        "min": 1,
+        "max": 999999,
+        "default": CLEANUP_DEFAULT_ARGS["CLEANUP_ANALOG_DATA_DAYS"],
+    },
+    {
+        "key": "CLEANUP_ALARM_DATA_DAYS",
+        "label": "AlarmData 保留天数",
+        "type": "integer",
+        "group": "cleanup",
+        "min": 1,
+        "max": 999999,
+        "default": CLEANUP_DEFAULT_ARGS["CLEANUP_ALARM_DATA_DAYS"],
+    },
+    {
+        "key": "CLEANUP_RELAY_ACTION_DAYS",
+        "label": "RelayAction 保留天数",
+        "type": "integer",
+        "group": "cleanup",
+        "min": 1,
+        "max": 999999,
+        "default": CLEANUP_DEFAULT_ARGS["CLEANUP_RELAY_ACTION_DAYS"],
+    },
+    {
+        "key": "CLEANUP_USER_OPERATION_DAYS",
+        "label": "UserOperation 保留天数",
+        "type": "integer",
+        "group": "cleanup",
+        "min": 1,
+        "max": 999999,
+        "default": CLEANUP_DEFAULT_ARGS["CLEANUP_USER_OPERATION_DAYS"],
+    },
 )
 
 
@@ -120,6 +185,14 @@ def _default_values() -> dict[str, Any]:
         field["key"]: deepcopy(field["default"])
         for field in FIELD_DEFINITIONS
     }
+
+
+def _cleanup_field_keys() -> set[str]:
+    return {field["key"] for field in FIELD_DEFINITIONS if field["group"] == "cleanup"}
+
+
+def _runtime_field_keys() -> set[str]:
+    return {field["key"] for field in FIELD_DEFINITIONS if field["group"] != "cleanup"}
 
 
 def _normalize_int(value: Any, *, field: dict[str, Any]) -> int:
@@ -161,6 +234,21 @@ def _normalize_alarm_delay_map(value: Any, *, field: dict[str, Any]) -> dict[int
     return normalized
 
 
+def _normalize_time(value: Any, *, field: dict[str, Any]) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field['label']}必须是HH:mm格式。")
+
+    match = CLEANUP_TIME_PATTERN.fullmatch(value.strip())
+    if match is None:
+        raise ValueError(f"{field['label']}必须是HH:mm格式。")
+
+    hour = int(match.group("hour"))
+    minute = int(match.group("minute"))
+    if hour > 23 or minute > 59:
+        raise ValueError(f"{field['label']}必须是合法时间。")
+    return f"{hour:02d}:{minute:02d}"
+
+
 def validate_runtime_config_values(values: Mapping[str, Any] | None) -> dict[str, Any]:
     if not isinstance(values, Mapping):
         raise ValueError("values 必须是对象。")
@@ -176,6 +264,8 @@ def validate_runtime_config_values(values: Mapping[str, Any] | None) -> dict[str
             continue
         if field["type"] == "integer":
             validated[key] = _normalize_int(values[key], field=field)
+        elif field["type"] == "time":
+            validated[key] = _normalize_time(values[key], field=field)
         elif field["type"] == "alarm_delay_map":
             validated[key] = _normalize_alarm_delay_map(values[key], field=field)
         else:
@@ -202,6 +292,97 @@ def _schema() -> list[dict[str, Any]]:
             }
         schema.append(item)
     return schema
+
+
+def _load_periodic_models():
+    try:
+        from django_celery_beat.models import CrontabSchedule, PeriodicTask
+    except ModuleNotFoundError:
+        return None, None
+    return PeriodicTask, CrontabSchedule
+
+
+def _parse_cleanup_schedule_time(schedule) -> str:
+    hour = str(getattr(schedule, "hour", "")).strip()
+    minute = str(getattr(schedule, "minute", "")).strip()
+    if not hour.isdigit() or not minute.isdigit():
+        raise ValueError("清理定时任务的执行时间不是固定的 HH:mm。")
+    return _normalize_time(f"{int(hour):02d}:{int(minute):02d}", field={"label": "清理执行时间"})
+
+
+def _cleanup_args_field_order() -> tuple[str, ...]:
+    return (
+        "CLEANUP_SWITCH_DATA_DAYS",
+        "CLEANUP_ANALOG_DATA_DAYS",
+        "CLEANUP_ALARM_DATA_DAYS",
+        "CLEANUP_RELAY_ACTION_DAYS",
+        "CLEANUP_USER_OPERATION_DAYS",
+    )
+
+
+def _default_cleanup_values() -> dict[str, Any]:
+    return {
+        CLEANUP_SCHEDULE_TIME_KEY: CLEANUP_DEFAULT_SCHEDULE_TIME,
+        **CLEANUP_DEFAULT_ARGS,
+    }
+
+
+def _load_cleanup_config() -> tuple[dict[str, Any], bool, str | None]:
+    defaults = _default_cleanup_values()
+    PeriodicTask, _CrontabSchedule = _load_periodic_models()
+    if PeriodicTask is None:
+        return defaults, False, "django_celery_beat 未安装，无法读取数据清理配置。"
+
+    try:
+        task = PeriodicTask.objects.filter(name=CLEANUP_TASK_NAME).first()
+    except (OperationalError, ProgrammingError):
+        return defaults, False, "django_celery_beat 表尚未迁移完成，无法读取数据清理配置。"
+    if task is None:
+        return defaults, False, f"未找到定时任务 {CLEANUP_TASK_NAME}。"
+    if task.crontab is None:
+        return defaults, False, f"定时任务 {CLEANUP_TASK_NAME} 未绑定 CrontabSchedule。"
+
+    try:
+        args = json.loads(task.args or "[]")
+    except json.JSONDecodeError:
+        return defaults, False, f"定时任务 {CLEANUP_TASK_NAME} 的 args 不是合法 JSON。"
+    if not isinstance(args, list) or len(args) != len(_cleanup_args_field_order()):
+        return defaults, False, f"定时任务 {CLEANUP_TASK_NAME} 的 args 数量不正确。"
+
+    values = defaults.copy()
+    try:
+        values[CLEANUP_SCHEDULE_TIME_KEY] = _parse_cleanup_schedule_time(task.crontab)
+        for key, raw_value in zip(_cleanup_args_field_order(), args, strict=True):
+            values[key] = _normalize_int(raw_value, field=_field_map()[key])
+    except ValueError as exc:
+        return defaults, False, str(exc)
+    return values, True, None
+
+
+def _save_cleanup_config_values(cleanup_values: Mapping[str, Any]) -> None:
+    PeriodicTask, _CrontabSchedule = _load_periodic_models()
+    if PeriodicTask is None:
+        raise ValueError("django_celery_beat 未安装，无法保存数据清理配置。")
+
+    try:
+        task = PeriodicTask.objects.select_for_update().filter(name=CLEANUP_TASK_NAME).first()
+    except (OperationalError, ProgrammingError) as exc:
+        raise ValueError("django_celery_beat 表尚未迁移完成，无法保存数据清理配置。") from exc
+    if task is None:
+        raise ValueError(f"未找到定时任务 {CLEANUP_TASK_NAME}。")
+    if task.crontab is None:
+        raise ValueError(f"定时任务 {CLEANUP_TASK_NAME} 未绑定 CrontabSchedule。")
+
+    schedule_time = str(cleanup_values[CLEANUP_SCHEDULE_TIME_KEY])
+    hour, minute = schedule_time.split(":")
+    schedule = task.crontab
+    schedule.hour = str(int(hour))
+    schedule.minute = str(int(minute))
+    schedule.save(update_fields=["hour", "minute"])
+
+    task.args = json.dumps([cleanup_values[key] for key in _cleanup_args_field_order()])
+    task.save(update_fields=["args", "crontab"])
+    PeriodicTask.objects.all().update(last_run_at=None)
 
 
 def _describe_runtime_config_changes(
@@ -302,7 +483,10 @@ def build_runtime_config_payload(*, force_refresh: bool = False) -> dict[str, An
             RuntimeConfig.objects.exists()
         except (OperationalError, ProgrammingError):
             storage_ready = False
-    values = validate_runtime_config_values(stored_values)
+    runtime_stored_values = {key: value for key, value in stored_values.items() if key in _runtime_field_keys()}
+    values = validate_runtime_config_values(runtime_stored_values)
+    cleanup_values, cleanup_ready, cleanup_error = _load_cleanup_config()
+    values.update(cleanup_values)
     payload = {
         "schema": _schema(),
         "defaults": defaults,
@@ -310,6 +494,8 @@ def build_runtime_config_payload(*, force_refresh: bool = False) -> dict[str, An
         "updated_at": record.updated_at.isoformat() if record and record.updated_at else None,
         "updated_by": record.updated_by.username if record and record.updated_by else None,
         "storage_ready": storage_ready,
+        "cleanup_ready": cleanup_ready,
+        "cleanup_error": cleanup_error,
     }
     cache.set(RUNTIME_CONFIG_CACHE_KEY, payload, timeout=None)
     return deepcopy(payload)
@@ -325,19 +511,24 @@ def save_runtime_config_values(*, values: Mapping[str, Any], user) -> dict[str, 
     current_payload = build_runtime_config_payload(force_refresh=True)
     if not current_payload.get("storage_ready", True):
         raise ValueError("运行时配置表尚未迁移完成，当前只能查看默认值，暂时无法保存。")
+    if not current_payload.get("cleanup_ready", True):
+        raise ValueError(current_payload.get("cleanup_error") or "数据清理任务配置缺失，暂时无法保存。")
     current_values = current_payload["values"]
     merged_values = deepcopy(current_values)
     merged_values.update(dict(values))
     validated = validate_runtime_config_values(merged_values)
     changes = _describe_runtime_config_changes(current_values, validated)
+    runtime_values = {key: validated[key] for key in _runtime_field_keys()}
+    cleanup_values = {key: validated[key] for key in _cleanup_field_keys()}
     RuntimeConfig = _load_model()
     try:
         with transaction.atomic():
             record, _created = RuntimeConfig.objects.select_for_update().get_or_create(
                 pk=RUNTIME_CONFIG_SINGLETON_PK,
-                defaults={"values": validated, "updated_by": user},
+                defaults={"values": runtime_values, "updated_by": user},
             )
-            record.values = validated
+            _save_cleanup_config_values(cleanup_values)
+            record.values = runtime_values
             record.updated_by = user
             record.save(update_fields=["values", "updated_by", "updated_at"])
             _log_runtime_config_update(user=user, changes=changes)

@@ -53,6 +53,17 @@ def _get_env_list(*names: str):
     return values
 
 
+def _get_env_path(name: str):
+    raw_value = os.getenv(name, "").strip()
+    if not raw_value:
+        return ""
+
+    path = Path(raw_value)
+    if not path.is_absolute():
+        path = (PROJECT_ROOT / path).resolve()
+    return str(path)
+
+
 def _get_deploy_host_list():
     deploy_host_file = BASE_DIR / "deploy_host_ip.txt"
     if deploy_host_file.exists():
@@ -239,6 +250,7 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600 # 100MB 上传文件的最大内存限�
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+CLEANUP_EXPORT_DIR = _get_env_path("CLEANUP_EXPORT_DIR")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field

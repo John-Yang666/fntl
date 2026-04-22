@@ -37,31 +37,34 @@ class MyappConfig(AppConfig):
         except ModuleNotFoundError:
             return
         import json
+        from myapp.runtime_config import CLEANUP_DEFAULT_ARGS, CLEANUP_DEFAULT_SCHEDULE_TIME, CLEANUP_TASK_NAME
 
         # 创建或获取调度时间表，每天凌晨3点运行
         schedule, created = CrontabSchedule.objects.get_or_create(
-            minute='0',
-            hour='3',
+            minute=CLEANUP_DEFAULT_SCHEDULE_TIME.split(':', 1)[1],
+            hour=str(int(CLEANUP_DEFAULT_SCHEDULE_TIME.split(':', 1)[0])),
             day_of_week='*',
             day_of_month='*',
             month_of_year='*',
         )
 
         # 检查任务是否已经存在
-        task_name = 'My Daily Task'
+        task_name = CLEANUP_TASK_NAME
         if not PeriodicTask.objects.filter(name=task_name).exists():
             # 创建周期性任务
             PeriodicTask.objects.create(
                 crontab=schedule,
                 name=task_name,  # 任务名称
                 task='myapp.tasks.my_daily_task.my_daily_task',
-                args=json.dumps([    
-                    7,   # raw_frame_log_days
-                    30,  # A1 switch_data_days
-                    30,  # A2 change_bit_event_days
-                    90,  # alarm_data_days
-                    90,  # relay_action_days
-                    366,  # user_operation_days
-                ])  # 设置任务参数 默认：[7, 30, 30, 90, 90, 366]
+                args=json.dumps(
+                    [
+                        CLEANUP_DEFAULT_ARGS["CLEANUP_RAW_FRAME_LOG_DAYS"],
+                        CLEANUP_DEFAULT_ARGS["CLEANUP_SWITCH_DATA_DAYS"],
+                        CLEANUP_DEFAULT_ARGS["CLEANUP_CHANGE_BIT_EVENT_DAYS"],
+                        CLEANUP_DEFAULT_ARGS["CLEANUP_ALARM_DATA_DAYS"],
+                        CLEANUP_DEFAULT_ARGS["CLEANUP_RELAY_ACTION_DAYS"],
+                        CLEANUP_DEFAULT_ARGS["CLEANUP_USER_OPERATION_DAYS"],
+                    ]
+                )
             )
             print(f"Created periodic task: {task_name}")
