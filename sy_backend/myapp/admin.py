@@ -990,6 +990,19 @@ class NullableFloatWidget(FloatWidget):
             return None
         return super().clean(value, row=row, *args, **kwargs)
 
+class NullableForeignKeyWidget(ForeignKeyWidget):
+    def clean(self, value, row=None, *args, **kwargs):
+        if value is None:
+            return None
+        try:
+            if value != value:
+                return None
+        except TypeError:
+            pass
+        if isinstance(value, str) and value.strip().lower() in {"", "none", "null", "nan"}:
+            return None
+        return super().clean(value, row=row, *args, **kwargs)
+
 class DeviceResource(resources.ModelResource):
     # ★★ 关键：id 只导出不导入（避免把主键改掉导致插入新行）
     id = fields.Field(column_name='id', attribute='id', readonly=True)
@@ -997,8 +1010,8 @@ class DeviceResource(resources.ModelResource):
     # --- 基本信息 ---
     device_id = fields.Field(column_name=CANON_DEVICE_ID_COL, attribute='device_id', widget=NullableIntegerWidget())
     name = fields.Field(column_name='设备名称', attribute='name')
-    depot = fields.Field(column_name='车间', attribute='depot', widget=ForeignKeyWidget(Depot, 'name'))
-    line = fields.Field(column_name='线路', attribute='line', widget=ForeignKeyWidget(Line, 'name'))
+    depot = fields.Field(column_name='车间', attribute='depot', widget=NullableForeignKeyWidget(Depot, 'name'))
+    line = fields.Field(column_name='线路', attribute='line', widget=NullableForeignKeyWidget(Line, 'name'))
     ip_address = fields.Field(column_name='IP地址', attribute='ip_address')
 
     # --- 坐标 ---
