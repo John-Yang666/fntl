@@ -13,6 +13,10 @@ from typing import TYPE_CHECKING, Any
 from pathlib import Path
 import copy
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from protected_runtime import agent_config_path, write_json_file
 
 # Redis 依赖：宿主机跑 redis_stream 时需要

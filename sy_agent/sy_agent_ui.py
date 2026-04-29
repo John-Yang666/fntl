@@ -22,6 +22,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import redis
 from PySide6.QtCore import QByteArray, QLockFile, QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QColor, QCloseEvent, QFont, QPainter, QTextCursor
