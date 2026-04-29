@@ -1098,6 +1098,9 @@ class DeviceResource(resources.ModelResource):
         dataset.headers = [canon(h) for h in headers]
 
     def before_import_row(self, row, row_number=None, **kwargs):
+        row.setdefault('车间', '')
+        row.setdefault('线路', '')
+
         # ★ 再保险：就算有人把 id 列留着，也强制不让它参与导入
         row.pop('id', None)
         row.pop('ID', None)

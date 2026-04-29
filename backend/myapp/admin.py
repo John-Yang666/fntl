@@ -890,6 +890,10 @@ class DeviceResource(resources.ModelResource):
         )
         export_order = fields
 
+    def before_import_row(self, row, row_number=None, **kwargs):
+        row.setdefault('车间', '')
+        row.setdefault('线路', '')
+
 
 # ===== 重连动作所需：Redis Streams 发送（仅保留 redis_stream） =====
 try:
