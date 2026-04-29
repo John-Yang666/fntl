@@ -1,6 +1,7 @@
 param(
     [string]$OutputRoot = "",
-    [string]$PythonLauncher = "py -3"
+    [string]$PythonLauncher = "py",
+    [string[]]$PythonLauncherArgs = @("-3.12")
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,18 +19,18 @@ $VenvPath = Join-Path $BuildRoot ".venv-protected"
 $NuitkaRoot = Join-Path $BuildRoot "nuitka"
 
 function Invoke-PythonLauncher {
-    param([string[]]$Args)
-    & cmd /c ($PythonLauncher + " " + ($Args -join " "))
+    param([string[]]$CommandArgs)
+    & $PythonLauncher @PythonLauncherArgs @CommandArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Python launcher failed: $PythonLauncher $($Args -join ' ')"
+        throw "Python launcher failed: $PythonLauncher $($PythonLauncherArgs -join ' ') $($CommandArgs -join ' ')"
     }
 }
 
 function Invoke-PythonExe {
-    param([string]$PythonExe, [string[]]$Args)
-    & $PythonExe @Args
+    param([string]$PythonExe, [string[]]$CommandArgs)
+    & $PythonExe @CommandArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Command failed: $PythonExe $($Args -join ' ')"
+        throw "Command failed: $PythonExe $($CommandArgs -join ' ')"
     }
 }
 
@@ -55,7 +56,7 @@ function Build-NuitkaApp {
         "--output-filename", "$Name.exe"
     ) + $ExtraArgs + @($ResolvedScript)
 
-    Invoke-PythonExe -PythonExe $PythonExe -Args $Args
+    Invoke-PythonExe -PythonExe $PythonExe -CommandArgs $Args
 
     $DistDir = Join-Path $NuitkaRoot "$Name.dist"
     if (-not (Test-Path $DistDir)) {
@@ -69,13 +70,13 @@ function Build-NuitkaApp {
 New-Item -ItemType Directory -Force -Path $ArtifactsRoot, $BuildRoot, $NuitkaRoot, $OutputRoot | Out-Null
 
 if (-not (Test-Path (Join-Path $VenvPath "Scripts\python.exe"))) {
-    Invoke-PythonLauncher -Args @("-m", "venv", "`"$VenvPath`"")
+    Invoke-PythonLauncher -CommandArgs @("-m", "venv", $VenvPath)
 }
 
 $PythonExe = Join-Path $VenvPath "Scripts\python.exe"
-Invoke-PythonExe -PythonExe $PythonExe -Args @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel")
-Invoke-PythonExe -PythonExe $PythonExe -Args @("-m", "pip", "install", "nuitka", "ordered-set", "zstandard")
-Invoke-PythonExe -PythonExe $PythonExe -Args @("-m", "pip", "install", "-r", (Join-Path $RepoRoot "bt_agent\requirements.txt"), "-r", (Join-Path $RepoRoot "sy_agent\requirements.txt"))
+Invoke-PythonExe -PythonExe $PythonExe -CommandArgs @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel")
+Invoke-PythonExe -PythonExe $PythonExe -CommandArgs @("-m", "pip", "install", "nuitka", "ordered-set", "zstandard")
+Invoke-PythonExe -PythonExe $PythonExe -CommandArgs @("-m", "pip", "install", "-r", (Join-Path $RepoRoot "bt_agent\requirements.txt"), "-r", (Join-Path $RepoRoot "sy_agent\requirements.txt"))
 
 Build-NuitkaApp -Name "bt_agent" -ScriptPath "bt_agent\bt_agent.py"
 Build-NuitkaApp -Name "bt_agent_ui" -ScriptPath "bt_agent\bt_agent_ui.py" -ExtraArgs @(

@@ -8,7 +8,9 @@ WORKDIR /app
 ARG APT_MIRROR_HOST=mirrors.ustc.edu.cn
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
-ARG PIP_EXTRA_INDEX_URL=https://pypi.org/simple
+ARG PIP_EXTRA_INDEX_URL=
+ARG PIP_DEFAULT_TIMEOUT=180
+ARG PIP_RETRIES=10
 
 # 安装系统依赖（使用 BuildKit 缓存提升重复构建速度）
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -21,12 +23,24 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 COPY requirements.txt /app/
 COPY requirements.lock.txt /app/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install \
-    -i ${PIP_INDEX_URL} \
-    --extra-index-url ${PIP_EXTRA_INDEX_URL} \
-    --trusted-host ${PIP_TRUSTED_HOST} \
-    -r requirements.txt \
-    -c requirements.lock.txt
+    if [ -n "${PIP_EXTRA_INDEX_URL}" ]; then \
+      python -m pip install \
+      --default-timeout=${PIP_DEFAULT_TIMEOUT} \
+      --retries=${PIP_RETRIES} \
+      -i ${PIP_INDEX_URL} \
+      --extra-index-url ${PIP_EXTRA_INDEX_URL} \
+      --trusted-host ${PIP_TRUSTED_HOST} \
+      -r requirements.txt \
+      -c requirements.lock.txt; \
+    else \
+      python -m pip install \
+      --default-timeout=${PIP_DEFAULT_TIMEOUT} \
+      --retries=${PIP_RETRIES} \
+      -i ${PIP_INDEX_URL} \
+      --trusted-host ${PIP_TRUSTED_HOST} \
+      -r requirements.txt \
+      -c requirements.lock.txt; \
+    fi
 
 # 复制项目文件和脚本到容器中
 COPY . /app
