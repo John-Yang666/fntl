@@ -8,6 +8,7 @@ import threading
 import logging
 import socket
 import queue
+import sys
 import time
 from typing import TYPE_CHECKING, Any
 from pathlib import Path
