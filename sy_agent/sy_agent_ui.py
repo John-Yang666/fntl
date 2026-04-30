@@ -3507,6 +3507,10 @@ class SyUIAgentWindow(QMainWindow):
             self._stop_thread = None
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if self._settings_locked:
+            event.ignore()
+            self._append_log("[ui] close ignored because settings are locked", level="INFO", category="ui")
+            return
         try:
             self._stash_current_target_draft()
             self.sound_enabled = self.sound_checkbox.isChecked()

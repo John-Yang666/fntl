@@ -1654,6 +1654,10 @@ class SyUISubAgentWindow(QMainWindow):
             self._append_log(f"[ui] apply remote config failed: {exc}", level="ERROR", category="ui")
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if self._settings_locked:
+            event.ignore()
+            self._append_log("[ui] close ignored because settings are locked", level="INFO", category="ui")
+            return
         try:
             self.save_settings()
         except Exception:
