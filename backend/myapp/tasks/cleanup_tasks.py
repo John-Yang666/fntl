@@ -23,11 +23,8 @@ def _validate_days(model, days):
 
 
 def _get_cleanup_export_dir():
-    configured_path = getattr(settings, "CLEANUP_EXPORT_DIR", "")
-    if not configured_path:
-        raise ValueError("CLEANUP_EXPORT_DIR is not configured.")
-
-    export_dir = Path(configured_path)
+    data_dir = str(getattr(settings, "DATA_DIR", "")).strip() or "/srv/bt_nms_data"
+    export_dir = Path(data_dir) / "cleanup_exports"
     export_dir.mkdir(parents=True, exist_ok=True)
     return export_dir
 

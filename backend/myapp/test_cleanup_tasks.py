@@ -31,7 +31,7 @@ class BtCleanupTaskTests(TestCase):
 
     @override_settings()
     def test_cleanup_switch_data_exports_then_deletes_snapshot(self):
-        with self.settings(CLEANUP_EXPORT_DIR=self.temp_dir.name):
+        with self.settings(DATA_DIR=self.temp_dir.name):
             old_row = SwitchData.objects.create(device=self.device, switch_status=b"\x01" * 46)
             self._set_old_timestamp(SwitchData, old_row.pk)
             new_row = SwitchData.objects.create(device=self.device, switch_status=b"\x02" * 46)
@@ -46,6 +46,7 @@ class BtCleanupTaskTests(TestCase):
 
         export_file = Path(result["export_path"])
         self.assertTrue(export_file.exists())
+        self.assertEqual(export_file.parent, Path(self.temp_dir.name) / "cleanup_exports")
         content = export_file.read_text(encoding="utf-8-sig")
         self.assertIn("设备ID", content)
         self.assertIn(str(self.device.device_id), content)
@@ -60,7 +61,7 @@ class BtCleanupTaskTests(TestCase):
         )
         self._set_old_timestamp(AnalogData, old_row.pk)
 
-        with self.settings(CLEANUP_EXPORT_DIR=self.temp_dir.name), patch.object(
+        with self.settings(DATA_DIR=self.temp_dir.name), patch.object(
             cleanup_tasks,
             "export_cleanup_queryset_to_csv",
             side_effect=RuntimeError("boom"),
@@ -82,7 +83,7 @@ class BtCleanupTaskTests(TestCase):
             delayed_export.injected_pk = injected_row.pk
             return original_export(**kwargs)
 
-        with self.settings(CLEANUP_EXPORT_DIR=self.temp_dir.name), patch.object(
+        with self.settings(DATA_DIR=self.temp_dir.name), patch.object(
             cleanup_tasks,
             "export_cleanup_queryset_to_csv",
             side_effect=delayed_export,
@@ -94,7 +95,7 @@ class BtCleanupTaskTests(TestCase):
         self.assertFalse(SwitchData.objects.filter(pk=original_row.pk).exists())
         self.assertTrue(SwitchData.objects.filter(pk=delayed_export.injected_pk).exists())
 
-        with self.settings(CLEANUP_EXPORT_DIR=self.temp_dir.name):
+        with self.settings(DATA_DIR=self.temp_dir.name):
             second_result = cleanup_tasks.cleanup_switch_data(30)
 
         self.assertEqual(second_result["status"], "deleted")

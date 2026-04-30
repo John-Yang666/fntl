@@ -116,11 +116,13 @@ services:
       - "8000"
     volumes:
       - static_data:/app/staticfiles
+      - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
     environment:
       DEBUG: ${DEBUG:-false}
       DJANGO_SETTINGS_MODULE: myproject.settings
+      DATA_DIR: /data
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       DJANGO_SUPERUSER_USERNAME: admin
@@ -268,11 +270,14 @@ services:
     container_name: bt_nms_celery_worker0
     command: celery -A myproject worker --loglevel=info --pool=threads --concurrency=2 --without-gossip --without-mingle --without-heartbeat
     working_dir: /app
+    volumes:
+      - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
     environment:
       DEBUG: ${DEBUG:-false}
       DJANGO_SETTINGS_MODULE: myproject.settings
+      DATA_DIR: /data
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -309,11 +314,14 @@ services:
     container_name: bt_nms_celery_beat0
     command: celery -A myproject beat --loglevel=info
     working_dir: /app
+    volumes:
+      - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
     environment:
       DEBUG: ${DEBUG:-false}
       DJANGO_SETTINGS_MODULE: myproject.settings
+      DATA_DIR: /data
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       CELERY_BROKER_URL: redis://redis:6379/0

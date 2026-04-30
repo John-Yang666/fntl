@@ -95,11 +95,13 @@ services:
       - "8000"
     volumes:
       - static_data:/app/staticfiles
+      - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456
     environment:
       - DEBUG=${DEBUG:-false}
       - DJANGO_SETTINGS_MODULE=myproject.settings
+      - DATA_DIR=/data
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - STREAM_REDIS_HOST=redis_stream
@@ -227,9 +229,12 @@ services:
     <<: *sy_django_image
     container_name: bt_nms_sy_celery_worker0
     command: celery -A myproject worker --loglevel=info --pool=threads --concurrency=2 --without-gossip --without-mingle --without-heartbeat
+    volumes:
+      - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     environment:
       - DEBUG=${DEBUG:-false}
       - DJANGO_SETTINGS_MODULE=myproject.settings
+      - DATA_DIR=/data
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -244,9 +249,12 @@ services:
     <<: *sy_django_image
     container_name: bt_nms_sy_celery_beat0
     command: celery -A myproject beat --loglevel=info
+    volumes:
+      - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     environment:
       - DEBUG=${DEBUG:-false}
       - DJANGO_SETTINGS_MODULE=myproject.settings
+      - DATA_DIR=/data
       - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:
       - redis

@@ -53,10 +53,8 @@ def _get_env_list(*names: str):
     return values
 
 
-def _get_env_path(name: str):
-    raw_value = os.getenv(name, "").strip()
-    if not raw_value:
-        return ""
+def _get_data_dir():
+    raw_value = os.getenv("DATA_DIR", "").strip() or "/srv/bt_nms_data"
 
     path = Path(raw_value)
     if not path.is_absolute():
@@ -250,7 +248,8 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600 # 100MB 上传文件的最大内存限�
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-CLEANUP_EXPORT_DIR = _get_env_path("CLEANUP_EXPORT_DIR")
+DATA_DIR = _get_data_dir()
+CLEANUP_EXPORT_DIR = str(Path(DATA_DIR) / "cleanup_exports")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
