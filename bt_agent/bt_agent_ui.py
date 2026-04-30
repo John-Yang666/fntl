@@ -1519,6 +1519,9 @@ class BtAgentUIWindow(QMainWindow):
         for widget in self._settings_lock_targets:
             widget.setEnabled(not self._settings_locked)
         self.lock_button.setText("解锁" if self._settings_locked else "锁定")
+        self.setWindowFlag(Qt.WindowCloseButtonHint, not self._settings_locked)
+        if self.isVisible():
+            self.show()
 
     def _refresh_disk_usage_view(self) -> None:
         usage_map = {item["slot"]: item for item in collect_disk_usage(self.disk_alert_config)}
@@ -2047,6 +2050,10 @@ class BtAgentUIWindow(QMainWindow):
         self._refresh_config_editor()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if self._settings_locked:
+            event.ignore()
+            self._append_log("[ui] close ignored because settings are locked")
+            return
         if self._proc is not None and self._proc.poll() is None:
             self.stop_agent()
         self._alarm_player.stop()
