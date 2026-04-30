@@ -599,6 +599,7 @@ class SwitchDataAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, Depo
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
 
     formatted_switch_status.short_description = '开关量数据包'
+    timestamp_with_seconds.admin_order_field = 'timestamp'
     timestamp_with_seconds.short_description = '时间'
 
 
@@ -647,6 +648,7 @@ class AnalogDataAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, Depo
     current_1_display.short_description = format_html('<span style="text-transform:none;">电流1(mA)</span>')
     current_2_display.admin_order_field = 'current_2'
     current_2_display.short_description = format_html('<span style="text-transform:none;">电流2(mA)</span>')
+    timestamp_with_seconds.admin_order_field = 'timestamp'
     timestamp_with_seconds.short_description = '时间'
 
 
@@ -809,6 +811,7 @@ class UserOperationAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, D
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S')
+    timestamp_with_seconds.admin_order_field = 'timestamp'
     timestamp_with_seconds.short_description = '时间'
 
 
@@ -851,6 +854,7 @@ class RelayActionAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, Dep
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
+    timestamp_with_seconds.admin_order_field = 'timestamp'
     timestamp_with_seconds.short_description = '时间'
 
 

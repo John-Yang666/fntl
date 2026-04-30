@@ -532,6 +532,7 @@ class RawFrameLogAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModel
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
+    timestamp_with_seconds.admin_order_field = 'timestamp'
     timestamp_with_seconds.short_description = '时间'
 
     def device_display(self, obj):
@@ -598,6 +599,7 @@ class SwitchDataAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModelA
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
+    timestamp_with_seconds.admin_order_field = 'timestamp'
     timestamp_with_seconds.short_description = '时间'
 
     def protocol_hex_short(self, obj):
@@ -650,6 +652,7 @@ class ChangeBitEventAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportMo
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
+    timestamp_with_seconds.admin_order_field = 'timestamp'
     timestamp_with_seconds.short_description = '时间'
 
 
@@ -819,6 +822,7 @@ class UserOperationAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportMod
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S')
+    timestamp_with_seconds.admin_order_field = 'timestamp'
     timestamp_with_seconds.short_description = '操作时间'
 
 
@@ -863,6 +867,7 @@ class RelayActionAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModel
 
     def timestamp_with_seconds(self, obj):
         return timezone.localtime(obj.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
+    timestamp_with_seconds.admin_order_field = 'timestamp'
     timestamp_with_seconds.short_description = '时间'
 
 
