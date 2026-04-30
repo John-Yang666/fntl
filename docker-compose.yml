@@ -88,11 +88,13 @@ services:
     command: ["/app/entrypoint.sh"]
     volumes:
       - ./backend:/app
+      - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     ports:
       - "8000:8000"
     environment:
       - DEBUG=True
       - DJANGO_SETTINGS_MODULE=myproject.settings
+      - DATA_DIR=/data
 
       # Django/Celery 用老 redis
       - REDIS_HOST=redis
@@ -209,9 +211,11 @@ services:
     command: celery -A myproject worker --loglevel=info
     volumes:
       - ./backend:/app
+      - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     environment:
       - DEBUG=True
       - DJANGO_SETTINGS_MODULE=myproject.settings
+      - DATA_DIR=/data
 
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -253,9 +257,11 @@ services:
     command: celery -A myproject beat --loglevel=info
     volumes:
       - ./backend:/app
+      - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     environment:
       - DEBUG=True
       - DJANGO_SETTINGS_MODULE=myproject.settings
+      - DATA_DIR=/data
       - CELERY_BROKER_URL=redis://redis:6379/0
       - REDIS_HOST=redis
       - REDIS_PORT=6379
