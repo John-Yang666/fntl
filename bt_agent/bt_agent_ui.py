@@ -1519,9 +1519,6 @@ class BtAgentUIWindow(QMainWindow):
         for widget in self._settings_lock_targets:
             widget.setEnabled(not self._settings_locked)
         self.lock_button.setText("解锁" if self._settings_locked else "锁定")
-        self.setWindowFlag(Qt.WindowCloseButtonHint, not self._settings_locked)
-        if self.isVisible():
-            self.show()
 
     def _refresh_disk_usage_view(self) -> None:
         usage_map = {item["slot"]: item for item in collect_disk_usage(self.disk_alert_config)}
