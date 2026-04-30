@@ -325,6 +325,17 @@ const buildAlertKey = (system: SystemType, deviceId: number, alarmCode: number) 
   `${system}:${deviceId}-${alarmCode}`;
 
 const checkAlerts = async () => {
+  if (!userStore.isAuthenticated) {
+    activeAlertsTabLabel.value = '当前告警';
+    hasAlerts.value = false;
+    previousAlertKeysBySystem = {
+      bt: new Set<string>(),
+      sy: new Set<string>(),
+    };
+    closeEndedAlertNotice();
+    return;
+  }
+
   const settledResponses = await Promise.allSettled(
     SYSTEMS.map(async (system) => ({
       system,
