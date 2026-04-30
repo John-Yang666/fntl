@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -104,6 +105,7 @@ class RuntimeConfigApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["values"]["CLEANUP_SCHEDULE_TIME"], "03:00")
         self.assertEqual(response.data["values"]["CLEANUP_RAW_FRAME_LOG_DAYS"], 7)
+        self.assertIs(response.data["values"]["CLEANUP_RAW_FRAME_LOG_AUTO_EXPORT"], True)
 
     def test_runtime_config_put_updates_cleanup_schedule_and_retention(self):
         payload = build_runtime_config_payload(force_refresh=True)["values"]
@@ -120,7 +122,10 @@ class RuntimeConfigApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.periodic_task.refresh_from_db()
-        self.assertEqual(self.periodic_task.args, "[7, 30, 45, 90, 90, 366]")
+        self.assertEqual(
+            json.loads(self.periodic_task.args),
+            [7, 30, 45, 90, 90, 366, True, True, True, True, True, True],
+        )
         self.assertEqual(self.periodic_task.crontab.hour, "5")
         self.assertEqual(self.periodic_task.crontab.minute, "15")
         operations = list(UserOperation.objects.order_by("operation"))

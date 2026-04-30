@@ -38,6 +38,12 @@ CLEANUP_DEFAULT_ARGS = {
     "CLEANUP_RELAY_ACTION_DAYS": 90,
     "CLEANUP_USER_OPERATION_DAYS": 366,
 }
+CLEANUP_DAY_FIELD_KEYS = tuple(CLEANUP_DEFAULT_ARGS.keys())
+CLEANUP_AUTO_EXPORT_DEFAULTS = {
+    key.replace("_DAYS", "_AUTO_EXPORT"): True
+    for key in CLEANUP_DAY_FIELD_KEYS
+}
+CLEANUP_AUTO_EXPORT_FIELD_KEYS = tuple(CLEANUP_AUTO_EXPORT_DEFAULTS.keys())
 
 
 def _jwt_days(setting_key: str) -> int:
@@ -139,6 +145,13 @@ FIELD_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "default": CLEANUP_DEFAULT_ARGS["CLEANUP_RAW_FRAME_LOG_DAYS"],
     },
     {
+        "key": "CLEANUP_RAW_FRAME_LOG_AUTO_EXPORT",
+        "label": "RawFrameLog 自动导出",
+        "type": "boolean",
+        "group": "cleanup",
+        "default": CLEANUP_AUTO_EXPORT_DEFAULTS["CLEANUP_RAW_FRAME_LOG_AUTO_EXPORT"],
+    },
+    {
         "key": "CLEANUP_SWITCH_DATA_DAYS",
         "label": "SwitchData 保留天数",
         "type": "integer",
@@ -146,6 +159,13 @@ FIELD_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "min": 1,
         "max": 999999,
         "default": CLEANUP_DEFAULT_ARGS["CLEANUP_SWITCH_DATA_DAYS"],
+    },
+    {
+        "key": "CLEANUP_SWITCH_DATA_AUTO_EXPORT",
+        "label": "SwitchData 自动导出",
+        "type": "boolean",
+        "group": "cleanup",
+        "default": CLEANUP_AUTO_EXPORT_DEFAULTS["CLEANUP_SWITCH_DATA_AUTO_EXPORT"],
     },
     {
         "key": "CLEANUP_CHANGE_BIT_EVENT_DAYS",
@@ -157,6 +177,13 @@ FIELD_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "default": CLEANUP_DEFAULT_ARGS["CLEANUP_CHANGE_BIT_EVENT_DAYS"],
     },
     {
+        "key": "CLEANUP_CHANGE_BIT_EVENT_AUTO_EXPORT",
+        "label": "ChangeBitEvent 自动导出",
+        "type": "boolean",
+        "group": "cleanup",
+        "default": CLEANUP_AUTO_EXPORT_DEFAULTS["CLEANUP_CHANGE_BIT_EVENT_AUTO_EXPORT"],
+    },
+    {
         "key": "CLEANUP_ALARM_DATA_DAYS",
         "label": "AlarmData 保留天数",
         "type": "integer",
@@ -164,6 +191,13 @@ FIELD_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "min": 1,
         "max": 999999,
         "default": CLEANUP_DEFAULT_ARGS["CLEANUP_ALARM_DATA_DAYS"],
+    },
+    {
+        "key": "CLEANUP_ALARM_DATA_AUTO_EXPORT",
+        "label": "AlarmData 自动导出",
+        "type": "boolean",
+        "group": "cleanup",
+        "default": CLEANUP_AUTO_EXPORT_DEFAULTS["CLEANUP_ALARM_DATA_AUTO_EXPORT"],
     },
     {
         "key": "CLEANUP_RELAY_ACTION_DAYS",
@@ -175,6 +209,13 @@ FIELD_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "default": CLEANUP_DEFAULT_ARGS["CLEANUP_RELAY_ACTION_DAYS"],
     },
     {
+        "key": "CLEANUP_RELAY_ACTION_AUTO_EXPORT",
+        "label": "RelayAction 自动导出",
+        "type": "boolean",
+        "group": "cleanup",
+        "default": CLEANUP_AUTO_EXPORT_DEFAULTS["CLEANUP_RELAY_ACTION_AUTO_EXPORT"],
+    },
+    {
         "key": "CLEANUP_USER_OPERATION_DAYS",
         "label": "UserOperation 保留天数",
         "type": "integer",
@@ -182,6 +223,13 @@ FIELD_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "min": 1,
         "max": 999999,
         "default": CLEANUP_DEFAULT_ARGS["CLEANUP_USER_OPERATION_DAYS"],
+    },
+    {
+        "key": "CLEANUP_USER_OPERATION_AUTO_EXPORT",
+        "label": "UserOperation 自动导出",
+        "type": "boolean",
+        "group": "cleanup",
+        "default": CLEANUP_AUTO_EXPORT_DEFAULTS["CLEANUP_USER_OPERATION_AUTO_EXPORT"],
     },
 )
 
@@ -259,6 +307,20 @@ def _normalize_time(value: Any, *, field: dict[str, Any]) -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
+def _normalize_bool(value: Any, *, field: dict[str, Any]) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"{field['label']}必须是布尔值。")
+
+
 def validate_runtime_config_values(values: Mapping[str, Any] | None) -> dict[str, Any]:
     if not isinstance(values, Mapping):
         raise ValueError("values 必须是对象。")
@@ -276,6 +338,8 @@ def validate_runtime_config_values(values: Mapping[str, Any] | None) -> dict[str
             validated[key] = _normalize_int(values[key], field=field)
         elif field["type"] == "time":
             validated[key] = _normalize_time(values[key], field=field)
+        elif field["type"] == "boolean":
+            validated[key] = _normalize_bool(values[key], field=field)
         elif field["type"] == "alarm_delay_map":
             validated[key] = _normalize_alarm_delay_map(values[key], field=field)
         else:
@@ -321,21 +385,20 @@ def _parse_cleanup_schedule_time(schedule) -> str:
 
 
 def _cleanup_args_field_order() -> tuple[str, ...]:
-    return (
-        "CLEANUP_RAW_FRAME_LOG_DAYS",
-        "CLEANUP_SWITCH_DATA_DAYS",
-        "CLEANUP_CHANGE_BIT_EVENT_DAYS",
-        "CLEANUP_ALARM_DATA_DAYS",
-        "CLEANUP_RELAY_ACTION_DAYS",
-        "CLEANUP_USER_OPERATION_DAYS",
-    )
+    return (*CLEANUP_DAY_FIELD_KEYS, *CLEANUP_AUTO_EXPORT_FIELD_KEYS)
 
 
 def _default_cleanup_values() -> dict[str, Any]:
     return {
         CLEANUP_SCHEDULE_TIME_KEY: CLEANUP_DEFAULT_SCHEDULE_TIME,
         **CLEANUP_DEFAULT_ARGS,
+        **CLEANUP_AUTO_EXPORT_DEFAULTS,
     }
+
+
+def build_default_cleanup_task_args() -> list[Any]:
+    defaults = _default_cleanup_values()
+    return [defaults[key] for key in _cleanup_args_field_order()]
 
 
 def _load_cleanup_config() -> tuple[dict[str, Any], bool, str | None]:
@@ -357,14 +420,21 @@ def _load_cleanup_config() -> tuple[dict[str, Any], bool, str | None]:
         args = json.loads(task.args or "[]")
     except json.JSONDecodeError:
         return defaults, False, f"定时任务 {CLEANUP_TASK_NAME} 的 args 不是合法 JSON。"
-    if not isinstance(args, list) or len(args) != len(_cleanup_args_field_order()):
+    legacy_order = CLEANUP_DAY_FIELD_KEYS
+    current_order = _cleanup_args_field_order()
+    if not isinstance(args, list) or len(args) not in {len(legacy_order), len(current_order)}:
         return defaults, False, f"定时任务 {CLEANUP_TASK_NAME} 的 args 数量不正确。"
 
     values = defaults.copy()
     try:
         values[CLEANUP_SCHEDULE_TIME_KEY] = _parse_cleanup_schedule_time(task.crontab)
-        for key, raw_value in zip(_cleanup_args_field_order(), args, strict=True):
-            values[key] = _normalize_int(raw_value, field=_field_map()[key])
+        order = legacy_order if len(args) == len(legacy_order) else current_order
+        for key, raw_value in zip(order, args, strict=True):
+            field = _field_map()[key]
+            if field["type"] == "boolean":
+                values[key] = _normalize_bool(raw_value, field=field)
+            else:
+                values[key] = _normalize_int(raw_value, field=field)
     except ValueError as exc:
         return defaults, False, str(exc)
     return values, True, None

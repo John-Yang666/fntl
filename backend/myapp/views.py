@@ -35,6 +35,7 @@ from .runtime_config import (
     get_communication_timeout,
     save_runtime_config_values,
 )
+from .tasks.cleanup_tasks import run_cleanup_export_test
 
 User = get_user_model()
 
@@ -273,6 +274,16 @@ class RuntimeConfigView(APIView):
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(payload)
+
+
+class RuntimeConfigCleanupExportTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        permission_error = _ensure_superuser(request)
+        if permission_error is not None:
+            return permission_error
+        return Response({"results": run_cleanup_export_test()})
     
 def pgadmin_link_view(request):
     return render(request, 'pgadmin_link.html')

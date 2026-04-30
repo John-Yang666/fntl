@@ -42,6 +42,7 @@ from django.contrib.auth import get_user_model
 from django.db import connection
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .runtime_config import build_runtime_config_payload, save_runtime_config_values
+from .tasks.cleanup_tasks import run_cleanup_export_test
 
 from .sy_command_sender import (
     make_cmd_a1,
@@ -234,6 +235,16 @@ class RuntimeConfigView(APIView):
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(payload)
+
+
+class RuntimeConfigCleanupExportTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        permission_error = _ensure_superuser(request)
+        if permission_error is not None:
+            return permission_error
+        return Response({"results": run_cleanup_export_test()})
 
 
 def pgadmin_link_view(request):

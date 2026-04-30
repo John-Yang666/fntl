@@ -81,6 +81,7 @@ urlpatterns = [
     # 当前登录用户信息
     path("api/user/", views.UserDetailView.as_view(), name="user_detail"),
     path("api/runtime-config/", views.RuntimeConfigView.as_view(), name="runtime_config"),
+    path("api/runtime-config/cleanup-export-test/", views.RuntimeConfigCleanupExportTestView.as_view(), name="runtime_config_cleanup_export_test"),
 
     # 文件下载
     path("api/download/<int:pk>/", views.download_file, name="file-download"),

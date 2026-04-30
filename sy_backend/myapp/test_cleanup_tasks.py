@@ -70,6 +70,21 @@ class SyCleanupTaskTests(TestCase):
         self.assertIn("boom", result["error"])
         self.assertTrue(ChangeBitEvent.objects.filter(pk=old_row.pk).exists())
 
+    def test_cleanup_raw_frame_log_can_delete_without_export(self):
+        old_row = RawFrameLog.objects.create(device=self.device, cmd="A1", note="old", raw_frame=b"\x7f\x7f")
+        self._set_old_timestamp(RawFrameLog, old_row.pk)
+
+        with self.settings(DATA_DIR=self.temp_dir.name):
+            result = cleanup_tasks.cleanup_raw_frame_log(30, auto_export=False)
+
+        self.assertEqual(result["status"], "deleted")
+        self.assertFalse(result["export_enabled"])
+        self.assertEqual(result["export_path"], "")
+        self.assertEqual(result["deleted_count"], 1)
+        self.assertFalse(RawFrameLog.objects.filter(pk=old_row.pk).exists())
+        export_dir = Path(self.temp_dir.name) / "cleanup_exports"
+        self.assertFalse(export_dir.exists())
+
     def test_cleanup_switch_data_freezes_snapshot_ids(self):
         original_row = SwitchData.objects.create(device=self.device, switch_status=b"\xAA\xBB\xCC\xDD", version="v4")
         self._set_old_timestamp(SwitchData, original_row.pk)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -79,6 +80,7 @@ class RuntimeConfigApiTests(APITestCase):
         )
         self.assertEqual(response.data["values"]["CLEANUP_SCHEDULE_TIME"], "03:00")
         self.assertEqual(response.data["values"]["CLEANUP_SWITCH_DATA_DAYS"], 3)
+        self.assertIs(response.data["values"]["CLEANUP_SWITCH_DATA_AUTO_EXPORT"], True)
         self.assertIsNone(response.data["updated_by"])
 
     def test_runtime_config_put_updates_helper_values(self):
@@ -132,7 +134,10 @@ class RuntimeConfigApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.periodic_task.refresh_from_db()
-        self.assertEqual(self.periodic_task.args, "[60, 30, 30, 30, 30]")
+        self.assertEqual(
+            json.loads(self.periodic_task.args),
+            [60, 30, 30, 30, 30, True, True, True, True, True],
+        )
         self.assertEqual(self.periodic_task.crontab.hour, "4")
         self.assertEqual(self.periodic_task.crontab.minute, "30")
         operations = list(UserOperation.objects.order_by("operation"))

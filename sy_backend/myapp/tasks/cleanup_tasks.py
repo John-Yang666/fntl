@@ -15,6 +15,7 @@ from ..cleanup_export_resources import CLEANUP_EXPORT_RESOURCE_MAP
 
 DELETE_BATCH_SIZE = 100
 SYSTEM_LABEL = "sy"
+CLEANUP_EXPORT_TEST_DAYS = 99999
 
 
 def _validate_days(model, days):
@@ -31,11 +32,12 @@ def _get_cleanup_export_dir():
     return export_dir
 
 
-def _build_export_filename(model_name, threshold_date, run_at):
+def _build_export_filename(model_name, threshold_date, run_at, *, export_test=False):
     local_threshold = timezone.localtime(threshold_date)
     local_run_at = timezone.localtime(run_at)
+    marker = "export_test_before" if export_test else "before"
     return (
-        f"{SYSTEM_LABEL}_{model_name}_before_{local_threshold:%Y-%m-%d}"
+        f"{SYSTEM_LABEL}_{model_name}_{marker}_{local_threshold:%Y-%m-%d}"
         f"_run_{local_run_at:%Y%m%d_%H%M%S}.csv"
     )
 
@@ -67,7 +69,7 @@ def _delete_snapshot_ids(model, snapshot_ids):
     return total_deleted
 
 
-def cleanup_old_data(model, days, date_field="timestamp"):
+def cleanup_old_data(model, days, date_field="timestamp", *, auto_export=True):
     _validate_days(model, days)
 
     threshold_date = timezone.now() - timedelta(days=days)
@@ -80,6 +82,8 @@ def cleanup_old_data(model, days, date_field="timestamp"):
         "date_field": date_field,
         "threshold": threshold_date.isoformat(),
         "candidate_count": 0,
+        "export_enabled": bool(auto_export),
+        "export_test": False,
         "export_path": "",
         "deleted_count": 0,
         "error": "",
@@ -90,6 +94,56 @@ def cleanup_old_data(model, days, date_field="timestamp"):
     if not snapshot_ids:
         return result
 
+    if auto_export:
+        resource_class = CLEANUP_EXPORT_RESOURCE_MAP.get(model)
+        if resource_class is None:
+            result["status"] = "failed"
+            result["error"] = f"No cleanup export resource configured for {model.__name__}"
+            return result
+
+        try:
+            export_dir = _get_cleanup_export_dir()
+            export_file = export_dir / _build_export_filename(model.__name__, threshold_date, run_at)
+            export_queryset = model.objects.filter(id__in=snapshot_ids).order_by(date_field, "id")
+            export_cleanup_queryset_to_csv(
+                queryset=export_queryset,
+                resource_class=resource_class,
+                export_file=export_file,
+            )
+            result["export_path"] = str(export_file)
+        except Exception as exc:
+            result["status"] = "failed"
+            result["error"] = f"{type(exc).__name__}: {exc}"
+            return result
+
+    result["deleted_count"] = _delete_snapshot_ids(model, snapshot_ids)
+    result["status"] = "deleted"
+    return result
+
+
+def export_cleanup_test(model, days, date_field="timestamp"):
+    _validate_days(model, days)
+
+    threshold_date = timezone.now() - timedelta(days=days)
+    run_at = timezone.now()
+    result = {
+        "status": "exported",
+        "model": model.__name__,
+        "system": SYSTEM_LABEL,
+        "days": days,
+        "date_field": date_field,
+        "threshold": threshold_date.isoformat(),
+        "candidate_count": 0,
+        "export_enabled": True,
+        "export_test": True,
+        "export_path": "",
+        "deleted_count": 0,
+        "error": "",
+    }
+
+    snapshot_ids = _snapshot_cleanup_ids(model, threshold_date, date_field)
+    result["candidate_count"] = len(snapshot_ids)
+
     resource_class = CLEANUP_EXPORT_RESOURCE_MAP.get(model)
     if resource_class is None:
         result["status"] = "failed"
@@ -98,7 +152,7 @@ def cleanup_old_data(model, days, date_field="timestamp"):
 
     try:
         export_dir = _get_cleanup_export_dir()
-        export_file = export_dir / _build_export_filename(model.__name__, threshold_date, run_at)
+        export_file = export_dir / _build_export_filename(model.__name__, threshold_date, run_at, export_test=True)
         export_queryset = model.objects.filter(id__in=snapshot_ids).order_by(date_field, "id")
         export_cleanup_queryset_to_csv(
             queryset=export_queryset,
@@ -109,38 +163,45 @@ def cleanup_old_data(model, days, date_field="timestamp"):
     except Exception as exc:
         result["status"] = "failed"
         result["error"] = f"{type(exc).__name__}: {exc}"
-        return result
-
-    result["deleted_count"] = _delete_snapshot_ids(model, snapshot_ids)
-    result["status"] = "deleted"
     return result
 
 
-@shared_task
-def cleanup_raw_frame_log(days):
-    return cleanup_old_data(RawFrameLog, days, "timestamp")
+def run_cleanup_export_test():
+    return {
+        "RawFrameLog": export_cleanup_test(RawFrameLog, CLEANUP_EXPORT_TEST_DAYS, "timestamp"),
+        "SwitchData": export_cleanup_test(SwitchData, CLEANUP_EXPORT_TEST_DAYS, "timestamp"),
+        "ChangeBitEvent": export_cleanup_test(ChangeBitEvent, CLEANUP_EXPORT_TEST_DAYS, "timestamp"),
+        "AlarmData": export_cleanup_test(AlarmData, CLEANUP_EXPORT_TEST_DAYS, "timestamp_start"),
+        "RelayAction": export_cleanup_test(RelayAction, CLEANUP_EXPORT_TEST_DAYS, "timestamp"),
+        "UserOperation": export_cleanup_test(UserOperation, CLEANUP_EXPORT_TEST_DAYS, "timestamp"),
+    }
 
 
 @shared_task
-def cleanup_switch_data(days):
-    return cleanup_old_data(SwitchData, days, "timestamp")
+def cleanup_raw_frame_log(days, auto_export=True):
+    return cleanup_old_data(RawFrameLog, days, "timestamp", auto_export=auto_export)
 
 
 @shared_task
-def cleanup_change_bit_event(days):
-    return cleanup_old_data(ChangeBitEvent, days, "timestamp")
+def cleanup_switch_data(days, auto_export=True):
+    return cleanup_old_data(SwitchData, days, "timestamp", auto_export=auto_export)
 
 
 @shared_task
-def cleanup_alarm_data(days):
-    return cleanup_old_data(AlarmData, days, "timestamp_start")
+def cleanup_change_bit_event(days, auto_export=True):
+    return cleanup_old_data(ChangeBitEvent, days, "timestamp", auto_export=auto_export)
 
 
 @shared_task
-def cleanup_relay_action(days):
-    return cleanup_old_data(RelayAction, days, "timestamp")
+def cleanup_alarm_data(days, auto_export=True):
+    return cleanup_old_data(AlarmData, days, "timestamp_start", auto_export=auto_export)
 
 
 @shared_task
-def cleanup_user_operation(days):
-    return cleanup_old_data(UserOperation, days, "timestamp")
+def cleanup_relay_action(days, auto_export=True):
+    return cleanup_old_data(RelayAction, days, "timestamp", auto_export=auto_export)
+
+
+@shared_task
+def cleanup_user_operation(days, auto_export=True):
+    return cleanup_old_data(UserOperation, days, "timestamp", auto_export=auto_export)

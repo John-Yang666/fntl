@@ -20,6 +20,12 @@ def my_daily_task(
     alarm_data_days,
     relay_action_days,
     user_operation_days,
+    raw_frame_log_auto_export=True,
+    switch_data_auto_export=True,
+    change_bit_event_auto_export=True,
+    alarm_data_auto_export=True,
+    relay_action_auto_export=True,
+    user_operation_auto_export=True,
 ):
     """
     每日定时清理任务：
@@ -36,19 +42,19 @@ def my_daily_task(
     """
 
     cleanup_jobs = [
-        ("RawFrameLog", cleanup_raw_frame_log, raw_frame_log_days),
-        ("SwitchData", cleanup_switch_data, switch_data_days),
-        ("ChangeBitEvent", cleanup_change_bit_event, change_bit_event_days),
-        ("AlarmData", cleanup_alarm_data, alarm_data_days),
-        ("RelayAction", cleanup_relay_action, relay_action_days),
-        ("UserOperation", cleanup_user_operation, user_operation_days),
+        ("RawFrameLog", cleanup_raw_frame_log, raw_frame_log_days, raw_frame_log_auto_export),
+        ("SwitchData", cleanup_switch_data, switch_data_days, switch_data_auto_export),
+        ("ChangeBitEvent", cleanup_change_bit_event, change_bit_event_days, change_bit_event_auto_export),
+        ("AlarmData", cleanup_alarm_data, alarm_data_days, alarm_data_auto_export),
+        ("RelayAction", cleanup_relay_action, relay_action_days, relay_action_auto_export),
+        ("UserOperation", cleanup_user_operation, user_operation_days, user_operation_auto_export),
     ]
 
     summary = {}
 
-    for model_name, task_func, days in cleanup_jobs:
+    for model_name, task_func, days, auto_export in cleanup_jobs:
         try:
-            result = task_func(days)
+            result = task_func(days, auto_export)
             print(f"Cleanup {model_name} result: {result}")
             summary[model_name] = result
         except Exception as exc:

@@ -34,7 +34,7 @@ class MyappConfig(AppConfig):
     def setup_periodic_tasks(self, **kwargs):
         from django_celery_beat.models import PeriodicTask, CrontabSchedule
         import json
-        from myapp.runtime_config import CLEANUP_DEFAULT_ARGS, CLEANUP_DEFAULT_SCHEDULE_TIME, CLEANUP_TASK_NAME
+        from myapp.runtime_config import CLEANUP_DEFAULT_SCHEDULE_TIME, CLEANUP_TASK_NAME, build_default_cleanup_task_args
 
         # 创建或获取调度时间表，每天凌晨3点运行
         schedule, created = CrontabSchedule.objects.get_or_create(
@@ -53,14 +53,6 @@ class MyappConfig(AppConfig):
                 crontab=schedule,
                 name=task_name,  # 任务名称
                 task='myapp.tasks.my_daily_task.my_daily_task',
-                args=json.dumps(
-                    [
-                        CLEANUP_DEFAULT_ARGS["CLEANUP_SWITCH_DATA_DAYS"],
-                        CLEANUP_DEFAULT_ARGS["CLEANUP_ANALOG_DATA_DAYS"],
-                        CLEANUP_DEFAULT_ARGS["CLEANUP_ALARM_DATA_DAYS"],
-                        CLEANUP_DEFAULT_ARGS["CLEANUP_RELAY_ACTION_DAYS"],
-                        CLEANUP_DEFAULT_ARGS["CLEANUP_USER_OPERATION_DAYS"],
-                    ]
-                )
+                args=json.dumps(build_default_cleanup_task_args())
             )
             print(f"Created periodic task: {task_name}")

@@ -33,6 +33,7 @@ urlpatterns = [
     path('api/token/refresh/', RuntimeConfigTokenRefreshView.as_view(), name='token_refresh'),
     path('api/user/', views.UserDetailView.as_view(), name='user_detail'),
     path('api/runtime-config/', views.RuntimeConfigView.as_view(), name='runtime_config'),
+    path('api/runtime-config/cleanup-export-test/', views.RuntimeConfigCleanupExportTestView.as_view(), name='runtime_config_cleanup_export_test'),
     path('api/help-faq/', views.HelpFaqView.as_view(), name='help_faq'),
     path('api/download/<int:pk>/', views.download_file, name='file-download'),
     path('api/device-flags/<int:device_id>/', views.DeviceFlagsView.as_view(), name='device-flags'),

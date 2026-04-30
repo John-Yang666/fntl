@@ -72,6 +72,21 @@ class BtCleanupTaskTests(TestCase):
         self.assertIn("boom", result["error"])
         self.assertTrue(AnalogData.objects.filter(pk=old_row.pk).exists())
 
+    def test_cleanup_switch_data_can_delete_without_export(self):
+        old_row = SwitchData.objects.create(device=self.device, switch_status=b"\x01" * 46)
+        self._set_old_timestamp(SwitchData, old_row.pk)
+
+        with self.settings(DATA_DIR=self.temp_dir.name):
+            result = cleanup_tasks.cleanup_switch_data(30, auto_export=False)
+
+        self.assertEqual(result["status"], "deleted")
+        self.assertFalse(result["export_enabled"])
+        self.assertEqual(result["export_path"], "")
+        self.assertEqual(result["deleted_count"], 1)
+        self.assertFalse(SwitchData.objects.filter(pk=old_row.pk).exists())
+        export_dir = Path(self.temp_dir.name) / "cleanup_exports"
+        self.assertFalse(export_dir.exists())
+
     def test_cleanup_switch_data_freezes_snapshot_ids(self):
         original_row = SwitchData.objects.create(device=self.device, switch_status=b"\x01" * 46)
         self._set_old_timestamp(SwitchData, original_row.pk)

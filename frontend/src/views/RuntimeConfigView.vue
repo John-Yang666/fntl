@@ -111,7 +111,70 @@
                   <span>{{ getGroupDescription(group) }}</span>
                 </div>
 
-                <div class="field-grid">
+                <template v-if="group === 'cleanup'">
+                  <div class="cleanup-toolbar">
+                    <div class="cleanup-path-hint">
+                      自动导出目录：<strong>DATA_DIR/cleanup_exports</strong>
+                    </div>
+                    <el-button
+                      type="success"
+                      :loading="systemStates[system].testingExport"
+                      @click="testCleanupExport(system)"
+                    >
+                      导出测试
+                    </el-button>
+                  </div>
+
+                  <div class="field-grid">
+                    <div
+                      v-if="getCleanupScheduleField(system)"
+                      class="field-card"
+                    >
+                      <div class="field-label">{{ getCleanupScheduleField(system)?.label }}</div>
+                      <div class="field-input-row">
+                        <el-time-picker
+                          :model-value="getTimeValue(system, getCleanupScheduleField(system)?.key || '')"
+                          format="HH:mm"
+                          value-format="HH:mm"
+                          placeholder="选择时间"
+                          :clearable="false"
+                          @update:model-value="updateTimeValue(system, getCleanupScheduleField(system)?.key || '', $event)"
+                        />
+                        <span class="field-default">默认：{{ formatDefaultValue(getCleanupScheduleField(system)?.default) }}</span>
+                      </div>
+                    </div>
+
+                    <div
+                      v-for="row in getCleanupRows(system)"
+                      :key="row.daysField.key"
+                      class="field-card cleanup-row-card"
+                    >
+                      <div class="field-label">{{ row.modelLabel }}</div>
+                      <div class="cleanup-row-controls">
+                        <div class="field-input-row cleanup-days-input">
+                          <el-input-number
+                            :model-value="getIntegerValue(system, row.daysField.key)"
+                            :min="row.daysField.min ?? 0"
+                            :max="row.daysField.max ?? undefined"
+                            :step="1"
+                            controls-position="right"
+                            @update:model-value="updateIntegerValue(system, row.daysField.key, $event)"
+                          />
+                          <span class="field-default">默认：{{ formatDefaultValue(row.daysField.default) }}</span>
+                        </div>
+                        <el-checkbox
+                          v-if="row.autoExportField"
+                          :model-value="getBooleanValue(system, row.autoExportField.key)"
+                          @update:model-value="updateBooleanValue(system, row.autoExportField.key, $event)"
+                        >
+                          自动导出
+                        </el-checkbox>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <div v-else class="field-grid">
                   <div
                     v-for="field in getFieldsByGroup(system, group)"
                     :key="field.key"
@@ -145,6 +208,16 @@
                         />
                         <span class="field-default">默认：{{ formatDefaultValue(field.default) }}</span>
                       </div>
+                    </template>
+
+                    <template v-else-if="field.type === 'boolean'">
+                      <div class="field-label">{{ field.label }}</div>
+                      <el-checkbox
+                        :model-value="getBooleanValue(system, field.key)"
+                        @update:model-value="updateBooleanValue(system, field.key, $event)"
+                      >
+                        启用
+                      </el-checkbox>
                     </template>
 
                     <template v-else>
@@ -220,12 +293,12 @@
 <script setup lang="ts">
 import axios from 'axios';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useUserStore } from '@/stores/userStore';
 import { SYSTEMS, SYSTEM_LABELS, getApiBase, type SystemType } from '@/utils/systems';
 
 type RuntimeConfigGroup = 'runtime' | 'auth' | 'cleanup';
-type RuntimeConfigFieldType = 'integer' | 'alarm_delay_map' | 'time';
+type RuntimeConfigFieldType = 'integer' | 'alarm_delay_map' | 'time' | 'boolean';
 
 interface RuntimeConfigField {
   key: string;
@@ -253,6 +326,7 @@ interface RuntimeConfigPayload {
 interface RuntimeConfigState {
   loading: boolean;
   saving: boolean;
+  testingExport: boolean;
   error: string | null;
   payload: RuntimeConfigPayload | null;
   draftValues: Record<string, unknown>;
@@ -272,6 +346,24 @@ interface SavePasswordDialogState {
   verifying: boolean;
 }
 
+interface CleanupRow {
+  modelLabel: string;
+  daysField: RuntimeConfigField;
+  autoExportField?: RuntimeConfigField;
+}
+
+interface CleanupExportTestResult {
+  status: string;
+  model: string;
+  candidate_count: number;
+  export_path: string;
+  error: string;
+}
+
+interface CleanupExportTestPayload {
+  results: Record<string, CleanupExportTestResult>;
+}
+
 const GROUP_ORDER: RuntimeConfigGroup[] = ['runtime', 'cleanup', 'auth'];
 const GROUP_LABELS: Record<RuntimeConfigGroup, string> = {
   runtime: '运行参数',
@@ -287,6 +379,7 @@ const systemStates = reactive<Record<SystemType, RuntimeConfigState>>({
   bt: {
     loading: false,
     saving: false,
+    testingExport: false,
     error: null,
     payload: null,
     draftValues: {},
@@ -294,6 +387,7 @@ const systemStates = reactive<Record<SystemType, RuntimeConfigState>>({
   sy: {
     loading: false,
     saving: false,
+    testingExport: false,
     error: null,
     payload: null,
     draftValues: {},
@@ -394,12 +488,39 @@ function getTimeValue(system: SystemType, key: string): string {
   return typeof rawValue === 'string' ? rawValue : '';
 }
 
+function getBooleanValue(system: SystemType, key: string): boolean {
+  return systemStates[system].draftValues[key] === true;
+}
+
 function updateIntegerValue(system: SystemType, key: string, value: number | undefined): void {
   systemStates[system].draftValues[key] = typeof value === 'number' ? value : 0;
 }
 
 function updateTimeValue(system: SystemType, key: string, value: string | null): void {
   systemStates[system].draftValues[key] = typeof value === 'string' ? value : '';
+}
+
+function updateBooleanValue(system: SystemType, key: string, value: string | number | boolean): void {
+  systemStates[system].draftValues[key] = value === true;
+}
+
+function getCleanupScheduleField(system: SystemType): RuntimeConfigField | undefined {
+  return getFieldsByGroup(system, 'cleanup').find((field) => field.key === 'CLEANUP_SCHEDULE_TIME');
+}
+
+function getCleanupRows(system: SystemType): CleanupRow[] {
+  const fields = getFieldsByGroup(system, 'cleanup');
+  const fieldMap = new Map(fields.map((field) => [field.key, field]));
+  return fields
+    .filter((field) => field.type === 'integer' && field.key.endsWith('_DAYS'))
+    .map((daysField) => {
+      const autoExportKey = daysField.key.replace(/_DAYS$/, '_AUTO_EXPORT');
+      return {
+        modelLabel: daysField.label.replace(/\s*保留天数$/, ''),
+        daysField,
+        autoExportField: fieldMap.get(autoExportKey),
+      };
+    });
 }
 
 function getAlarmDelayRows(system: SystemType, field: RuntimeConfigField): AlarmDelayRow[] {
@@ -488,6 +609,11 @@ function validateDraft(system: SystemType): string | null {
         return `${field.label} 必须是合法时间。`;
       }
     }
+    if (field.type === 'boolean') {
+      if (typeof rawValue !== 'boolean') {
+        return `${field.label} 必须是布尔值。`;
+      }
+    }
     if (field.type === 'alarm_delay_map') {
       if (!rawValue || typeof rawValue !== 'object') {
         return `${field.label} 不能为空。`;
@@ -501,6 +627,34 @@ function validateDraft(system: SystemType): string | null {
   }
 
   return null;
+}
+
+async function testCleanupExport(system: SystemType): Promise<void> {
+  const state = systemStates[system];
+  state.testingExport = true;
+  state.error = null;
+  try {
+    const payload = await userStore.requestWithAuth<CleanupExportTestPayload>(system, {
+      method: 'post',
+      url: '/runtime-config/cleanup-export-test/',
+    });
+    const lines = Object.entries(payload.results).map(([name, result]) => {
+      if (result.status === 'failed') {
+        return `${name}: 失败，${result.error || '未知错误'}`;
+      }
+      return `${name}: 成功，候选 ${result.candidate_count} 条，文件 ${result.export_path || '-'}`;
+    });
+    await ElMessageBox.alert(lines.join('\n'), `${SYSTEM_LABELS[system]} 导出测试结果`, {
+      confirmButtonText: '确定',
+      customClass: 'cleanup-export-test-dialog',
+    });
+    ElMessage.success(`${SYSTEM_LABELS[system]} 导出测试完成`);
+  } catch (error) {
+    state.error = getErrorMessage(error, `${SYSTEM_LABELS[system]} 导出测试失败`);
+    ElMessage.error(state.error);
+  } finally {
+    state.testingExport = false;
+  }
 }
 
 function hasUnsavedChanges(system: SystemType): boolean {
@@ -706,6 +860,42 @@ onMounted(async () => {
   flex-direction: column;
   gap: 18px;
   background: #ffffff;
+}
+
+.cleanup-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.cleanup-path-hint {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.cleanup-path-hint strong {
+  color: #1f2937;
+  font-weight: 700;
+}
+
+.cleanup-row-card {
+  min-height: 154px;
+}
+
+.cleanup-row-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cleanup-days-input {
+  align-items: center;
 }
 
 .system-toolbar {
