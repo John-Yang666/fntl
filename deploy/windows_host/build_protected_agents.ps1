@@ -17,6 +17,13 @@ if (-not $OutputRoot) {
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 $VenvPath = Join-Path $BuildRoot ".venv-protected"
 $NuitkaRoot = Join-Path $BuildRoot "nuitka"
+$PipInstallBaseArgs = @(
+    "-m", "pip", "install",
+    "-i", "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "--trusted-host", "pypi.tuna.tsinghua.edu.cn",
+    "--timeout", "120",
+    "--retries", "5"
+)
 
 function Invoke-PythonLauncher {
     param([string[]]$CommandArgs)
@@ -74,9 +81,9 @@ if (-not (Test-Path (Join-Path $VenvPath "Scripts\python.exe"))) {
 }
 
 $PythonExe = Join-Path $VenvPath "Scripts\python.exe"
-Invoke-PythonExe -PythonExe $PythonExe -CommandArgs @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel")
-Invoke-PythonExe -PythonExe $PythonExe -CommandArgs @("-m", "pip", "install", "nuitka", "ordered-set", "zstandard")
-Invoke-PythonExe -PythonExe $PythonExe -CommandArgs @("-m", "pip", "install", "-r", (Join-Path $RepoRoot "bt_agent\requirements.txt"), "-r", (Join-Path $RepoRoot "sy_agent\requirements.txt"))
+Invoke-PythonExe -PythonExe $PythonExe -CommandArgs ($PipInstallBaseArgs + @("--upgrade", "pip", "setuptools", "wheel"))
+Invoke-PythonExe -PythonExe $PythonExe -CommandArgs ($PipInstallBaseArgs + @("nuitka", "ordered-set", "zstandard"))
+Invoke-PythonExe -PythonExe $PythonExe -CommandArgs ($PipInstallBaseArgs + @("-r", (Join-Path $RepoRoot "bt_agent\requirements.txt"), "-r", (Join-Path $RepoRoot "sy_agent\requirements.txt")))
 
 Build-NuitkaApp -Name "bt_agent" -ScriptPath "bt_agent\bt_agent.py"
 Build-NuitkaApp -Name "bt_agent_ui" -ScriptPath "bt_agent\bt_agent_ui.py" -ExtraArgs @(
