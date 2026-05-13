@@ -32,6 +32,11 @@ class MyappConfig(AppConfig):
         post_migrate.connect(self.setup_periodic_tasks, sender=self)
 
     def setup_periodic_tasks(self, **kwargs):
+        from django.apps import apps
+
+        if not apps.is_installed("django_celery_beat"):
+            return
+
         try:
             from django_celery_beat.models import PeriodicTask, CrontabSchedule
         except ModuleNotFoundError:

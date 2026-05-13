@@ -377,6 +377,28 @@ def _apply_a2_change(previous_status: bytes | None, payload: bytes):
     return bytes(status), byte_index * 8 + bit_pos, True
 
 
+def _insert_rows(cursor, table: str, columns: tuple[str, ...], rows: list[tuple], page_size: int = SQL_INSERT_PAGE_SIZE):
+    if not rows:
+        return
+
+    column_sql = ", ".join(columns)
+    if connection.vendor == "postgresql":
+        execute_values(
+            cursor,
+            f"INSERT INTO {table} ({column_sql}) VALUES %s",
+            rows,
+            page_size=page_size,
+        )
+        return
+
+    placeholders = ", ".join(["%s"] * len(columns))
+    adapted_rows = [
+        tuple(value.hex if isinstance(value, uuid.UUID) else value for value in row)
+        for row in rows
+    ]
+    cursor.executemany(f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders})", adapted_rows)
+
+
 def _hydrate_switch_status_from_db(device_ids):
     hydrated = {}
     if not device_ids:
@@ -506,33 +528,31 @@ def process_message_batch(messages: list[SyFrameMessage]):
 
         if msg.cmd == "A1":
             status_bytes = bytes(msg.payload[:4])
-            if not status_bytes:
+            if len(status_bytes) < 4:
                 continue
 
             cached_a1 = a1_state.setdefault(msg.nms_id, {"last_bytes": None, "last_log_ts": None})
             current_hex = status_bytes.hex()
-            changed = cached_a1["last_bytes"] != current_hex
+            a1_changed = cached_a1["last_bytes"] != current_hex
+            status_changed = previous_status != status_bytes
             needs_heartbeat_row = False
-            if not changed:
+            if not status_changed:
                 last_log_ts = cached_a1["last_log_ts"]
                 if last_log_ts is None or msg.received_at - last_log_ts >= timedelta(seconds=A1_HEARTBEAT_SECONDS):
                     needs_heartbeat_row = True
 
-            if not changed and not needs_heartbeat_row:
+            cached_a1["last_bytes"] = current_hex
+            dedup_pipe.set(_last_a1_bytes_key(msg.nms_id), current_hex)
+            if a1_changed:
+                cached_a1["last_log_ts"] = msg.received_at
+                dedup_pipe.set(_last_a1_log_ts_key(msg.nms_id), msg.received_at.isoformat())
+
+            if not status_changed and not needs_heartbeat_row:
                 metrics["dedup"] += 1
-                if previous_status != status_bytes:
-                    switch_status_state[msg.nms_id] = status_bytes
-                    switch_status_state[msg.nms_id] = status_bytes
-                    cache_updates[_switch_status_key(msg.nms_id)] = status_bytes
-                    cache_updates[_switch_status_updated_at_key(msg.nms_id)] = msg.received_at.isoformat()
-                    cache_updates[_switch_status_version_key(msg.nms_id)] = SWITCH_STATUS_VERSION_DEFAULT
-                dedup_pipe.set(_last_a1_bytes_key(msg.nms_id), current_hex)
                 continue
 
             next_status = status_bytes
-            cached_a1["last_bytes"] = current_hex
             cached_a1["last_log_ts"] = msg.received_at
-            dedup_pipe.set(_last_a1_bytes_key(msg.nms_id), current_hex)
             dedup_pipe.set(_last_a1_log_ts_key(msg.nms_id), msg.received_at.isoformat())
         elif msg.cmd == "A2":
             next_status, bit_index_flat, changed = _apply_a2_change(previous_status, msg.payload)
@@ -579,34 +599,16 @@ def process_message_batch(messages: list[SyFrameMessage]):
     db_begin = time.monotonic()
     with transaction.atomic():
         with connection.cursor() as cursor:
-            if switch_rows:
-                execute_values(
-                    cursor,
-                    f"INSERT INTO {SWITCH_TABLE} (id, device_id, switch_status, version, timestamp) VALUES %s",
-                    switch_rows,
-                    page_size=SQL_INSERT_PAGE_SIZE,
-                )
-            if change_rows:
-                execute_values(
-                    cursor,
-                    f"INSERT INTO {CHANGE_TABLE} (id, device_id, bit_index, value, source, timestamp) VALUES %s",
-                    change_rows,
-                    page_size=SQL_INSERT_PAGE_SIZE,
-                )
-            if relay_rows:
-                execute_values(
-                    cursor,
-                    f"INSERT INTO {RELAY_TABLE} (id, device_id, relay, action, timestamp) VALUES %s",
-                    relay_rows,
-                    page_size=SQL_INSERT_PAGE_SIZE,
-                )
-            if raw_rows:
-                execute_values(
-                    cursor,
-                    f"INSERT INTO {RAW_FRAME_TABLE} (id, device_id, raw_frame, cmd, note, timestamp) VALUES %s",
-                    raw_rows,
-                    page_size=min(SQL_INSERT_PAGE_SIZE, 500),
-                )
+            _insert_rows(cursor, SWITCH_TABLE, ("id", "device_id", "switch_status", "version", "timestamp"), switch_rows)
+            _insert_rows(cursor, CHANGE_TABLE, ("id", "device_id", "bit_index", "value", "source", "timestamp"), change_rows)
+            _insert_rows(cursor, RELAY_TABLE, ("id", "device_id", "relay", "action", "timestamp"), relay_rows)
+            _insert_rows(
+                cursor,
+                RAW_FRAME_TABLE,
+                ("id", "device_id", "raw_frame", "cmd", "note", "timestamp"),
+                raw_rows,
+                page_size=min(SQL_INSERT_PAGE_SIZE, 500),
+            )
     metrics["db_ms"] = (time.monotonic() - db_begin) * 1000
 
     if cache_updates:

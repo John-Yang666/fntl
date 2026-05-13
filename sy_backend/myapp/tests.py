@@ -172,6 +172,37 @@ class SyReceiverBatchTests(TestCase):
         build_alarm_mock.assert_not_called()
         topology_mock.assert_not_called()
 
+    def test_a1_logs_relay_action_from_current_status_change(self):
+        cache.set("device_1_switch_status", b"\x00\x00\x00\x00", timeout=None)
+        payload = bytes([0x10, 0x00, 0x00, 0x00])
+
+        metrics = process_message_batch([self._message(cmd="A1", payload=payload, monotonic=1.5)])
+
+        self.assertEqual(metrics["switch_rows"], 1)
+        self.assertEqual(metrics["relay_rows"], 1)
+        self.assertEqual(SwitchData.objects.count(), 1)
+        self.assertEqual(ChangeBitEvent.objects.count(), 0)
+        action = RelayAction.objects.get()
+        self.assertEqual(action.relay, "一方向FDJ")
+        self.assertEqual(action.action, "吸起")
+        self.assertEqual(cache.get("device_1_switch_status"), payload)
+
+    def test_a1_logs_relay_action_when_last_a1_matches_but_current_status_differs(self):
+        cache.set("device_1_switch_status", b"\x00\x00\x00\x00", timeout=None)
+        payload = bytes([0x10, 0x00, 0x00, 0x00])
+        self.fake_redis.set(sy_receiver._last_a1_bytes_key(1), payload.hex())
+
+        metrics = process_message_batch([self._message(cmd="A1", payload=payload, monotonic=1.6)])
+
+        self.assertEqual(metrics["dedup"], 0)
+        self.assertEqual(metrics["switch_rows"], 1)
+        self.assertEqual(metrics["relay_rows"], 1)
+        self.assertEqual(ChangeBitEvent.objects.count(), 0)
+        action = RelayAction.objects.get()
+        self.assertEqual(action.relay, "一方向FDJ")
+        self.assertEqual(action.action, "吸起")
+        self.assertEqual(cache.get("device_1_switch_status"), payload)
+
     def test_a2_updates_snapshot_and_logs_change(self):
         cache.set("device_1_switch_status", b"\x00\x00\x00\x00", timeout=None)
         payload = bytes([0x84, 0x00])
