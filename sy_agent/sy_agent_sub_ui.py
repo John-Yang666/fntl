@@ -86,6 +86,7 @@ from sy_agent_ui import (
     _load_py_config,
     _new_line_runtime_state,
     _now_iso,
+    _parse_dashboard_payload,
     _parse_status_payload,
     _plain_log_lines,
     _format_redis_state_text,
@@ -353,6 +354,7 @@ class SyUISubAgentWindow(QMainWindow):
         self._log_lines: "deque[str]" = deque(maxlen=8)
         self._log_dirty = False
         self._overview_detail_text_cache = ""
+        self._agent_dashboard_text_cache = ""
         self._drop_runtime_lines = False
         self._line_status: dict[int, dict[str, Any]] = {}
         self._active_port_alerts: dict[tuple[int, str], str] = {}
@@ -699,6 +701,7 @@ class SyUISubAgentWindow(QMainWindow):
         config["ui"]["mode"] = "plain"
         config.setdefault("debug_tuning", {})
         config["debug_tuning"]["STATUS_PRINT_EVERY_SEC"] = 1.0
+        config["debug_tuning"]["LOG_PORT_STATE"] = True
         return config
 
     def _write_runtime_config(self) -> Path:
@@ -998,6 +1001,7 @@ class SyUISubAgentWindow(QMainWindow):
 
     def _reset_runtime_state(self) -> None:
         self._line_status = {}
+        self._agent_dashboard_text_cache = ""
         for line in self.applied_config.get("lines", []):
             line_id = int(line["line_id"])
             self._line_status[line_id] = _new_line_runtime_state(line_id, str(line["name"]), devices=len(line.get("devices", [])))
@@ -1028,6 +1032,12 @@ class SyUISubAgentWindow(QMainWindow):
         port = str(match.group("port") or "").lower()
         message = match.group("message") or ""
         nowt = time.monotonic()
+
+        dashboard_text = _parse_dashboard_payload(message)
+        if dashboard_text is not None:
+            self._agent_dashboard_text_cache = dashboard_text
+            self._refresh_overview()
+            return
 
         status_payload = _parse_status_payload(message)
         if category == "redis" or "[Redis]" in message or status_payload is not None:
@@ -1130,7 +1140,7 @@ class SyUISubAgentWindow(QMainWindow):
                 elif col_idx == 6 and value != "-":
                     item.setForeground(Qt.GlobalColor.red)
                 self.overview_table.setItem(row_idx, col_idx, item)
-        detail_text = self._build_overview_detail_text(rows, nowt, list(self._recent_runtime_events)[-10:])
+        detail_text = self._agent_dashboard_text_cache or self._build_overview_detail_text(rows, nowt, list(self._recent_runtime_events)[-10:])
         if detail_text != self._overview_detail_text_cache:
             self.overview_detail_text.setPlainText(detail_text)
             self._overview_detail_text_cache = detail_text
@@ -1336,6 +1346,9 @@ class SyUISubAgentWindow(QMainWindow):
         runtime_path = self._write_runtime_config()
         env = os.environ.copy()
         env[CONFIG_JSON_ENV] = str(runtime_path)
+        if os.name == "nt":
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
         try:
             launch_cmd, launch_cwd = resolve_launch_command("sy_agent", SY_AGENT_PATH)
             self._proc = subprocess.Popen(
@@ -1508,6 +1521,7 @@ class SyUISubAgentWindow(QMainWindow):
             "disk_alert": copy.deepcopy(self.disk_alert_config),
             "disk_usage": collect_disk_usage(self.disk_alert_config),
             "lines_summary": self._current_lines_summary(),
+            "dashboard_text": self._agent_dashboard_text_cache,
             "recent_events": list(self._recent_runtime_events)[-10:],
         }
         client.set(

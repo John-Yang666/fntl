@@ -21,8 +21,8 @@ services:
     container_name: bt_nms_vue_prod0
     ports:
       - "38173:80"
-    depends_on:
-      - web
+    #depends_on:
+    #  - web
     networks:
       - bt_nms_network
     restart: unless-stopped

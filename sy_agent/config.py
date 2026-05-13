@@ -9,6 +9,32 @@ def make_devices(start_serial_id: int, end_serial_id: int, *, nms_offset: int = 
     ]
 
 
+def make_paired_devices(
+    primary_serial_id: int,
+    backup_serial_id: int,
+    *,
+    pair_id,
+    nms_offset: int = 0,
+    a1_interval: float = 5.0,
+):
+    return [
+        {
+            "serial_id": primary_serial_id,
+            "nms_id": primary_serial_id + nms_offset,
+            "a1_interval": a1_interval,
+            "pair_id": str(pair_id),
+            "role": "primary",
+        },
+        {
+            "serial_id": backup_serial_id,
+            "nms_id": backup_serial_id + nms_offset,
+            "a1_interval": a1_interval,
+            "pair_id": str(pair_id),
+            "role": "backup",
+        },
+    ]
+
+
 CONFIG = {
     "agent": {
         "ip": "",

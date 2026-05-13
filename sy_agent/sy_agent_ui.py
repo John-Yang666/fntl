@@ -105,6 +105,18 @@ STATUS_LABEL_STYLES = {
     "warn": "color: #92400e; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px; padding: 2px 8px; font-weight: 600;",
     "neutral": "color: #374151; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; padding: 2px 8px; font-weight: 600;",
 }
+
+
+def _default_mono_font() -> QFont:
+    if sys.platform.startswith("win"):
+        font = QFont("Consolas")
+    elif sys.platform == "darwin":
+        font = QFont("Menlo")
+    else:
+        font = QFont("DejaVu Sans Mono")
+    font.setStyleHint(QFont.Monospace)
+    return font
+
 FORM_TAB_GROUPS = [
     ("基础参数", ["redis", "stream", "cmd"]),
     ("轮询串口", ["time_sync", "a2_burst", "serial", "probe", "ui"]),
@@ -356,11 +368,36 @@ def _age_text(last_mono: Optional[float], nowt: Optional[float] = None) -> str:
 def _normalize_device(device: dict) -> dict:
     if not isinstance(device, dict):
         raise ValueError("device item must be an object")
-    return {
+    normalized = {
         "serial_id": int(device["serial_id"]),
         "nms_id": int(device.get("nms_id", device["serial_id"])),
         "a1_interval": float(device.get("a1_interval", 5.0)),
     }
+    pair_id = str(device.get("pair_id", "")).strip()
+    role = _normalize_pair_role(device.get("role"))
+    if pair_id:
+        normalized["pair_id"] = pair_id
+    if role:
+        normalized["role"] = role
+    return normalized
+
+
+def _normalize_pair_role(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in ("primary", "main", "master", "主", "主机"):
+        return "primary"
+    if text in ("backup", "standby", "secondary", "备", "备机"):
+        return "backup"
+    return ""
+
+
+def _pair_role_label(value: Any) -> str:
+    role = _normalize_pair_role(value)
+    if role == "primary":
+        return "主机"
+    if role == "backup":
+        return "备机"
+    return "未配置"
 
 
 def _normalize_line(line: dict) -> dict:
@@ -594,6 +631,22 @@ def _parse_status_payload(message: str) -> Optional[dict[str, Any]]:
             "ports": f"{status_match.group(2)}/{status_match.group(3)}",
         }
     return None
+
+
+def _parse_dashboard_payload(message: str) -> Optional[str]:
+    if "[DASHBOARD]" not in message:
+        return None
+    payload = message.split("[DASHBOARD]", 1)[1].strip()
+    if not payload:
+        return None
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    text = data.get("text")
+    return str(text) if text is not None else None
 
 
 def _split_pair_text(value: Any, default: str = "unknown") -> tuple[str, str]:
@@ -1133,6 +1186,7 @@ class SyUIAgentWindow(QMainWindow):
         self._current_line_index: Optional[int] = None
         self._current_device_index: Optional[int] = None
         self._line_status: dict[int, dict[str, Any]] = {}
+        self._agent_dashboard_text_cache = ""
         self._active_port_alerts: dict[tuple[int, str], str] = {}
         self._active_disk_alerts: list[str] = []
         self._settings_lock_targets: list[QWidget] = []
@@ -1342,8 +1396,7 @@ class SyUIAgentWindow(QMainWindow):
         self.overview_detail_text.setReadOnly(True)
         self.overview_detail_text.setMinimumHeight(OVERVIEW_PANEL_MIN_HEIGHT)
         self.overview_detail_text.setLineWrapMode(QPlainTextEdit.NoWrap)
-        detail_font = QFont("Menlo")
-        detail_font.setStyleHint(QFont.Monospace)
+        detail_font = _default_mono_font()
         self.overview_detail_text.setFont(detail_font)
 
         self.line_status_tabs.addTab(self.overview_table, "概览")
@@ -1420,8 +1473,7 @@ class SyUIAgentWindow(QMainWindow):
 
         self.config_text = QPlainTextEdit(self)
         self.config_text.setMinimumHeight(EDITOR_PANEL_MIN_HEIGHT)
-        mono = QFont("Menlo")
-        mono.setStyleHint(QFont.Monospace)
+        mono = _default_mono_font()
         self.config_text.setFont(mono)
         self.config_text.textChanged.connect(self._on_config_text_changed)
         layout.addWidget(self.config_text, stretch=1)
@@ -1619,11 +1671,18 @@ class SyUIAgentWindow(QMainWindow):
         self.device_serial_edit = QLineEdit(self)
         self.device_nms_edit = QLineEdit(self)
         self.device_a1_interval_edit = QLineEdit(self)
+        self.device_pair_id_edit = QLineEdit(self)
+        self.device_role_combo = QComboBox(self)
+        self.device_role_combo.addItem("未配置", "")
+        self.device_role_combo.addItem("主机", "primary")
+        self.device_role_combo.addItem("备机", "backup")
         self.apply_device_button = QPushButton("应用设备")
         self.apply_device_button.clicked.connect(self.apply_device_changes)
-        right_form.addRow("设备 ID", self.device_serial_edit)
-        right_form.addRow("NMS ID", self.device_nms_edit)
+        right_form.addRow("播码地址", self.device_serial_edit)
+        right_form.addRow("网管中的设备ID", self.device_nms_edit)
         right_form.addRow("A1 间隔", self.device_a1_interval_edit)
+        right_form.addRow("主备组", self.device_pair_id_edit)
+        right_form.addRow("主备角色", self.device_role_combo)
         right_form.addRow("", self.apply_device_button)
 
         left_frame = QFrame(self)
@@ -1638,8 +1697,7 @@ class SyUIAgentWindow(QMainWindow):
         self.log_text = QTextEdit(self)
         self.log_text.setReadOnly(True)
         self.log_text.setMinimumHeight(EDITOR_PANEL_MIN_HEIGHT)
-        mono = QFont("Menlo")
-        mono.setStyleHint(QFont.Monospace)
+        mono = _default_mono_font()
         self.log_text.setFont(mono)
         layout.addWidget(self.log_text, stretch=1)
         return box
@@ -1885,6 +1943,8 @@ class SyUIAgentWindow(QMainWindow):
             self.device_serial_edit,
             self.device_nms_edit,
             self.device_a1_interval_edit,
+            self.device_pair_id_edit,
+            self.device_role_combo,
             self.apply_device_button,
             self.load_remote_config_button,
             self.start_subagent_button,
@@ -2781,6 +2841,8 @@ class SyUIAgentWindow(QMainWindow):
         self.device_serial_edit.clear()
         self.device_nms_edit.clear()
         self.device_a1_interval_edit.clear()
+        self.device_pair_id_edit.clear()
+        self.device_role_combo.setCurrentIndex(0)
 
     def _on_line_select(self, row: int) -> None:
         if row < 0:
@@ -2811,7 +2873,17 @@ class SyUIAgentWindow(QMainWindow):
             self._clear_device_form()
             return
         for device in line.get("devices", []):
-            self.devices_list.addItem(QListWidgetItem(f"{device['serial_id']} -> {device['nms_id']} @ {device['a1_interval']}"))
+            pair_id = str(device.get("pair_id", "")).strip()
+            role_label = _pair_role_label(device.get("role"))
+            pair_parts = []
+            if role_label != "未配置":
+                pair_parts.append(role_label)
+            if pair_id:
+                pair_parts.append(f"G{pair_id}")
+            pair_text = f" {' '.join(pair_parts)}" if pair_parts else ""
+            self.devices_list.addItem(
+                QListWidgetItem(f"{device['serial_id']} -> {device['nms_id']} @ {device['a1_interval']}{pair_text}")
+            )
         self.devices_list.blockSignals(False)
         if line.get("devices"):
             if self._current_device_index is None or self._current_device_index >= len(line["devices"]):
@@ -2833,6 +2905,10 @@ class SyUIAgentWindow(QMainWindow):
         self.device_serial_edit.setText(str(device["serial_id"]))
         self.device_nms_edit.setText(str(device["nms_id"]))
         self.device_a1_interval_edit.setText(str(device["a1_interval"]))
+        self.device_pair_id_edit.setText(str(device.get("pair_id", "")))
+        role = _normalize_pair_role(device.get("role"))
+        role_index = self.device_role_combo.findData(role)
+        self.device_role_combo.setCurrentIndex(role_index if role_index >= 0 else 0)
 
     def add_line(self) -> None:
         line_ids = [int(line["line_id"]) for line in self.current_config.get("lines", [])]
@@ -2917,6 +2993,16 @@ class SyUIAgentWindow(QMainWindow):
             device["serial_id"] = int(self.device_serial_edit.text().strip())
             device["nms_id"] = int(self.device_nms_edit.text().strip())
             device["a1_interval"] = float(self.device_a1_interval_edit.text().strip())
+            pair_id = self.device_pair_id_edit.text().strip()
+            role = str(self.device_role_combo.currentData() or "").strip()
+            if pair_id:
+                device["pair_id"] = pair_id
+            else:
+                device.pop("pair_id", None)
+            if role:
+                device["role"] = role
+            else:
+                device.pop("role", None)
             self.current_config = normalize_config(self.current_config, self.template_config)
         except Exception as exc:
             self._show_error("设备配置无效", str(exc))
@@ -2931,6 +3017,7 @@ class SyUIAgentWindow(QMainWindow):
     # -------------------------
     def _reset_runtime_state(self) -> None:
         self._line_status = {}
+        self._agent_dashboard_text_cache = ""
         for line in self.local_config.get("lines", []):
             line_id = int(line["line_id"])
             self._line_status[line_id] = _new_line_runtime_state(line_id, str(line["name"]), devices=len(line.get("devices", [])))
@@ -3070,6 +3157,12 @@ class SyUIAgentWindow(QMainWindow):
         port = str(match.group("port") or "").lower()
         message = match.group("message") or ""
         nowt = time.monotonic()
+
+        dashboard_text = _parse_dashboard_payload(message)
+        if dashboard_text is not None:
+            self._agent_dashboard_text_cache = dashboard_text
+            self._runtime_view_dirty = True
+            return
 
         if line_id is not None:
             line_state = self._line_status.setdefault(
@@ -3211,7 +3304,15 @@ class SyUIAgentWindow(QMainWindow):
                 elif col_idx == 6 and value != "-":
                     item.setForeground(Qt.GlobalColor.red)
                 self.overview_table.setItem(row_idx, col_idx, item)
-        detail_text = self._build_overview_detail_text(detail_rows, nowt, is_local_target, detail_events)
+        remote_dashboard_text = ""
+        if not is_local_target and isinstance(detail_snapshot, dict):
+            remote_dashboard_text = str(detail_snapshot.get("dashboard_text") or "")
+        if is_local_target and self._agent_dashboard_text_cache:
+            detail_text = self._agent_dashboard_text_cache
+        elif (not is_local_target) and remote_dashboard_text:
+            detail_text = remote_dashboard_text
+        else:
+            detail_text = self._build_overview_detail_text(detail_rows, nowt, is_local_target, detail_events)
         if detail_text != self._overview_detail_text_cache:
             self.overview_detail_text.setPlainText(detail_text)
             self._overview_detail_text_cache = detail_text
@@ -3224,53 +3325,35 @@ class SyUIAgentWindow(QMainWindow):
         detail_events: list[Any],
     ) -> str:
         if not rows:
-            return "暂无线路状态"
+            return "No lines registered."
 
-        headers = [
-            ("ID", 4),
-            ("名称", 12),
-            ("Pref(H/T)", 10),
-            ("端口(H/T)", 14),
-            ("通信状态(H/T)", 16),
-            ("DownFor(H/T)", 14),
-            ("设备", 6),
-            ("A1超时", 12),
-            ("A2超时", 12),
-            ("命令超时", 12),
-            ("Unmatch", 12),
-            ("QFull(H/T)", 12),
-            ("Queue(H/T)", 12),
-            ("最近成功", 10),
-        ]
-
-        def fmt(cells: list[str]) -> str:
-            parts = []
-            for (title, width), cell in zip(headers, cells):
-                text = str(cell)
-                if len(text) > width:
-                    text = text[: max(1, width - 1)] + "…"
-                parts.append(text.ljust(width))
-            return " ".join(parts).rstrip()
-
-        lines = [fmt([title for title, _width in headers]), "-" * 160]
+        lines = ["Lines", "-" * 88]
         for line_id, state in rows:
-            cells = [
-                str(line_id),
-                str(state.get("name", f"Line-{line_id}")),
-                str(state.get("preferred", "-")),
-                str(state.get("port", f"{state.get('head_port', 'unknown')}/{state.get('tail_port', 'unknown')}")),
-                str(state.get("link_pair", state.get("link", "unknown"))),
-                str(state.get("down_for", "-/-")),
-                str(state.get("devices", 0)),
-                str(state.get("a1_timeout", "0/0")),
-                str(state.get("a2_timeout", "0/0")),
-                str(state.get("cmd_timeout", "0/0")),
-                str(state.get("unmatched", "0/0")),
-                str(state.get("qfull", "0/0")),
-                str(state.get("queue", "0/0")),
-                str(state.get("last_ok", _age_text(state.get("last_ok_mono", 0.0), nowt))),
-            ]
-            lines.append(fmt(cells))
+            port_value = str(state.get("port", f"{state.get('head_port', 'unknown')}/{state.get('tail_port', 'unknown')}"))
+            link_value = str(state.get("link_pair", state.get("link", "unknown")))
+            line_header = (
+                f"{line_id} {state.get('name', f'Line-{line_id}')}  "
+                f"pref={state.get('preferred', '-')}  "
+                f"devs={state.get('devices', 0)}  "
+                f"last_ok={state.get('last_ok', _age_text(state.get('last_ok_mono', 0.0), nowt))}"
+            )
+            line_status = (
+                f"port={port_value}  "
+                f"link={link_value}  "
+                f"down={state.get('down_for', '-/-')}  "
+                f"qfull={state.get('qfull', '0/0')}  "
+                f"queue={state.get('queue', '0/0')}"
+            )
+            line_metrics = (
+                f"a1_to={state.get('a1_timeout', '0/0')}  "
+                f"a2_to={state.get('a2_timeout', '0/0')}  "
+                f"cmd_to={state.get('cmd_timeout', '0/0')}  "
+                f"unmatch={state.get('unmatched', '0/0')}"
+            )
+            lines.append(line_header)
+            lines.append(f"  {line_status}")
+            lines.append(f"  {line_metrics}")
+            lines.append("-" * 88)
 
         lines.append("")
         lines.append("Recent events")
@@ -3280,12 +3363,12 @@ class SyUIAgentWindow(QMainWindow):
             if events:
                 lines.extend(events[-10:])
             else:
-                lines.append("暂无事件")
+                lines.append("No recent events.")
         else:
             if detail_events:
                 lines.extend(str(item) for item in detail_events[-10:])
             else:
-                lines.append("等待分机详情...")
+                lines.append("Waiting remote detail snapshot...")
         return "\n".join(lines)
     # -------------------------
     # Alarm sound
@@ -3365,6 +3448,7 @@ class SyUIAgentWindow(QMainWindow):
         config["ui"]["mode"] = "plain"
         config.setdefault("debug_tuning", {})
         config["debug_tuning"]["STATUS_PRINT_EVERY_SEC"] = 1.0
+        config["debug_tuning"]["LOG_PORT_STATE"] = True
         return config
 
     def _write_runtime_config(self) -> Path:
@@ -3382,6 +3466,9 @@ class SyUIAgentWindow(QMainWindow):
         runtime_path = self._write_runtime_config()
         env = os.environ.copy()
         env[CONFIG_JSON_ENV] = str(runtime_path)
+        if os.name == "nt":
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
 
         try:
             launch_cmd, launch_cwd = resolve_launch_command("sy_agent", SY_AGENT_PATH)

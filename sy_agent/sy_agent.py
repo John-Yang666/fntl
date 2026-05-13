@@ -57,6 +57,15 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+if os.name == "nt":
+    for _stream_name in ("stdout", "stderr"):
+        _stream = getattr(sys, _stream_name, None)
+        if _stream is not None and hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
 import serial
 from serial import SerialException
 import redis
@@ -367,6 +376,7 @@ SY_CMD_CONFIRM_DELAY_SEC = float(CMD_CONFIG["confirm_delay_sec"])
 SY_CMD_CONFIRM_TIMEOUT_SEC = float(CMD_CONFIG["confirm_timeout_sec"])
 SY_CMD_CONFIRM_A1 = bool(CMD_CONFIG["confirm_a1"])
 SY_CMD_BB_CMD_RETRIES = int(CMD_CONFIG.get("bb_cmd_retries", 3))
+PRIMARY_A1_FAILOVER_THRESHOLD = 3
 SUBAGENT_CONTROL_STREAM = "sy-subagent-control"
 SUBAGENT_STATUS_TTL_SEC = 15
 SUBAGENT_STATUS_REFRESH_SEC = 5.0
@@ -533,6 +543,7 @@ class ConsoleManager:
         self._thread: Optional[threading.Thread] = None
         self._redis_conn = None
         self._pollers: List["LinePoller"] = []
+        self._last_plain_dashboard_emit = 0.0
 
         self.ansi_enabled = self._resolve_ansi_enabled()
         self.mode = "dashboard" if (self.requested_mode == "dashboard" and self.ansi_enabled) else "plain"
@@ -630,9 +641,44 @@ class ConsoleManager:
         if self.mode != "dashboard" or not self.ansi_enabled:
             return
         redis_conn, pollers, events = self._snapshot()
-        nowt = time.monotonic()
         width = max(100, shutil.get_terminal_size(fallback=(120, 40)).columns)
+        payload = self._build_dashboard_payload(redis_conn, pollers, events, width)
+        try:
+            sys.stdout.write("\x1b[?25l\x1b[H\x1b[2J")
+            sys.stdout.write(payload)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        except Exception:
+            self.mode = "plain"
+            self.emit(level="WARN", category="startup", message="dashboard render failed, fallback to plain mode", record_event=True, plain_output=True)
 
+    def maybe_emit_plain_dashboard_status(self):
+        if self.mode != "plain":
+            return
+        nowt = time.monotonic()
+        with self._lock:
+            if (nowt - self._last_plain_dashboard_emit) < max(0.5, float(self.refresh_sec)):
+                return
+            self._last_plain_dashboard_emit = nowt
+        redis_conn, pollers, events = self._snapshot()
+        payload = self._build_dashboard_payload(redis_conn, pollers, events, 120)
+        message = "[DASHBOARD] " + json.dumps({"text": payload}, ensure_ascii=False, separators=(",", ":"))
+        event = {
+            "ts": time.strftime("%H:%M:%S", time.localtime()),
+            "level": "INFO",
+            "category": "poll",
+            "message": message,
+            "line_id": None,
+            "line_name": None,
+            "port": None,
+        }
+        try:
+            print(self._format_plain_event(event), flush=True)
+        except Exception:
+            pass
+
+    def _build_dashboard_payload(self, redis_conn, pollers, events, width: int) -> str:
+        nowt = time.monotonic()
         redis_up = bool(redis_conn and redis_conn.is_ready())
         redis_state = "UP" if redis_up else "DOWN"
         total_a1_timeout = sum(int(getattr(p, "a1_no_resp_count", 0) or 0) for p in pollers)
@@ -722,15 +768,7 @@ class ConsoleManager:
         else:
             lines.append("No recent events.")
 
-        payload = "\n".join(lines)
-        try:
-            sys.stdout.write("\x1b[?25l\x1b[H\x1b[2J")
-            sys.stdout.write(payload)
-            sys.stdout.write("\n")
-            sys.stdout.flush()
-        except Exception:
-            self.mode = "plain"
-            self.emit(level="WARN", category="startup", message="dashboard render failed, fallback to plain mode", record_event=True, plain_output=True)
+        return "\n".join(lines)
 
 
 def _infer_level(message: str, default: str = "INFO") -> str:
@@ -1769,6 +1807,10 @@ class LinePoller(threading.Thread):
         self.nms_to_serial: Dict[int, int] = {}
 
         self.dev_state: Dict[int, dict] = {}
+        self.device_pair_role: Dict[int, Tuple[str, str]] = {}
+        self.pair_state: Dict[str, dict] = {}
+        pair_candidates: Dict[str, dict] = {}
+        pair_warnings: List[str] = []
         t0 = now_mono()
         for d in self.devices_cfg:
             serial_id = int(d["serial_id"])
@@ -1777,6 +1819,35 @@ class LinePoller(threading.Thread):
             self.serial_to_nms[serial_id] = nms_id
             self.nms_to_serial[nms_id] = serial_id
             self.dev_state[serial_id] = {"last_a1_mono": t0, "last_good_side": "head"}
+            pair_id = str(d.get("pair_id", "")).strip()
+            role = self._normalize_pair_role(d.get("role"))
+            if pair_id and role:
+                d["pair_id"] = pair_id
+                d["role"] = role
+                pair_candidates.setdefault(pair_id, {"primary": [], "backup": []})[role].append(serial_id)
+            elif pair_id or str(d.get("role", "")).strip():
+                pair_warnings.append(
+                    f"[PAIR] ignored incomplete pair config serial_id={serial_id} pair_id={pair_id or '-'} role={d.get('role', '-')}"
+                )
+
+        for pair_id, roles in pair_candidates.items():
+            primaries = roles.get("primary", [])
+            backups = roles.get("backup", [])
+            if len(primaries) != 1 or len(backups) != 1:
+                pair_warnings.append(
+                    f"[PAIR] ignored invalid pair_id={pair_id}: primary={primaries or '-'} backup={backups or '-'}"
+                )
+                continue
+            primary_serial = int(primaries[0])
+            backup_serial = int(backups[0])
+            self.device_pair_role[primary_serial] = (pair_id, "primary")
+            self.device_pair_role[backup_serial] = (pair_id, "backup")
+            self.pair_state[pair_id] = {
+                "primary_serial": primary_serial,
+                "backup_serial": backup_serial,
+                "primary_a1_fail_streak": 0,
+                "active_role": "primary",
+            }
 
         self.next_time_sync_mono = t0 + TIME_SYNC_INTERVAL if TIME_SYNC_ENABLE else float("inf")
         self.next_probe_mono = t0 + (self.line_id % 5) * 0.5 + PROBE_INTERVAL_SEC if PROBE_ENABLE else float("inf")
@@ -1825,8 +1896,57 @@ class LinePoller(threading.Thread):
         self._done_local: Dict[str, float] = {}  # msg_id_str -> expire_mono
         self._done_local_lock = threading.Lock()
 
+        for warning in pair_warnings:
+            emit_event(warning, level="WARN", category="poll", line_id=self.line_id, line_name=self.name)
+
     def log(self, msg: str):
         emit_event(msg, line_id=self.line_id, line_name=self.name)
+
+    @staticmethod
+    def _normalize_pair_role(value) -> Optional[str]:
+        text = str(value or "").strip().lower()
+        if text in ("primary", "main", "master", "主", "主机"):
+            return "primary"
+        if text in ("backup", "standby", "secondary", "备", "备机"):
+            return "backup"
+        return None
+
+    def _should_skip_pair_a2(self, serial_id: int) -> bool:
+        pair_ref = self.device_pair_role.get(int(serial_id))
+        if not pair_ref:
+            return False
+        pair_id, role = pair_ref
+        active_role = str(self.pair_state.get(pair_id, {}).get("active_role", "primary"))
+        return role != active_role
+
+    def _update_pair_after_poll(self, *, serial_id: int, req_cmd: str, responded: bool) -> None:
+        pair_ref = self.device_pair_role.get(int(serial_id))
+        if not pair_ref:
+            return
+        pair_id, role = pair_ref
+        if role != "primary" or req_cmd != "A1":
+            return
+
+        state = self.pair_state.get(pair_id)
+        if not state:
+            return
+
+        if responded:
+            previous_streak = int(state.get("primary_a1_fail_streak", 0) or 0)
+            previous_active = str(state.get("active_role", "primary"))
+            state["primary_a1_fail_streak"] = 0
+            state["active_role"] = "primary"
+            if previous_active != "primary" or previous_streak > 0:
+                self.log(f"[PAIR] pair_id={pair_id} primary A1 recovered -> active_role=primary")
+            return
+
+        streak = int(state.get("primary_a1_fail_streak", 0) or 0) + 1
+        state["primary_a1_fail_streak"] = streak
+        if streak >= PRIMARY_A1_FAILOVER_THRESHOLD and state.get("active_role") != "backup":
+            state["active_role"] = "backup"
+            self.log(
+                f"[PAIR] pair_id={pair_id} primary A1 failed {streak} times -> active_role=backup"
+            )
 
     def get_ui_snapshot(self, nowt: Optional[float] = None) -> dict:
         nowt = time.monotonic() if nowt is None else float(nowt)
@@ -2783,6 +2903,7 @@ class LinePoller(threading.Thread):
                 line_name=self.name,
                 record_event=False,
             )
+        CONSOLE.maybe_emit_plain_dashboard_status()
 
     def _try_ack_cmd(self, msg_id):
         if msg_id is None:
@@ -3031,10 +3152,15 @@ class LinePoller(threading.Thread):
                 is_a1 = False
                 req_cmd = "A2"
 
+            if (not is_a1) and self._should_skip_pair_a2(serial_id):
+                self.dev_idx = (self.dev_idx + 1) % len(self.devices_cfg)
+                continue
+
             preferred = st.get("last_good_side", "head")
             sides = ["head", "tail"] if preferred == "head" else ["tail", "head"]
 
             got_ok = False
+            device_responded = False
             send_meta = {"serial_id": serial_id, "nms_id": nms_id, "req_cmd": req_cmd}
 
             for i, side in enumerate(sides):
@@ -3055,6 +3181,7 @@ class LinePoller(threading.Thread):
                 if resp_item is None:
                     continue
 
+                device_responded = True
                 ok = self._report_ok(
                     side,
                     serial_id=serial_id,
@@ -3076,6 +3203,9 @@ class LinePoller(threading.Thread):
                     self._a2_burst(side, serial_id=serial_id, nms_id=nms_id)
 
                 break
+
+            if is_a1:
+                self._update_pair_after_poll(serial_id=serial_id, req_cmd=req_cmd, responded=device_responded)
 
             if not got_ok and DEBUG_TUNING["LOG_NO_RESP"]:
                 self.record_no_resp("a1" if req_cmd == "A1" else "a2")
