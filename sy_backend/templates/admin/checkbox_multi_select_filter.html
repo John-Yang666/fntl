@@ -1,0 +1,31 @@
+{% load i18n %}
+<details data-filter-title="{{ title }}" open>
+  <summary>
+    {% blocktranslate with filter_title=title %} By {{ filter_title }} {% endblocktranslate %}
+  </summary>
+  <ul>
+    <li{% if not spec.selected_values %} class="selected"{% endif %}>
+      <a href="{{ spec.clear_query_string|iriencode }}">全部</a>
+    </li>
+    <li>
+      <form method="get" class="admin-checkbox-filter">
+        {% for hidden in spec.hidden_query_params %}
+          <input type="hidden" name="{{ hidden.name }}" value="{{ hidden.value }}">
+        {% endfor %}
+        {% for choice in choices %}
+          <label style="display:block; margin: 4px 0;">
+            <input
+              type="checkbox"
+              name="{{ spec.parameter_name }}"
+              value="{{ choice.value }}"
+              {% if choice.selected %}checked{% endif %}
+              onchange="this.form.submit()"
+            >
+            {{ choice.display }}
+          </label>
+        {% endfor %}
+        <noscript><button type="submit">筛选</button></noscript>
+      </form>
+    </li>
+  </ul>
+</details>

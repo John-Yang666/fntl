@@ -590,7 +590,7 @@ def process_message_batch(messages: list[SyFrameMessage]):
         )
 
         for relay_label, action_label in _relay_actions_for_status_change(device_context, previous_status, next_status):
-            relay_rows.append((uuid.uuid4(), msg.nms_id, relay_label, action_label, msg.received_at))
+            relay_rows.append((uuid.uuid4(), msg.nms_id, relay_label, action_label, msg.cmd, msg.received_at))
 
         cache_updates[_switch_status_key(msg.nms_id)] = next_status
         cache_updates[_switch_status_updated_at_key(msg.nms_id)] = msg.received_at.isoformat()
@@ -601,7 +601,7 @@ def process_message_batch(messages: list[SyFrameMessage]):
         with connection.cursor() as cursor:
             _insert_rows(cursor, SWITCH_TABLE, ("id", "device_id", "switch_status", "version", "timestamp"), switch_rows)
             _insert_rows(cursor, CHANGE_TABLE, ("id", "device_id", "bit_index", "value", "source", "timestamp"), change_rows)
-            _insert_rows(cursor, RELAY_TABLE, ("id", "device_id", "relay", "action", "timestamp"), relay_rows)
+            _insert_rows(cursor, RELAY_TABLE, ("id", "device_id", "relay", "action", "source", "timestamp"), relay_rows)
             _insert_rows(
                 cursor,
                 RAW_FRAME_TABLE,

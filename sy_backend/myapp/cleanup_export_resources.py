@@ -111,12 +111,13 @@ class RelayActionCleanupExportResource(resources.ModelResource):
     device = fields.Field(column_name="设备ID", attribute="device")
     relay = fields.Field(column_name="继电器", attribute="relay")
     action = fields.Field(column_name="动作", attribute="action")
+    source = fields.Field(column_name="来源", attribute="source")
     timestamp = fields.Field(column_name="时间", attribute="timestamp")
 
     class Meta:
         model = RelayAction
-        fields = ("id", "timestamp", "device", "relay", "action")
-        export_order = ("id", "timestamp", "device", "relay", "action")
+        fields = ("id", "timestamp", "device", "relay", "action", "source")
+        export_order = ("id", "timestamp", "device", "relay", "action", "source")
 
     def dehydrate_device(self, obj):
         return obj.device.device_id if obj.device else ""

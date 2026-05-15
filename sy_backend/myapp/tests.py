@@ -1,13 +1,26 @@
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.contrib import admin
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
-from myapp.models import AlarmActive, ChangeBitEvent, Depot, Device, Line, RelayAction, SwitchData
+from myapp.models import (
+    AlarmActive,
+    AlarmData,
+    ChangeBitEvent,
+    Depot,
+    Device,
+    Line,
+    RawFrameLog,
+    RelayAction,
+    SwitchData,
+    UserOperation,
+)
 from myapp.tasks.extract_sy_alarms_task import build_sy_alarm_state
 from sy_receiver import SyFrameMessage, process_message_batch
 import sy_receiver
@@ -56,6 +69,75 @@ class FakeRedisClient:
     def delete(self, *keys):
         for key in keys:
             self.store.pop(key, None)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class AdminFilterTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.depot = Depot.objects.create(name="A")
+        self.line = Line.objects.create(name="L1")
+        self.device = Device.objects.create(
+            device_id=1,
+            name="测试设备",
+            depot=self.depot,
+            line=self.line,
+            ip_address="10.0.0.1",
+        )
+        self.factory = RequestFactory()
+        self.user = SimpleNamespace(
+            is_active=True,
+            is_staff=True,
+            is_superuser=True,
+            has_perm=lambda perm: True,
+            has_module_perms=lambda app_label: True,
+            pk=1,
+            username="admin-filter-test",
+        )
+
+    def test_device_to_field_list_filter_lookup_is_allowed(self):
+        for model in (SwitchData, ChangeBitEvent, RawFrameLog, AlarmActive, AlarmData, RelayAction, UserOperation):
+            with self.subTest(model=model.__name__):
+                model_admin = admin.site._registry[model]
+                request = self.factory.get("/", {"device__device_id__exact": str(self.device.device_id)})
+                request.user = self.user
+
+                changelist = model_admin.get_changelist_instance(request)
+
+                list(changelist.get_queryset(request)[:1])
+
+    def test_relay_action_admin_can_filter_by_relay(self):
+        RelayAction.objects.create(device=self.device, relay="一方向FDJ", action="吸起", source="A1")
+        RelayAction.objects.create(device=self.device, relay="二方向FDJ", action="吸起", source="A2")
+        RelayAction.objects.create(device=self.device, relay="三方向FDJ", action="吸起")
+        model_admin = admin.site._registry[RelayAction]
+        request = self.factory.get("/", {"relay": "一方向FDJ"})
+        request.user = self.user
+
+        changelist = model_admin.get_changelist_instance(request)
+
+        self.assertEqual(list(changelist.get_queryset(request).values_list("relay", flat=True)), ["一方向FDJ"])
+
+        request = self.factory.get("/?relay=一方向FDJ&relay=二方向FDJ")
+        request.user = self.user
+        changelist = model_admin.get_changelist_instance(request)
+
+        self.assertEqual(
+            set(changelist.get_queryset(request).values_list("relay", flat=True)),
+            {"一方向FDJ", "二方向FDJ"},
+        )
+
+    def test_relay_action_admin_can_filter_by_source(self):
+        RelayAction.objects.create(device=self.device, relay="一方向FDJ", action="吸起", source="A1")
+        RelayAction.objects.create(device=self.device, relay="二方向FDJ", action="吸起", source="A2")
+        RelayAction.objects.create(device=self.device, relay="三方向FDJ", action="吸起")
+        model_admin = admin.site._registry[RelayAction]
+        request = self.factory.get("/", {"source": "A1"})
+        request.user = self.user
+
+        changelist = model_admin.get_changelist_instance(request)
+
+        self.assertEqual(list(changelist.get_queryset(request).values_list("source", flat=True)), ["A1"])
 
 
 @override_settings(CACHES=TEST_CACHES)
@@ -185,6 +267,7 @@ class SyReceiverBatchTests(TestCase):
         action = RelayAction.objects.get()
         self.assertEqual(action.relay, "一方向FDJ")
         self.assertEqual(action.action, "吸起")
+        self.assertEqual(action.source, "A1")
         self.assertEqual(cache.get("device_1_switch_status"), payload)
 
     def test_a1_logs_relay_action_when_last_a1_matches_but_current_status_differs(self):
@@ -201,6 +284,7 @@ class SyReceiverBatchTests(TestCase):
         action = RelayAction.objects.get()
         self.assertEqual(action.relay, "一方向FDJ")
         self.assertEqual(action.action, "吸起")
+        self.assertEqual(action.source, "A1")
         self.assertEqual(cache.get("device_1_switch_status"), payload)
 
     def test_a2_updates_snapshot_and_logs_change(self):
@@ -213,6 +297,7 @@ class SyReceiverBatchTests(TestCase):
         self.assertEqual(SwitchData.objects.count(), 1)
         self.assertEqual(ChangeBitEvent.objects.count(), 1)
         self.assertEqual(RelayAction.objects.count(), 1)
+        self.assertEqual(RelayAction.objects.get().source, "A2")
         self.assertEqual(cache.get("device_1_switch_status"), b"\x10\x00\x00\x00")
 
 

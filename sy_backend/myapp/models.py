@@ -481,6 +481,7 @@ class RelayAction(models.Model):
     device = models.ForeignKey(Device, to_field='device_id', on_delete=models.CASCADE, verbose_name="设备")
     relay = models.CharField(max_length=100, verbose_name="继电器")
     action = models.CharField(max_length=100, verbose_name="动作")
+    source = models.CharField(max_length=16, null=True, blank=True, verbose_name="来源")
     timestamp = models.DateTimeField(auto_now_add=True, verbose_name="时间")
 
     class Meta:

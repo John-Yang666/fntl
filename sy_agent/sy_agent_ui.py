@@ -599,9 +599,11 @@ def _new_line_runtime_state(line_id: int, name: str, devices: int = 0) -> dict[s
         "link_pair": "unknown/unknown",
         "down_for": "-/-",
         "devices": int(devices or 0),
-        "a1_timeout": "0/0",
-        "a2_timeout": "0/0",
-        "cmd_timeout": "0/0",
+        "a1_req": "0/0 | 0/0",
+        "a2_req": "0/0 | 0/0",
+        "a1_timeout": "0/0 | 0/0",
+        "a2_timeout": "0/0 | 0/0",
+        "cmd_timeout": "0/0 | 0/0",
         "unmatched": "0/0",
         "qfull": "0/0",
         "queue": "0/0",
@@ -1267,8 +1269,6 @@ class SyUIAgentWindow(QMainWindow):
         self.subagent_section = CollapsibleSection("通信程序管理", self._build_subagent_panel(), expanded=True, parent=self)
         self.overview_section = CollapsibleSection("线路状态（本机）", self._build_overview_panel(), expanded=True, parent=self)
         root.addWidget(self.top_section)
-        root.addWidget(self.subagent_section)
-        root.addWidget(self.overview_section)
 
         self.tabs = QTabWidget(self)
         self.tab_json = self._build_config_tab()
@@ -1283,11 +1283,21 @@ class SyUIAgentWindow(QMainWindow):
         self.tab_lines = self._build_lines_tab()
         self.tabs.addTab(self.tab_lines, "线路编辑")
         self.config_section = CollapsibleSection("配置（本机）", self.tabs, expanded=True, parent=self)
-        root.addWidget(self.config_section)
 
         self.log_section = CollapsibleSection("日志", self._build_log_panel(), expanded=True, parent=self)
-        root.addWidget(self.log_section)
-        root.addStretch(1)
+
+        self.main_splitter = QSplitter(Qt.Vertical, self)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.addWidget(self.subagent_section)
+        self.main_splitter.addWidget(self.overview_section)
+        self.main_splitter.addWidget(self.config_section)
+        self.main_splitter.addWidget(self.log_section)
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 3)
+        self.main_splitter.setStretchFactor(2, 4)
+        self.main_splitter.setStretchFactor(3, 3)
+        self.main_splitter.setSizes([140, 300, 430, 300])
+        root.addWidget(self.main_splitter, stretch=1)
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
@@ -2744,6 +2754,8 @@ class SyUIAgentWindow(QMainWindow):
                     "link": str(state.get("link_pair", state.get("link", "unknown"))),
                     "down_for": str(state.get("down_for", "-/-")),
                     "devices": int(state.get("devices", 0)),
+                    "a1_req": str(state.get("a1_req", "0/0 | 0/0")),
+                    "a2_req": str(state.get("a2_req", "0/0 | 0/0")),
                     "a1_timeout": str(state.get("a1_timeout", "0/0")),
                     "a2_timeout": str(state.get("a2_timeout", "0/0")),
                     "cmd_timeout": str(state.get("cmd_timeout", "0/0")),
@@ -3187,6 +3199,8 @@ class SyUIAgentWindow(QMainWindow):
                     state["link"] = _summarize_link_pair(state["link_pair"], state["link"])
                     state["down_for"] = str(status_payload.get("down_for", state["down_for"]))
                     state["devices"] = int(status_payload.get("devices", state["devices"]))
+                    state["a1_req"] = str(status_payload.get("a1_req", state.get("a1_req", "0/0 | 0/0")))
+                    state["a2_req"] = str(status_payload.get("a2_req", state.get("a2_req", "0/0 | 0/0")))
                     state["a1_timeout"] = str(status_payload.get("a1_timeout", state["a1_timeout"]))
                     state["a2_timeout"] = str(status_payload.get("a2_timeout", state["a2_timeout"]))
                     state["cmd_timeout"] = str(status_payload.get("cmd_timeout", state["cmd_timeout"]))
@@ -3314,7 +3328,17 @@ class SyUIAgentWindow(QMainWindow):
         else:
             detail_text = self._build_overview_detail_text(detail_rows, nowt, is_local_target, detail_events)
         if detail_text != self._overview_detail_text_cache:
+            vbar = self.overview_detail_text.verticalScrollBar()
+            hbar = self.overview_detail_text.horizontalScrollBar()
+            old_v = vbar.value()
+            old_h = hbar.value()
+            was_at_bottom = old_v >= max(0, vbar.maximum() - 2)
             self.overview_detail_text.setPlainText(detail_text)
+            if was_at_bottom:
+                vbar.setValue(vbar.maximum())
+            else:
+                vbar.setValue(min(old_v, vbar.maximum()))
+            hbar.setValue(min(old_h, hbar.maximum()))
             self._overview_detail_text_cache = detail_text
 
     def _build_overview_detail_text(
@@ -3345,6 +3369,8 @@ class SyUIAgentWindow(QMainWindow):
                 f"queue={state.get('queue', '0/0')}"
             )
             line_metrics = (
+                f"a1_req={state.get('a1_req', '0/0 | 0/0')}  "
+                f"a2_req={state.get('a2_req', '0/0 | 0/0')}  "
                 f"a1_to={state.get('a1_timeout', '0/0')}  "
                 f"a2_to={state.get('a2_timeout', '0/0')}  "
                 f"cmd_to={state.get('cmd_timeout', '0/0')}  "

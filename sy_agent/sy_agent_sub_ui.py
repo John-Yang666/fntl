@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QPlainTextEdit,
     QScrollArea,
+    QSplitter,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -411,10 +412,17 @@ class SyUISubAgentWindow(QMainWindow):
         self.log_section = CollapsibleSection("日志", self._build_log_panel(), expanded=True, parent=self)
 
         root.addWidget(self.top_section)
-        root.addWidget(self.overview_section)
-        root.addWidget(self.config_section)
-        root.addWidget(self.log_section)
-        root.addStretch(1)
+
+        self.main_splitter = QSplitter(Qt.Vertical, self)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.addWidget(self.overview_section)
+        self.main_splitter.addWidget(self.config_section)
+        self.main_splitter.addWidget(self.log_section)
+        self.main_splitter.setStretchFactor(0, 4)
+        self.main_splitter.setStretchFactor(1, 3)
+        self.main_splitter.setStretchFactor(2, 3)
+        self.main_splitter.setSizes([360, 300, 300])
+        root.addWidget(self.main_splitter, stretch=1)
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
@@ -1054,6 +1062,8 @@ class SyUISubAgentWindow(QMainWindow):
                     state["link"] = _summarize_link_pair(state["link_pair"], state["link"])
                     state["down_for"] = str(status_payload.get("down_for", state["down_for"]))
                     state["devices"] = int(status_payload.get("devices", state["devices"]))
+                    state["a1_req"] = str(status_payload.get("a1_req", state.get("a1_req", "0/0 | 0/0")))
+                    state["a2_req"] = str(status_payload.get("a2_req", state.get("a2_req", "0/0 | 0/0")))
                     state["a1_timeout"] = str(status_payload.get("a1_timeout", state["a1_timeout"]))
                     state["a2_timeout"] = str(status_payload.get("a2_timeout", state["a2_timeout"]))
                     state["cmd_timeout"] = str(status_payload.get("cmd_timeout", state["cmd_timeout"]))
@@ -1142,7 +1152,17 @@ class SyUISubAgentWindow(QMainWindow):
                 self.overview_table.setItem(row_idx, col_idx, item)
         detail_text = self._agent_dashboard_text_cache or self._build_overview_detail_text(rows, nowt, list(self._recent_runtime_events)[-10:])
         if detail_text != self._overview_detail_text_cache:
+            vbar = self.overview_detail_text.verticalScrollBar()
+            hbar = self.overview_detail_text.horizontalScrollBar()
+            old_v = vbar.value()
+            old_h = hbar.value()
+            was_at_bottom = old_v >= max(0, vbar.maximum() - 2)
             self.overview_detail_text.setPlainText(detail_text)
+            if was_at_bottom:
+                vbar.setValue(vbar.maximum())
+            else:
+                vbar.setValue(min(old_v, vbar.maximum()))
+            hbar.setValue(min(old_h, hbar.maximum()))
             self._overview_detail_text_cache = detail_text
 
     def _build_overview_detail_text(
@@ -1159,9 +1179,11 @@ class SyUISubAgentWindow(QMainWindow):
             ("通信状态(H/T)", 14),
             ("DownFor(H/T)", 14),
             ("Devs", 6),
-            ("A1超时(T/5m)", 14),
-            ("A2超时(T/5m)", 14),
-            ("命令超时(T/5m)", 16),
+            ("A1Req(H/T|H5/T5)", 18),
+            ("A2Req(H/T|H5/T5)", 18),
+            ("A1超时(H/T|H5/T5)", 22),
+            ("A2超时(H/T|H5/T5)", 22),
+            ("命令超时(H/T|H5/T5)", 24),
             ("Unmatch(T/5m)", 14),
             ("QFull(H/T)", 12),
             ("Queue(H/T)", 12),
@@ -1180,6 +1202,8 @@ class SyUISubAgentWindow(QMainWindow):
                 str(state.get("link_pair", state.get("link", "unknown"))),
                 str(state.get("down_for", "-/-")),
                 str(state.get("devices", 0)),
+                str(state.get("a1_req", "0/0 | 0/0")),
+                str(state.get("a2_req", "0/0 | 0/0")),
                 str(state.get("a1_timeout", "0/0")),
                 str(state.get("a2_timeout", "0/0")),
                 str(state.get("cmd_timeout", "0/0")),
@@ -1543,6 +1567,8 @@ class SyUISubAgentWindow(QMainWindow):
                     "link": str(state.get("link_pair", state.get("link", "unknown"))),
                     "down_for": str(state.get("down_for", "-/-")),
                     "devices": int(state.get("devices", 0)),
+                    "a1_req": str(state.get("a1_req", "0/0 | 0/0")),
+                    "a2_req": str(state.get("a2_req", "0/0 | 0/0")),
                     "a1_timeout": str(state.get("a1_timeout", "0/0")),
                     "a2_timeout": str(state.get("a2_timeout", "0/0")),
                     "cmd_timeout": str(state.get("cmd_timeout", "0/0")),

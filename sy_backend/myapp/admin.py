@@ -4,6 +4,7 @@ import os
 import binascii
 import logging
 import time
+from urllib.parse import urlencode
 
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
@@ -144,6 +145,40 @@ class DepotScopedAdmin(ReadOnlyForNonSuperuserAdminMixin, admin.ModelAdmin):
         if not request.user.is_superuser:
             actions.pop("truncate_table", None)
         return actions
+
+    def lookup_allowed(self, lookup, value, request=None):
+        if super().lookup_allowed(lookup, value, request=request):
+            return True
+
+        list_filter = self.get_list_filter(request) if request is not None else self.list_filter
+        for filter_item in list_filter:
+            if isinstance(filter_item, (tuple, list)):
+                filter_field = filter_item[0]
+            elif isinstance(filter_item, str):
+                filter_field = filter_item
+            else:
+                if (
+                    isinstance(filter_item, type)
+                    and issubclass(filter_item, admin.SimpleListFilter)
+                    and getattr(filter_item, "parameter_name", None) == lookup
+                ):
+                    return True
+                continue
+
+            if "__" in filter_field:
+                continue
+
+            try:
+                field = self.model._meta.get_field(filter_field)
+            except Exception:
+                continue
+
+            target_field = getattr(field, "target_field", None)
+            target_name = getattr(target_field, "name", None)
+            if target_name and lookup == f"{filter_field}__{target_name}__exact":
+                return True
+
+        return False
 
     def changelist_view(self, request, extra_context=None):
         if request.method == "POST" and request.POST.get("action") == "truncate_table":
@@ -302,6 +337,88 @@ class MyDateRangePicker(DateRange):
         ('1da', "24小时之内", 60 * 60 * -24),
         ('1dp', "7天之内", 60 * 60 * -24 * 7),
     )
+
+
+class CheckboxMultiSelectFilter(admin.SimpleListFilter):
+    template = "admin/checkbox_multi_select_filter.html"
+
+    def __init__(self, request, params, model, model_admin):
+        self.request = request
+        self.selected_values = tuple(value for value in request.GET.getlist(self.parameter_name) if value != "")
+        super().__init__(request, params, model, model_admin)
+
+    def value(self):
+        return self.selected_values
+
+    def hidden_query_params(self):
+        excluded = {self.parameter_name, "p"}
+        hidden = []
+        for key, values in self.request.GET.lists():
+            if key in excluded:
+                continue
+            hidden.extend({"name": key, "value": value} for value in values)
+        return hidden
+
+    def clear_query_string(self):
+        excluded = {self.parameter_name, "p"}
+        query_items = []
+        for key, values in self.request.GET.lists():
+            if key in excluded:
+                continue
+            query_items.extend((key, value) for value in values)
+        query_string = urlencode(query_items)
+        return f"?{query_string}" if query_string else "?"
+
+    def choices(self, changelist):
+        for value, label in self.lookup_choices:
+            value = str(value)
+            yield {
+                "selected": value in self.selected_values,
+                "query_string": changelist.get_query_string({self.parameter_name: value}),
+                "display": label,
+                "value": value,
+            }
+
+
+class RelayActionDeviceFilter(CheckboxMultiSelectFilter):
+    title = "设备"
+    parameter_name = "device__device_id__exact"
+
+    def lookups(self, request, model_admin):
+        device_ids = (
+            model_admin.get_queryset(request)
+            .order_by()
+            .values_list("device_id", flat=True)
+            .distinct()
+        )
+        devices = Device.objects.filter(device_id__in=device_ids).order_by("device_id")
+        return [(device.device_id, str(device)) for device in devices]
+
+    def queryset(self, request, queryset):
+        if not self.selected_values:
+            return queryset
+        return queryset.filter(device_id__in=self.selected_values)
+
+
+class RelayActionRelayFilter(CheckboxMultiSelectFilter):
+    title = "继电器"
+    parameter_name = "relay"
+
+    def lookups(self, request, model_admin):
+        relays = (
+            model_admin.get_queryset(request)
+            .exclude(relay__isnull=True)
+            .exclude(relay="")
+            .order_by("relay")
+            .values_list("relay", flat=True)
+            .distinct()
+        )
+        return [(relay, relay) for relay in relays]
+
+    def queryset(self, request, queryset):
+        if not self.selected_values:
+            return queryset
+        return queryset.filter(relay__in=self.selected_values)
 
 
 # ========================
@@ -834,12 +951,13 @@ class RelayActionResource(resources.ModelResource):
     device = fields.Field(column_name='设备ID', attribute='device')
     relay = fields.Field(column_name='继电器', attribute='relay')
     action = fields.Field(column_name='动作', attribute='action')
+    source = fields.Field(column_name='来源', attribute='source')
     timestamp = fields.Field(column_name='时间', attribute='timestamp')
 
     class Meta:
         model = RelayAction
-        fields = ('id', 'timestamp', 'device', 'relay', 'action')
-        export_order = ('id', 'timestamp', 'device', 'relay', 'action')
+        fields = ('id', 'timestamp', 'device', 'relay', 'action', 'source')
+        export_order = ('id', 'timestamp', 'device', 'relay', 'action', 'source')
         import_id_fields = ('id',)
 
     def dehydrate_device(self, obj):
@@ -854,9 +972,9 @@ class RelayActionAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModel
     depot_filter_field = 'device__depot'
     resource_class = RelayActionResource
 
-    list_display = ('timestamp_with_seconds', 'device', 'relay', 'action')
-    search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'relay', 'action')
-    list_filter = (('timestamp', MyDateRangePicker), 'device')
+    list_display = ('timestamp_with_seconds', 'device', 'relay', 'action', 'source')
+    search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'relay', 'action', 'source')
+    list_filter = (('timestamp', MyDateRangePicker), RelayActionDeviceFilter, RelayActionRelayFilter, 'source')
     actions = [batch_delete, truncate_table]
 
     def has_import_permission(self, request, *args, **kwargs):

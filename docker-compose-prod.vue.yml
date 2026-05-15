@@ -1,0 +1,12 @@
+name: bt_nms_prod
+
+services:
+  vue:
+    image: my_vue:prod
+    container_name: bt_nms_vue_prod0
+    ports:
+      - "${VUE_PORT:-38173}:80"
+    volumes:
+      - ./frontend/nginx.standalone.conf:/etc/nginx/conf.d/default.conf:ro
+    network_mode: bridge
+    restart: unless-stopped

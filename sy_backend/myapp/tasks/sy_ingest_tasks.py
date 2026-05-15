@@ -137,6 +137,7 @@ def _log_relay_action_if_needed(dev: Device, bit_index_flat: int, new_val: int) 
         device=dev,
         relay=relay_label,
         action=action_label,
+        source="A2",
         # timestamp 不要传，模型里 auto_now_add=True 会自动写
     )
 

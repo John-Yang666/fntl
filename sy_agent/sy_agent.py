@@ -681,6 +681,10 @@ class ConsoleManager:
         nowt = time.monotonic()
         redis_up = bool(redis_conn and redis_conn.is_ready())
         redis_state = "UP" if redis_up else "DOWN"
+        total_a1_req = sum(int(p._side_count_total("a1", no_resp=False)) for p in pollers)
+        total_a1_req_5m = sum(int(p.recent_request_count("a1", nowt=nowt)) for p in pollers)
+        total_a2_req = sum(int(p._side_count_total("a2", no_resp=False)) for p in pollers)
+        total_a2_req_5m = sum(int(p.recent_request_count("a2", nowt=nowt)) for p in pollers)
         total_a1_timeout = sum(int(getattr(p, "a1_no_resp_count", 0) or 0) for p in pollers)
         total_a1_timeout_5m = sum(int(p.recent_no_resp_count("a1", nowt)) for p in pollers)
         total_a2_timeout = sum(int(getattr(p, "a2_no_resp_count", 0) or 0) for p in pollers)
@@ -700,7 +704,9 @@ class ConsoleManager:
             lines,
             f"target={REDIS_HOST}:{REDIS_PORT}/{SY_STREAM_DB}  raw={SY_RAW_STREAM}  cmd={SY_CMD_STREAM}  "
             f"group={SY_CMD_GROUP}  lines={len(pollers)}  after_sleep={ADAPT.get_sleep():.3f}s  "
-            f"degraded_lines={degraded_lines}  a1_timeout(T/5m)={total_a1_timeout}/{total_a1_timeout_5m}  "
+            f"degraded_lines={degraded_lines}  a1_req(T/5m)={total_a1_req}/{total_a1_req_5m}  "
+            f"a2_req(T/5m)={total_a2_req}/{total_a2_req_5m}  "
+            f"a1_timeout(T/5m)={total_a1_timeout}/{total_a1_timeout_5m}  "
             f"a2_timeout(T/5m)={total_a2_timeout}/{total_a2_timeout_5m}  "
             f"cmd_timeout(T/5m)={total_cmd_timeout}/{total_cmd_timeout_5m}",
             width,
@@ -718,8 +724,8 @@ class ConsoleManager:
         if compact_lines:
             lines.append("-" * min(width, 88))
         else:
-            lines.append(_trim_text("ID  Name         Pref(H/T) Port(H/T)   Link(H/T)   DownFor(H/T)   Devs  A1Timeout(T/5m)  A2Timeout(T/5m)  CmdTimeout(T/5m)  Unmatch(T/5m)  QFull(H/T)  Queue(H/T)  LastOK", width))
-            lines.append("-" * min(width, 156))
+            lines.append(_trim_text("ID  Name         Pref(H/T) Port(H/T)   Link(H/T)   DownFor(H/T)   Devs  A1Req(H/T|H5/T5)  A2Req(H/T|H5/T5)  A1Timeout(H/T|H5/T5)  A2Timeout(H/T|H5/T5)  CmdTimeout(H/T|H5/T5)  Unmatch(T/5m)  QFull(H/T)  Queue(H/T)  LastOK", width))
+            lines.append("-" * min(width, 220))
 
         if pollers:
             for poller in pollers:
@@ -734,6 +740,7 @@ class ConsoleManager:
                         f"qfull={snap['qfull']}  queue={snap['queue']}"
                     )
                     line_metrics = (
+                        f"a1_req={snap['a1_req']}  a2_req={snap['a2_req']}  "
                         f"a1_to={snap['a1_timeout']}  a2_to={snap['a2_timeout']}  "
                         f"cmd_to={snap['cmd_timeout']}  unmatch={snap['unmatched']}"
                     )
@@ -746,12 +753,52 @@ class ConsoleManager:
                         f"{snap['line_id']:<3} {snap['name'][:12]:<12} "
                         f"{snap['preferred']:<9} "
                         f"{snap['port']:<11} {snap['link']:<11} {snap['down_for']:<15} "
-                        f"{snap['devices']:<5} {snap['a1_timeout']:<16} {snap['a2_timeout']:<16} {snap['cmd_timeout']:<17} {snap['unmatched']:<13} "
+                        f"{snap['devices']:<5} {snap['a1_req']:<18} {snap['a2_req']:<18} "
+                        f"{snap['a1_timeout']:<22} {snap['a2_timeout']:<22} {snap['cmd_timeout']:<23} {snap['unmatched']:<13} "
                         f"{snap['qfull']:<11} {snap['queue']:<11} {snap['last_ok']}"
                     )
                     lines.append(_trim_text(row, width))
         else:
             lines.append("No lines registered.")
+
+        lines.append("")
+        lines.append("Devices")
+        device_rows = []
+        for poller in pollers:
+            device_rows.extend(poller.get_device_metric_rows(nowt))
+        compact_devices = width < 150
+        if compact_devices:
+            lines.append("-" * min(width, 88))
+        else:
+            lines.append(_trim_text("Line             Serial  NMS    Pair  Role     A1Req(H/T|H5/T5)  A2Req(H/T|H5/T5)  A1Timeout(H/T|H5/T5)  A2Timeout(H/T|H5/T5)", width))
+            lines.append("-" * min(width, 150))
+
+        if device_rows:
+            for row in device_rows:
+                if compact_devices:
+                    header = (
+                        f"line={row['line_id']}/{row['line_name']}  "
+                        f"serial={row['serial_id']}  nms={row['nms_id']}  "
+                        f"pair={row['pair_id']}  role={row['role']}"
+                    )
+                    metrics = (
+                        f"a1_req={row['a1_req']}  a2_req={row['a2_req']}  "
+                        f"a1_to={row['a1_timeout']}  a2_to={row['a2_timeout']}"
+                    )
+                    _append_wrapped(lines, header, width)
+                    _append_wrapped(lines, metrics, width, indent="  ")
+                    lines.append("-" * min(width, 88))
+                else:
+                    out = (
+                        f"{(str(row['line_id']) + '/' + str(row['line_name']))[:16]:<16} "
+                        f"{row['serial_id']:<7} {row['nms_id']:<6} "
+                        f"{str(row['pair_id'])[:5]:<5} {str(row['role'])[:8]:<8} "
+                        f"{row['a1_req']:<18} {row['a2_req']:<18} "
+                        f"{row['a1_timeout']:<22} {row['a2_timeout']:<22}"
+                    )
+                    lines.append(_trim_text(out, width))
+        else:
+            lines.append("No devices registered.")
 
         lines.append("")
         lines.append("Recent events")
@@ -1862,6 +1909,40 @@ class LinePoller(threading.Thread):
         self.unmatched_times: Deque[float] = deque()
         self.last_unmatched_mono = 0.0
         self.seq_send = 0
+        self.req_counts = {
+            "a1": {"head": 0, "tail": 0},
+            "a2": {"head": 0, "tail": 0},
+        }
+        self.req_times = {
+            "a1": {"head": deque(), "tail": deque()},
+            "a2": {"head": deque(), "tail": deque()},
+        }
+        self.no_resp_counts = {
+            "a1": {"head": 0, "tail": 0},
+            "a2": {"head": 0, "tail": 0},
+            "cmd": {"head": 0, "tail": 0},
+        }
+        self.no_resp_side_times = {
+            "a1": {"head": deque(), "tail": deque()},
+            "a2": {"head": deque(), "tail": deque()},
+            "cmd": {"head": deque(), "tail": deque()},
+        }
+        self.device_req_counts = {
+            "a1": {},
+            "a2": {},
+        }
+        self.device_req_times = {
+            "a1": {},
+            "a2": {},
+        }
+        self.device_no_resp_counts = {
+            "a1": {},
+            "a2": {},
+        }
+        self.device_no_resp_times = {
+            "a1": {},
+            "a2": {},
+        }
         self.a1_no_resp_count = 0
         self.a2_no_resp_count = 0
         self.cmd_no_resp_count = 0
@@ -1948,13 +2029,118 @@ class LinePoller(threading.Thread):
                 f"[PAIR] pair_id={pair_id} primary A1 failed {streak} times -> active_role=backup"
             )
 
+    @staticmethod
+    def _metric_kind(req_cmd: Optional[str]) -> Optional[str]:
+        text = str(req_cmd or "").strip().lower()
+        if text == "a1":
+            return "a1"
+        if text == "a2":
+            return "a2"
+        return None
+
+    @staticmethod
+    def _side_name(side: Optional[str]) -> Optional[str]:
+        text = str(side or "").strip().lower()
+        return text if text in ("head", "tail") else None
+
+    def _prune_metric_times(self, buf: Deque[float], nowt: float) -> int:
+        while buf and (nowt - float(buf[0])) > NO_RESP_WINDOW_SEC:
+            buf.popleft()
+        return len(buf)
+
+    def _ensure_device_metric(self, container: dict, kind: str, serial_id: Optional[int], *, times: bool):
+        if kind not in container or serial_id is None:
+            return None
+        try:
+            sid = int(serial_id)
+        except Exception:
+            return None
+        default_value = {"head": deque(), "tail": deque()} if times else {"head": 0, "tail": 0}
+        return container[kind].setdefault(sid, default_value)
+
+    def record_request(self, kind: str, side: Optional[str], serial_id: Optional[int] = None):
+        side_name = self._side_name(side)
+        if kind not in self.req_counts or side_name is None:
+            return
+        nowt = now_mono()
+        self.req_counts[kind][side_name] += 1
+        self.req_times[kind][side_name].append(nowt)
+        self._prune_metric_times(self.req_times[kind][side_name], nowt)
+        dev_counts = self._ensure_device_metric(self.device_req_counts, kind, serial_id, times=False)
+        dev_times = self._ensure_device_metric(self.device_req_times, kind, serial_id, times=True)
+        if dev_counts is not None and dev_times is not None:
+            dev_counts[side_name] += 1
+            dev_times[side_name].append(nowt)
+            self._prune_metric_times(dev_times[side_name], nowt)
+
+    def recent_request_count(self, kind: str, side: Optional[str] = None, nowt: Optional[float] = None) -> int:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        if kind not in self.req_times:
+            return 0
+        side_name = self._side_name(side)
+        if side_name is not None:
+            return self._prune_metric_times(self.req_times[kind][side_name], nowt)
+        return sum(self._prune_metric_times(self.req_times[kind][item], nowt) for item in ("head", "tail"))
+
+    def _side_count_total(self, kind: str, *, no_resp: bool = True) -> int:
+        source = self.no_resp_counts if no_resp else self.req_counts
+        if kind not in source:
+            return 0
+        return int(source[kind].get("head", 0)) + int(source[kind].get("tail", 0))
+
+    def _format_side_metric(self, kind: str, *, no_resp: bool, nowt: Optional[float] = None) -> str:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        if no_resp:
+            counts = self.no_resp_counts.get(kind, {})
+            times = self.no_resp_side_times.get(kind, {})
+        else:
+            counts = self.req_counts.get(kind, {})
+            times = self.req_times.get(kind, {})
+        head_total = int(counts.get("head", 0) or 0)
+        tail_total = int(counts.get("tail", 0) or 0)
+        head_recent = self._prune_metric_times(times.get("head", deque()), nowt) if times else 0
+        tail_recent = self._prune_metric_times(times.get("tail", deque()), nowt) if times else 0
+        return f"{head_total}/{tail_total} | {head_recent}/{tail_recent}"
+
+    def _format_device_metric(self, kind: str, serial_id: int, *, no_resp: bool, nowt: Optional[float] = None) -> str:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        if no_resp:
+            counts = self.device_no_resp_counts.get(kind, {}).get(int(serial_id), {})
+            times = self.device_no_resp_times.get(kind, {}).get(int(serial_id), {})
+        else:
+            counts = self.device_req_counts.get(kind, {}).get(int(serial_id), {})
+            times = self.device_req_times.get(kind, {}).get(int(serial_id), {})
+        head_total = int(counts.get("head", 0) or 0)
+        tail_total = int(counts.get("tail", 0) or 0)
+        head_recent = self._prune_metric_times(times.get("head", deque()), nowt) if times else 0
+        tail_recent = self._prune_metric_times(times.get("tail", deque()), nowt) if times else 0
+        return f"{head_total}/{tail_total} | {head_recent}/{tail_recent}"
+
+    def get_device_metric_rows(self, nowt: Optional[float] = None) -> List[dict]:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        rows = []
+        for device in self.devices_cfg:
+            serial_id = int(device["serial_id"])
+            rows.append(
+                {
+                    "line_id": self.line_id,
+                    "line_name": self.name,
+                    "serial_id": serial_id,
+                    "nms_id": int(device.get("nms_id", serial_id)),
+                    "role": str(device.get("role", "") or "-"),
+                    "pair_id": str(device.get("pair_id", "") or "-"),
+                    "a1_req": self._format_device_metric("a1", serial_id, no_resp=False, nowt=nowt),
+                    "a2_req": self._format_device_metric("a2", serial_id, no_resp=False, nowt=nowt),
+                    "a1_timeout": self._format_device_metric("a1", serial_id, no_resp=True, nowt=nowt),
+                    "a2_timeout": self._format_device_metric("a2", serial_id, no_resp=True, nowt=nowt),
+                }
+            )
+        return rows
+
     def get_ui_snapshot(self, nowt: Optional[float] = None) -> dict:
         nowt = time.monotonic() if nowt is None else float(nowt)
         rx_h_qfull = self.rx_head.drop_q_full if self.rx_head else 0
         rx_t_qfull = self.rx_tail.drop_q_full if self.rx_tail else 0
-        recent_a1_no_resp = self.recent_no_resp_count("a1", nowt)
-        recent_a2_no_resp = self.recent_no_resp_count("a2", nowt)
-        recent_cmd_no_resp = self.recent_no_resp_count("cmd", nowt)
         recent_unmatched = self.recent_unmatched_count(nowt)
         pref_head = sum(1 for st in self.dev_state.values() if st.get("last_good_side", "head") == "head")
         pref_tail = max(0, len(self.dev_state) - pref_head)
@@ -1966,9 +2152,11 @@ class LinePoller(threading.Thread):
             "link": f"{self.link_state('head', nowt)}/{self.link_state('tail', nowt)}",
             "down_for": f"{self.port_down_for('head', nowt)}/{self.port_down_for('tail', nowt)}",
             "devices": len(self.devices_cfg),
-            "a1_timeout": f"{self.a1_no_resp_count}/{recent_a1_no_resp}",
-            "a2_timeout": f"{self.a2_no_resp_count}/{recent_a2_no_resp}",
-            "cmd_timeout": f"{self.cmd_no_resp_count}/{recent_cmd_no_resp}",
+            "a1_req": self._format_side_metric("a1", no_resp=False, nowt=nowt),
+            "a2_req": self._format_side_metric("a2", no_resp=False, nowt=nowt),
+            "a1_timeout": self._format_side_metric("a1", no_resp=True, nowt=nowt),
+            "a2_timeout": self._format_side_metric("a2", no_resp=True, nowt=nowt),
+            "cmd_timeout": self._format_side_metric("cmd", no_resp=True, nowt=nowt),
             "unmatched": f"{self.drop_unmatched}/{recent_unmatched}",
             "qfull": f"{rx_h_qfull}/{rx_t_qfull}",
             "queue": f"{self.q_head.qsize()}/{self.q_tail.qsize()}",
@@ -2044,8 +2232,11 @@ class LinePoller(threading.Thread):
             return f"f{int(state.get('fail_streak', 0))}@{_age_text(state.get('last_fail_mono', 0.0), nowt)}"
         return status.lower()
 
-    def recent_no_resp_count(self, kind: str, nowt: Optional[float] = None) -> int:
+    def recent_no_resp_count(self, kind: str, nowt: Optional[float] = None, side: Optional[str] = None) -> int:
         nowt = time.monotonic() if nowt is None else float(nowt)
+        side_name = self._side_name(side)
+        if side_name is not None and kind in self.no_resp_side_times:
+            return self._prune_metric_times(self.no_resp_side_times[kind][side_name], nowt)
         if kind == "a1":
             buf = self.a1_no_resp_times
         elif kind == "a2":
@@ -2056,8 +2247,19 @@ class LinePoller(threading.Thread):
             buf.popleft()
         return len(buf)
 
-    def record_no_resp(self, kind: str):
+    def record_no_resp(self, kind: str, side: Optional[str] = None, serial_id: Optional[int] = None):
         nowt = now_mono()
+        side_name = self._side_name(side)
+        if side_name is not None and kind in self.no_resp_counts:
+            self.no_resp_counts[kind][side_name] += 1
+            self.no_resp_side_times[kind][side_name].append(nowt)
+            self._prune_metric_times(self.no_resp_side_times[kind][side_name], nowt)
+            dev_counts = self._ensure_device_metric(self.device_no_resp_counts, kind, serial_id, times=False)
+            dev_times = self._ensure_device_metric(self.device_no_resp_times, kind, serial_id, times=True)
+            if dev_counts is not None and dev_times is not None:
+                dev_counts[side_name] += 1
+                dev_times[side_name].append(nowt)
+                self._prune_metric_times(dev_times[side_name], nowt)
         if kind == "a1":
             self.a1_no_resp_count += 1
             self.last_a1_no_resp_mono = nowt
@@ -2676,6 +2878,10 @@ class LinePoller(threading.Thread):
             meta["_send_seq"] = seq
             meta["_send_tmono"] = t0
             meta["_after_sleep"] = after_sleep
+            meta.setdefault("_sent_sides", []).append(which)
+            metric_kind = self._metric_kind(meta.get("req_cmd"))
+            if metric_kind in ("a1", "a2") and not bool(meta.get("_probe", False)):
+                self.record_request(metric_kind, which, meta.get("serial_id"))
             return True
 
         except SerialException as e:
@@ -2848,6 +3054,7 @@ class LinePoller(threading.Thread):
 
             frame = build_a2_request(serial_id)
             meta = {"serial_id": serial_id, "nms_id": nms_id, "req_cmd": "A2"}
+            sent_before = len(meta.get("_sent_sides", []))
             resp_item = self._send_and_wait(
                 side,
                 frame,
@@ -2856,6 +3063,8 @@ class LinePoller(threading.Thread):
                 use_stash_first=False,
             )
             if resp_item is None:
+                if len(meta.get("_sent_sides", [])) > sent_before:
+                    self.record_no_resp("a2", side, serial_id)
                 break
 
             ok = self._report_ok(side, serial_id=serial_id, nms_id=nms_id, req_cmd="A2", frame=resp_item["frame"], send_meta=meta)
@@ -2886,6 +3095,8 @@ class LinePoller(threading.Thread):
                 "link": snap["link"],
                 "down_for": snap["down_for"],
                 "devices": snap["devices"],
+                "a1_req": snap["a1_req"],
+                "a2_req": snap["a2_req"],
                 "a1_timeout": snap["a1_timeout"],
                 "a2_timeout": snap["a2_timeout"],
                 "cmd_timeout": snap["cmd_timeout"],
@@ -2929,6 +3140,7 @@ class LinePoller(threading.Thread):
 
         # A2 confirm
         a2_meta = {"serial_id": int(serial_id), "nms_id": nms_id, "req_cmd": "A2"}
+        sent_before = len(a2_meta.get("_sent_sides", []))
         a2_item = self._send_and_wait(
             side,
             build_a2_request(int(serial_id)),
@@ -2939,10 +3151,13 @@ class LinePoller(threading.Thread):
         if a2_item is not None:
             _ = self._report_ok(side, serial_id=int(serial_id), nms_id=nms_id, req_cmd="A2", frame=a2_item["frame"], send_meta=a2_meta)
             ok_any = True
+        elif len(a2_meta.get("_sent_sides", [])) > sent_before:
+            self.record_no_resp("a2", side, serial_id)
 
         # A1 confirm (optional)
         if bool(SY_CMD_CONFIRM_A1):
             a1_meta = {"serial_id": int(serial_id), "nms_id": nms_id, "req_cmd": "A1"}
+            sent_before = len(a1_meta.get("_sent_sides", []))
             a1_item = self._send_and_wait(
                 side,
                 build_a1_request(int(serial_id)),
@@ -2953,6 +3168,8 @@ class LinePoller(threading.Thread):
             if a1_item is not None:
                 _ = self._report_ok(side, serial_id=int(serial_id), nms_id=nms_id, req_cmd="A1", frame=a1_item["frame"], send_meta=a1_meta)
                 ok_any = True
+            elif len(a1_meta.get("_sent_sides", [])) > sent_before:
+                self.record_no_resp("a1", side, serial_id)
 
         return ok_any
 
@@ -3044,6 +3261,7 @@ class LinePoller(threading.Thread):
                 sides = ["head", "tail"] if preferred == "head" else ["tail", "head"]
 
                 sent_ok = False
+                cmd_timeout_sides = set()
                 for i, side in enumerate(sides):
                     ser = self.ser_head if side == "head" else self.ser_tail
                     if ser is None or (not ser.is_open):
@@ -3079,6 +3297,7 @@ class LinePoller(threading.Thread):
                         break
 
                     # ✅ 有回帧命令：原逻辑不变
+                    sent_before = len(meta.get("_sent_sides", []))
                     if dl_cmd == CMD_BB:
                         resp_item = self._send_bb_and_wait_ack(side, cmd_frame, meta)
                     else:
@@ -3089,6 +3308,10 @@ class LinePoller(threading.Thread):
                             timeout=float(DEBUG_TUNING["WAIT_RESPONSE_TIMEOUT_SEC"]),
                             use_stash_first=True,
                         )
+                    if resp_item is None:
+                        if len(meta.get("_sent_sides", [])) > sent_before:
+                            cmd_timeout_sides.add(side)
+                        continue
                     if resp_item is not None:
                         # ✅ SAFE(建议#1)：先 mark_done（至少本地），防 Redis 抖动导致命令重复执行
                         self._cmd_mark_done(msg_id)
@@ -3108,10 +3331,12 @@ class LinePoller(threading.Thread):
                         self._try_ack_cmd(msg_id)
                         break
 
-                if not sent_ok and DEBUG_TUNING["LOG_NO_RESP"]:
-                    self.record_no_resp("cmd")
-                    ADAPT.on_no_resp()
-                    self.log(f"CMD no RESP_OK (cmd_no={self.cmd_no_resp_count}) meta={meta} (id={_b2s(msg_id)})")
+                if not sent_ok and cmd_timeout_sides:
+                    for side in sorted(cmd_timeout_sides):
+                        self.record_no_resp("cmd", side)
+                    if DEBUG_TUNING["LOG_NO_RESP"]:
+                        ADAPT.on_no_resp()
+                        self.log(f"CMD no RESP_OK (cmd_no={self.cmd_no_resp_count}) meta={meta} (id={_b2s(msg_id)})")
                 continue
 
             # 2) AA 校时
@@ -3171,6 +3396,7 @@ class LinePoller(threading.Thread):
                 if i == 1:
                     self._clear_side(side)
 
+                sent_before = len(send_meta.get("_sent_sides", []))
                 resp_item = self._send_and_wait(
                     side,
                     frame,
@@ -3179,6 +3405,8 @@ class LinePoller(threading.Thread):
                     use_stash_first=True,
                 )
                 if resp_item is None:
+                    if len(send_meta.get("_sent_sides", [])) > sent_before:
+                        self.record_no_resp("a1" if req_cmd == "A1" else "a2", side, serial_id)
                     continue
 
                 device_responded = True
@@ -3207,8 +3435,7 @@ class LinePoller(threading.Thread):
             if is_a1:
                 self._update_pair_after_poll(serial_id=serial_id, req_cmd=req_cmd, responded=device_responded)
 
-            if not got_ok and DEBUG_TUNING["LOG_NO_RESP"]:
-                self.record_no_resp("a1" if req_cmd == "A1" else "a2")
+            if (not got_ok) and send_meta.get("_sent_sides") and DEBUG_TUNING["LOG_NO_RESP"]:
                 ADAPT.on_no_resp()
                 self.log(
                     f"device no RESP_OK ({req_cmd}_no={self.a1_no_resp_count if req_cmd == 'A1' else self.a2_no_resp_count}) "
