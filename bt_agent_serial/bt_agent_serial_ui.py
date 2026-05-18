@@ -15,6 +15,7 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -29,6 +30,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+try:
+    from serial.tools import list_ports
+except Exception:  # pragma: no cover - surfaced in UI when pyserial is missing.
+    list_ports = None
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
@@ -54,7 +60,7 @@ DB_PATH = sqlite_path(APP_NAME, "bt_agent_serial_ui.sqlite3")
 class BtAgentSerialWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("BT 串口采集 Agent")
+        self.setWindowTitle("BT 串口采集程序")
         self.resize(980, 720)
 
         self.local_config = self._load_or_init_config()
@@ -65,6 +71,7 @@ class BtAgentSerialWindow(QMainWindow):
         self._manual_stop_requested = False
 
         self._build_ui()
+        self._refresh_serial_ports(preferred_port=str(self.local_config.get("serial", {}).get("port", "")))
         self._load_config_into_ui()
 
         self._timer = QTimer(self)
@@ -97,10 +104,13 @@ class BtAgentSerialWindow(QMainWindow):
         self.save_button.clicked.connect(self.save_settings)
         self.apply_button = QPushButton("保存并应用")
         self.apply_button.clicked.connect(self.save_and_apply)
+        self.reset_defaults_button = QPushButton("返回默认设置")
+        self.reset_defaults_button.clicked.connect(self.reset_to_defaults)
         self.auto_start_checkbox = QCheckBox("自动启动")
         header.addWidget(self.primary_button)
         header.addWidget(self.save_button)
         header.addWidget(self.apply_button)
+        header.addWidget(self.reset_defaults_button)
         header.addWidget(self.auto_start_checkbox)
         header.addStretch(1)
         layout.addLayout(header)
@@ -149,13 +159,19 @@ class BtAgentSerialWindow(QMainWindow):
         form = QFormLayout(group)
         self.nms_id_spin = QSpinBox(self)
         self.nms_id_spin.setRange(1, 999999)
-        form.addRow("nms_id", self.nms_id_spin)
+        form.addRow("网管设备ID", self.nms_id_spin)
         return group
 
     def _build_serial_group(self) -> QGroupBox:
         group = QGroupBox("串口")
         form = QFormLayout(group)
-        self.port_edit = QLineEdit(self)
+        port_row = QHBoxLayout()
+        self.port_combo = QComboBox(self)
+        self.port_combo.setEditable(False)
+        self.refresh_ports_button = QPushButton("刷新端口")
+        self.refresh_ports_button.clicked.connect(self._refresh_serial_ports)
+        port_row.addWidget(self.port_combo, 1)
+        port_row.addWidget(self.refresh_ports_button)
         self.baudrate_spin = QSpinBox(self)
         self.baudrate_spin.setRange(1200, 1000000)
         self.parity_edit = QLineEdit(self)
@@ -164,16 +180,16 @@ class BtAgentSerialWindow(QMainWindow):
         self.stopbits_edit = QLineEdit(self)
         self.frame_len_spin = QSpinBox(self)
         self.frame_len_spin.setRange(8, 4096)
-        form.addRow("Port", self.port_edit)
-        form.addRow("Baudrate", self.baudrate_spin)
-        form.addRow("Parity", self.parity_edit)
-        form.addRow("Bytesize", self.bytesize_spin)
-        form.addRow("Stopbits", self.stopbits_edit)
-        form.addRow("Frame Len", self.frame_len_spin)
+        form.addRow("串口号", port_row)
+        form.addRow("波特率", self.baudrate_spin)
+        form.addRow("校验位", self.parity_edit)
+        form.addRow("数据位", self.bytesize_spin)
+        form.addRow("停止位", self.stopbits_edit)
+        form.addRow("帧长度", self.frame_len_spin)
         return group
 
     def _build_redis_group(self) -> QGroupBox:
-        group = QGroupBox("Redis / Stream")
+        group = QGroupBox("Redis 与数据流")
         form = QFormLayout(group)
         self.redis_host_edit = QLineEdit(self)
         self.redis_port_spin = QSpinBox(self)
@@ -183,18 +199,22 @@ class BtAgentSerialWindow(QMainWindow):
         self.stream_key_edit = QLineEdit(self)
         self.maxlen_spin = QSpinBox(self)
         self.maxlen_spin.setRange(1000, 10000000)
-        form.addRow("Host", self.redis_host_edit)
-        form.addRow("Port", self.redis_port_spin)
-        form.addRow("DB", self.redis_db_spin)
-        form.addRow("Stream", self.stream_key_edit)
-        form.addRow("MaxLen", self.maxlen_spin)
+        form.addRow("Redis地址", self.redis_host_edit)
+        form.addRow("Redis端口", self.redis_port_spin)
+        form.addRow("Redis库", self.redis_db_spin)
+        form.addRow("数据流名称", self.stream_key_edit)
+        form.addRow("最大长度", self.maxlen_spin)
         return group
 
     def _load_config_into_ui(self) -> None:
         config = normalize_config(self.local_config)
         self.nms_id_spin.setValue(int(config["device"]["nms_id"]))
         serial_config = config["serial"]
-        self.port_edit.setText(str(serial_config["port"]))
+        configured_port = str(serial_config["port"])
+        if configured_port:
+            index = self.port_combo.findData(configured_port)
+            if index >= 0:
+                self.port_combo.setCurrentIndex(index)
         self.baudrate_spin.setValue(int(serial_config["baudrate"]))
         self.parity_edit.setText(str(serial_config.get("parity", "O")))
         self.bytesize_spin.setValue(int(serial_config.get("bytesize", 8)))
@@ -211,10 +231,13 @@ class BtAgentSerialWindow(QMainWindow):
 
     def _pull_config_from_ui(self) -> dict:
         config = normalize_config(self.local_config)
+        port = self.port_combo.currentData()
+        if not port:
+            raise ValueError("未检测到可用串口，请连接设备后点击“刷新端口”")
         config["device"]["nms_id"] = int(self.nms_id_spin.value())
         config["serial"].update(
             {
-                "port": self.port_edit.text().strip() or "COM5",
+                "port": str(port),
                 "baudrate": int(self.baudrate_spin.value()),
                 "parity": self.parity_edit.text().strip() or "O",
                 "bytesize": int(self.bytesize_spin.value()),
@@ -238,11 +261,28 @@ class BtAgentSerialWindow(QMainWindow):
         config.setdefault("ui", {})["auto_start"] = bool(self.auto_start_checkbox.isChecked())
         return config
 
+    def _refresh_serial_ports(self, checked: bool = False, preferred_port: str = "") -> None:
+        if isinstance(checked, str) and not preferred_port:
+            preferred_port = checked
+        previous_port = preferred_port or str(self.port_combo.currentData() or self.local_config.get("serial", {}).get("port", ""))
+        self.port_combo.clear()
+        ports = _available_serial_ports()
+        for port, description in ports:
+            label = port if not description else f"{port} - {description}"
+            self.port_combo.addItem(label, port)
+        if not ports:
+            self.port_combo.addItem("未检测到可用串口", "")
+            self.port_combo.setEnabled(False)
+        else:
+            self.port_combo.setEnabled(True)
+            index = self.port_combo.findData(previous_port)
+            self.port_combo.setCurrentIndex(index if index >= 0 else 0)
+
     def save_settings(self) -> bool:
         try:
             self.local_config = self._pull_config_from_ui()
             write_json_file(CONFIG_JSON_PATH, self.local_config)
-            self._append_log(f"[ui] saved config: {CONFIG_JSON_PATH}")
+            self._append_log(f"[界面] 已保存配置：{CONFIG_JSON_PATH}")
             return True
         except Exception as exc:
             QMessageBox.warning(self, "保存失败", str(exc))
@@ -256,6 +296,12 @@ class BtAgentSerialWindow(QMainWindow):
             QTimer.singleShot(800, self.start_agent)
         else:
             self.start_agent()
+
+    def reset_to_defaults(self) -> None:
+        self.local_config = copy.deepcopy(DEFAULT_CONFIG)
+        self._refresh_serial_ports(preferred_port=str(self.local_config["serial"]["port"]))
+        self._load_config_into_ui()
+        self._append_log("[界面] 已恢复默认设置，点击“保存”或“保存并应用”后生效")
 
     def _build_runtime_config(self) -> dict:
         return normalize_config(self.local_config)
@@ -301,7 +347,7 @@ class BtAgentSerialWindow(QMainWindow):
             QMessageBox.warning(self, "启动失败", str(exc))
             return False
         self._manual_stop_requested = False
-        self._append_log(f"[ui] started bt_agent_serial pid={self._proc.pid}")
+        self._append_log(f"[界面] 已启动串口采集进程，pid={self._proc.pid}")
         self._reader_thread = threading.Thread(target=self._read_child_output, name="bt-serial-ui-reader", daemon=True)
         self._reader_thread.start()
         self._refresh_buttons()
@@ -321,7 +367,7 @@ class BtAgentSerialWindow(QMainWindow):
                 proc.kill()
             except Exception:
                 pass
-        self._append_log("[ui] stopped bt_agent_serial")
+        self._append_log("[界面] 已停止串口采集进程")
         self._refresh_buttons()
         self._refresh_status_labels()
 
@@ -332,7 +378,7 @@ class BtAgentSerialWindow(QMainWindow):
         for line in proc.stdout:
             self._log_queue.put(line.rstrip("\n"))
         code = proc.poll()
-        self._log_queue.put(f"[ui] bt_agent_serial exited with code {code}")
+        self._log_queue.put(f"[界面] 串口采集进程已退出，退出码={code}")
 
     def _poll_log_queue(self) -> None:
         while True:
@@ -396,6 +442,19 @@ def _format_ts(value: Any) -> str:
         return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(value)))
     except Exception:
         return str(value)
+
+
+def _available_serial_ports() -> list[tuple[str, str]]:
+    if list_ports is None:
+        return []
+    ports = []
+    for port in list_ports.comports():
+        device = str(getattr(port, "device", "") or "").strip()
+        if not device:
+            continue
+        description = str(getattr(port, "description", "") or "").strip()
+        ports.append((device, description))
+    return ports
 
 
 def main() -> int:
