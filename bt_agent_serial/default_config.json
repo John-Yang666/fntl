@@ -1,0 +1,30 @@
+{
+  "device": {
+    "nms_id": 1
+  },
+  "serial": {
+    "port": "COM5",
+    "baudrate": 57600,
+    "parity": "O",
+    "bytesize": 8,
+    "stopbits": 1,
+    "timeout": 0.0,
+    "write_timeout": 0.0,
+    "frame_len": 44,
+    "idle_sleep_sec": 0.05,
+    "comm_lost_miss_count": 20
+  },
+  "redis": {
+    "host": "127.0.0.1",
+    "port": 36379,
+    "db": 0,
+    "startup_retry_sec": 2.0
+  },
+  "stream": {
+    "packet_stream_key": "stream:udp:packets",
+    "packet_maxlen": 200000
+  },
+  "ui": {
+    "auto_start": false
+  }
+}

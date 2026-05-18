@@ -50,6 +50,19 @@ RELAY_MAPPING = (
     ("二方向邻站FXJ(B系)", 49, 6),
 )
 
+TESTDATA_SOURCE = "bt_agent_serial"
+TESTDATA_ALARM_CODES = (
+    tuple(range(8000, 8008))
+    + tuple(range(8010, 8012))
+    + tuple(8200 + cpu * 100 + code for cpu in range(4) for code in range(42))
+    + tuple(8400 + cpu * 10 + idx for cpu in range(4) for idx in range(4))
+    + tuple(8500 + cpu for cpu in range(4))
+    + tuple(8510 + cpu for cpu in range(4))
+)
+
+TESTDATA_RELAY_NAMES = ("ZDJ", "FDJ", "ZXJ", "FXJ")
+TESTDATA_CPU_NAMES = ("I-A", "I-B", "II-A", "II-B")
+
 
 @dataclass(frozen=True)
 class DeviceCacheSnapshot:
@@ -168,13 +181,30 @@ def decode_packet_fields(fields: dict[bytes, bytes]):
     except Exception:
         source_ts_ms = 0
 
+    explicit_device_id = _parse_explicit_device_id(fields)
+
     return {
         "ip_address": ip_address,
         "raw_hex": raw_hex,
         "data": data,
         "source": src.decode(errors="ignore").strip(),
         "source_ts_ms": source_ts_ms,
+        "explicit_device_id": explicit_device_id,
     }, None
+
+
+def _parse_explicit_device_id(fields: dict[bytes, bytes]) -> int | None:
+    for key in (b"device_id", b"nms_id"):
+        raw = fields.get(key, b"")
+        if not raw:
+            continue
+        try:
+            parsed = int(raw.decode(errors="ignore").strip())
+        except Exception:
+            continue
+        if parsed > 0:
+            return parsed
+    return None
 
 
 def resolve_device_id(ip_address: str, data: bytes, device_ip_map: dict[str, int], device_id_set: set[int]) -> int | None:
@@ -200,8 +230,12 @@ def parse_router_entry(
     if marker is not None:
         return None, marker
 
-    device_id = resolve_device_id(decoded["ip_address"], decoded["data"], device_ip_map, device_id_set)
+    device_id = decoded.get("explicit_device_id")
     if not device_id:
+        device_id = resolve_device_id(decoded["ip_address"], decoded["data"], device_ip_map, device_id_set)
+    if not device_id:
+        return None, "invalid_device"
+    if device_id not in device_id_set:
         return None, "invalid_device"
 
     return {
@@ -220,13 +254,8 @@ def parse_worker_entry(entry_id: bytes, fields: dict[bytes, bytes]):
     if marker is not None:
         return None, marker
 
-    device_id_b = fields.get(b"device_id", b"")
-    if not device_id_b:
-        return None, "invalid_device"
-
-    try:
-        device_id = int(device_id_b.decode(errors="ignore").strip())
-    except Exception:
+    device_id = decoded.get("explicit_device_id")
+    if not device_id:
         return None, "invalid_device"
 
     now_time = datetime.now(dt_timezone.utc)
@@ -344,6 +373,123 @@ def extract_relay_actions(previous_status: dict, switch_status: bytes, current_t
             actions.append((relay_name, "吸起" if bit_value == 1 else "落下", current_time))
 
     return current_status, actions
+
+
+def is_testdata_packet(msg) -> bool:
+    return msg.length == 44 and msg.source == TESTDATA_SOURCE
+
+
+def parse_testdata_switch_status(frame: bytes) -> bytes | None:
+    if len(frame) != 44:
+        return None
+    if frame[:2] != b"\x7F\x7F" or frame[-2:] != b"\xF7\xF7":
+        return None
+    raw_data = frame[2:-2]
+    if len(raw_data) != 40:
+        return None
+    expected = raw_data[38] + (raw_data[39] << 8)
+    actual = sum(raw_data[:38]) & 0xFFFF
+    if expected != actual:
+        return None
+    return raw_data
+
+
+def build_testdata_alarms_state(
+    *,
+    device_id: int,
+    switch_status: bytes,
+    previous_alarms: dict,
+    now_time: datetime,
+    now_monotonic: float,
+    device_alarm_filters: dict[int, set[int]],
+) -> dict:
+    alarm_filters = device_alarm_filters.get(device_id, set())
+    alarms_state = {}
+    current_active = _testdata_active_alarm_codes(switch_status)
+
+    for alarm_code in TESTDATA_ALARM_CODES:
+        if alarm_code in alarm_filters:
+            alarms_state[alarm_code] = {"bit_value": 0}
+            continue
+        if alarm_code in current_active:
+            prev_state = previous_alarms.get(alarm_code, {}) if isinstance(previous_alarms, dict) else {}
+            alarms_state[alarm_code] = {
+                "bit_value": 1,
+                "starttime": prev_state.get("starttime", now_time),
+                "start_monotonic": prev_state.get("start_monotonic", now_monotonic),
+            }
+        else:
+            alarms_state[alarm_code] = {"bit_value": 0}
+    return alarms_state
+
+
+def extract_testdata_relay_actions(previous_status: dict, switch_status: bytes, current_time: datetime):
+    current_status = {}
+    actions = []
+    for cpu_index, cpu_name in enumerate(TESTDATA_CPU_NAMES):
+        base = cpu_index * 8
+        if base + 6 >= len(switch_status):
+            continue
+        relay_byte = switch_status[base + 6]
+        for relay_index, relay_name in enumerate(TESTDATA_RELAY_NAMES):
+            bit_value = (relay_byte >> (relay_index * 2)) & 0x01
+            key = f"{cpu_name}-{relay_name}"
+            current_status[key] = bit_value
+            if previous_status and previous_status.get(key) != bit_value:
+                actions.append((key, "吸起" if bit_value == 1 else "落下", current_time))
+    return current_status, actions
+
+
+def _testdata_active_alarm_codes(raw_data: bytes) -> set[int]:
+    active: set[int] = set()
+    if len(raw_data) < 40:
+        return active
+
+    power_byte = raw_data[2]
+    for index in range(8):
+        if ((power_byte >> index) & 0x01) == 1:
+            active.add(8000 + index)
+
+    external_byte = raw_data[3]
+    for index in range(2):
+        if ((external_byte >> index) & 0x01) == 1:
+            active.add(8010 + index)
+
+    for cpu_index in range(4):
+        base = cpu_index * 8
+        fault_bytes = raw_data[base + 7 : base + 11]
+        for byte_index, value in enumerate(fault_bytes):
+            for bit in range(8):
+                if ((value >> bit) & 0x01) == 1:
+                    active.add(8200 + cpu_index * 100 + _normalize_testdata_cpu_fault(byte_index * 8 + bit))
+
+        txb_a = raw_data[base + 12]
+        txb_b = raw_data[base + 13]
+        txb_bits = (
+            (txb_a >> 0) & 0x01,
+            (txb_a >> 7) & 0x01,
+            (txb_b >> 0) & 0x01,
+            (txb_b >> 7) & 0x01,
+        )
+        for txb_index, bit_value in enumerate(txb_bits):
+            if bit_value == 1:
+                active.add(8400 + cpu_index * 10 + txb_index)
+
+        board_status = raw_data[base + 11]
+        board_low = board_status & 0x0F
+        if board_low not in (0x0A, 0x05):
+            active.add(8500 + cpu_index)
+        if ((board_status >> 7) & 0x01) == 1:
+            active.add(8510 + cpu_index)
+    return active
+
+
+def _normalize_testdata_cpu_fault(code: int) -> int:
+    if code in (10, 11):
+        return 40
+    if code in (12, 13):
+        return 41
+    return code
 
 
 def parse_analog_payload(payload: bytes):

@@ -119,7 +119,7 @@ def _default_mono_font() -> QFont:
 
 FORM_TAB_GROUPS = [
     ("基础参数", ["redis", "stream", "cmd"]),
-    ("轮询串口", ["time_sync", "a2_burst", "serial", "probe", "ui"]),
+    ("轮询串口", ["time_sync", "a2_burst", "serial", "ui"]),
     ("调试参数", ["debug_tuning"]),
 ]
 SECTION_TITLES = {
@@ -129,7 +129,6 @@ SECTION_TITLES = {
     "time_sync": "时间同步",
     "a2_burst": "A2 突发",
     "serial": "串口默认",
-    "probe": "探测",
     "ui": "终端界面",
     "debug_tuning": "调试参数",
 }
@@ -166,9 +165,9 @@ UI_TEMPLATE_BASE = {
         "max_tries": 20,
         "inflight_ttl_sec": 3.0,
         "no_resp_enable": True,
-        "confirm_delay_sec": 0.08,
-        "confirm_timeout_sec": 0.25,
-        "confirm_a1": True,
+        "cc_confirm_delay_sec": 0.08,
+        "cc_confirm_timeout_sec": 0.25,
+        "cc_confirm_a1": True,
         "bb_cmd_retries": 3,
         "no_resp_cmds": ["CC"],
     },
@@ -179,19 +178,12 @@ UI_TEMPLATE_BASE = {
     "a2_burst": {
         "enable": True,
         "max": 3,
-        "timeout_sec": 0.06,
+        "timeout_sec": 0.08,
         "budget_sec": 0.16,
     },
     "serial": {
         "default_baudrate": 19200,
         "timeout": 0.0,
-    },
-    "probe": {
-        "enable": True,
-        "interval_sec": 45.0,
-        "timeout_sec": 0.12,
-        "queue_threshold": 32,
-        "cooldown_after_fault_sec": 15.0,
     },
     "ui": {
         "mode": "dashboard",
@@ -200,11 +192,11 @@ UI_TEMPLATE_BASE = {
         "ansi": "auto",
     },
     "debug_tuning": {
-        "AFTER_WRITE_SLEEP_SEC": 0.035,
+        "AFTER_WRITE_SLEEP_SEC": 0.100,
         "ENABLE_AFTER_WRITE_SLEEP": True,
         "WAIT_RESPONSE_TIMEOUT_SEC": 0.20,
         "RX_IDLE_SLEEP_SEC": 0.002,
-        "AUTO_SLEEP_ENABLE": True,
+        "AUTO_SLEEP_ENABLE": False,
         "AUTO_SLEEP_WINDOW": 80,
         "AUTO_SLEEP_PCTL": 95,
         "AUTO_SLEEP_MARGIN_SEC": 0.005,
@@ -426,12 +418,13 @@ def normalize_config(raw_config: dict, template_config: dict) -> dict:
 
     config = copy.deepcopy(template_config)
     _deep_merge(config, copy.deepcopy(raw_config))
+    config.pop("probe", None)
 
     if "lines" not in config or not isinstance(config["lines"], list):
         raise ValueError("config.lines must be a list")
     config["lines"] = [_normalize_line(item) for item in config["lines"]]
 
-    for key in ("redis", "stream", "cmd", "time_sync", "a2_burst", "serial", "probe", "ui", "debug_tuning"):
+    for key in ("redis", "stream", "cmd", "time_sync", "a2_burst", "serial", "ui", "debug_tuning"):
         if key not in config or not isinstance(config[key], dict):
             raise ValueError(f"config.{key} must be an object")
 
@@ -1144,7 +1137,9 @@ class CollapsibleSection(QWidget):
         self._toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
         self._content.setVisible(expanded)
         self._content.setMaximumHeight(16777215 if expanded else 0)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred if expanded else QSizePolicy.Maximum)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding if expanded else QSizePolicy.Maximum)
+        if self.layout() is not None:
+            self.layout().invalidate()
         self.updateGeometry()
 
 
@@ -1271,6 +1266,7 @@ class SyUIAgentWindow(QMainWindow):
         root.addWidget(self.top_section)
 
         self.tabs = QTabWidget(self)
+        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.tab_json = self._build_config_tab()
         self.tabs.addTab(self.tab_json, "配置文件")
         self.tab_disk_alert = self._build_disk_alert_tab()
@@ -1297,6 +1293,7 @@ class SyUIAgentWindow(QMainWindow):
         self.main_splitter.setStretchFactor(2, 4)
         self.main_splitter.setStretchFactor(3, 3)
         self.main_splitter.setSizes([140, 300, 430, 300])
+        self._connect_splitter_rebalance()
         root.addWidget(self.main_splitter, stretch=1)
 
         scroll = QScrollArea(self)
@@ -1310,6 +1307,51 @@ class SyUIAgentWindow(QMainWindow):
         save_action.triggered.connect(self.save_settings)
         save_action.setShortcut("Ctrl+S")
         self.addAction(save_action)
+
+    def _splitter_sections(self) -> list[tuple[CollapsibleSection, int]]:
+        return [
+            (self.subagent_section, 1),
+            (self.overview_section, 3),
+            (self.config_section, 4),
+            (self.log_section, 3),
+        ]
+
+    def _connect_splitter_rebalance(self) -> None:
+        for section, _weight in self._splitter_sections():
+            section._toggle.toggled.connect(lambda _checked, self=self: QTimer.singleShot(0, self._rebalance_main_splitter))
+        QTimer.singleShot(0, self._rebalance_main_splitter)
+
+    def _rebalance_main_splitter(self) -> None:
+        splitter = getattr(self, "main_splitter", None)
+        if splitter is None:
+            return
+
+        sections = self._splitter_sections()
+        total = max(sum(int(size) for size in splitter.sizes()), int(splitter.height() or 0), 1)
+        collapsed_sizes: dict[int, int] = {}
+        expanded: list[tuple[int, int, CollapsibleSection]] = []
+        fixed = 0
+
+        for index, (section, weight) in enumerate(sections):
+            if section._toggle.isChecked():
+                expanded.append((index, weight, section))
+                continue
+            size = max(36, int(section._toggle.sizeHint().height()) + 12, int(section.minimumSizeHint().height()))
+            collapsed_sizes[index] = size
+            fixed += size
+
+        remaining = max(0, total - fixed)
+        total_weight = sum(weight for _index, weight, _section in expanded) or 1
+        sizes: list[int] = []
+        for index, (section, _weight) in enumerate(sections):
+            if index in collapsed_sizes:
+                sizes.append(collapsed_sizes[index])
+                continue
+            weight = next(item_weight for item_index, item_weight, _section in expanded if item_index == index)
+            size = int(remaining * weight / total_weight)
+            sizes.append(max(90, size))
+
+        splitter.setSizes(sizes)
 
     def _build_top_panel(self) -> QWidget:
         box = QWidget(self)
@@ -1483,6 +1525,7 @@ class SyUIAgentWindow(QMainWindow):
 
         self.config_text = QPlainTextEdit(self)
         self.config_text.setMinimumHeight(EDITOR_PANEL_MIN_HEIGHT)
+        self.config_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         mono = _default_mono_font()
         self.config_text.setFont(mono)
         self.config_text.textChanged.connect(self._on_config_text_changed)

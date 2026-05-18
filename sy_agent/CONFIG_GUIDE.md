@@ -25,7 +25,6 @@
 - `time_sync`
 - `a2_burst`
 - `serial`
-- `probe`
 - `ui`
 - `debug_tuning`
 - `lines`
@@ -113,9 +112,9 @@ Redis Stream 名称和消费参数。
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `no_resp_enable` | `bool` | `True` | 是否启用“无回帧命令”特殊处理 |
-| `confirm_delay_sec` | `float` | `0.08` | 无回帧命令发送后，开始确认前的等待时间 |
-| `confirm_timeout_sec` | `float` | `0.25` | 无回帧命令确认超时 |
-| `confirm_a1` | `bool` | `True` | 无回帧命令确认时是否在 `A2` 后补一次 `A1` |
+| `cc_confirm_delay_sec` | `float` | `0.08` | `CC` 发送后，开始弱确认前的等待时间 |
+| `cc_confirm_timeout_sec` | `float` | `0.25` | `CC` 弱确认时每次 `A2/A1` 询问的超时 |
+| `cc_confirm_a1` | `bool` | `True` | `CC` 弱确认时是否在 `A2` 后补一次 `A1` |
 | `bb_cmd_retries` | `int` | `3` | `BB` 未收到 `0x05` 确认时的额外重发次数 |
 | `no_resp_cmds` | `list[str]` | `["CC"]` | 按“无回帧命令”处理的请求命令列表 |
 
@@ -128,7 +127,8 @@ Redis Stream 名称和消费参数。
 建议：
 
 - 如果现场 `BB` 偶尔确认丢失，可以适当把 `bb_cmd_retries` 增到 `4` 或 `5`。
-- `confirm_a1=True` 会让确认更稳，但也会多一次完整状态读取。
+- `cc_confirm_a1=True` 会让 `CC` 弱确认更稳，但也会多一次完整状态读取。
+- 旧字段 `confirm_delay_sec` / `confirm_timeout_sec` / `confirm_a1` 仍可被程序读取作为兼容兜底，新配置建议使用 `cc_confirm_*`。
 
 ---
 
@@ -156,7 +156,7 @@ Redis Stream 名称和消费参数。
 | --- | --- | --- | --- |
 | `enable` | `bool` | `True` | 是否启用 `A2 burst` |
 | `max` | `int` | `3` | 一次 burst 最多额外发几次 `A2` |
-| `timeout_sec` | `float` | `0.06` | 单次 burst 等待超时 |
+| `timeout_sec` | `float` | `0.08` | 单次 burst 等待超时 |
 | `budget_sec` | `float` | `0.16` | 整个 burst 总预算时间 |
 
 适用场景：
@@ -188,31 +188,6 @@ Redis Stream 名称和消费参数。
 
 ---
 
-## `probe`
-
-后台健康探测配置。用于低频探测非优先侧链路状态，不直接改业务选路。
-
-| 字段 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `enable` | `bool` | `True` | 是否启用后台探测 |
-| `interval_sec` | `float` | `45.0` | 探测周期 |
-| `timeout_sec` | `float` | `0.12` | 单次探测超时 |
-| `queue_threshold` | `int` | `32` | 接收队列积压超过该值时跳过探测 |
-| `cooldown_after_fault_sec` | `float` | `15.0` | 刚发生故障后，暂停探测的冷却时间 |
-
-说明：
-
-- 探测主要为了判断备用链路最近是否还能通。
-- 它不会直接把 `last_good_side` 改掉。
-- 如果总线很忙、队列积压，探测会主动跳过。
-
-建议：
-
-- `interval_sec` 一般保持 `30` 到 `60` 秒比较稳。
-- 如果现场链路非常敏感，不建议把探测频率调得太高。
-
----
-
 ## `ui`
 
 终端版 `sy_agent` 的控制台显示配置，不是桌面版 `sy_agent_ui` 的窗口参数。
@@ -240,7 +215,7 @@ Redis Stream 名称和消费参数。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `AFTER_WRITE_SLEEP_SEC` | `float` | `0.035` | 发完串口请求后附加等待时间 |
+| `AFTER_WRITE_SLEEP_SEC` | `float` | `0.100` | 发完串口请求后附加等待时间 |
 | `ENABLE_AFTER_WRITE_SLEEP` | `bool` | `True` | 是否启用发后等待 |
 | `WAIT_RESPONSE_TIMEOUT_SEC` | `float` | `0.20` | 等待响应帧超时 |
 
@@ -256,7 +231,7 @@ Redis Stream 名称和消费参数。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `AUTO_SLEEP_ENABLE` | `bool` | `True` | 是否启用自动睡眠调节 |
+| `AUTO_SLEEP_ENABLE` | `bool` | `False` | 是否启用自动睡眠调节 |
 | `AUTO_SLEEP_WINDOW` | `int` | `80` | 统计窗口大小 |
 | `AUTO_SLEEP_PCTL` | `int` | `95` | 响应延迟分位数 |
 | `AUTO_SLEEP_MARGIN_SEC` | `float` | `0.005` | 安全边际 |
@@ -272,7 +247,7 @@ Redis Stream 名称和消费参数。
 
 说明：
 
-- 如果你不想让 agent 自己调节发后等待，可以直接把 `AUTO_SLEEP_ENABLE` 关掉。
+- 默认使用固定 `AFTER_WRITE_SLEEP_SEC`，如需让 agent 自己调节发后等待，再打开 `AUTO_SLEEP_ENABLE`。
 - 正常情况下，不建议频繁微调这组参数。
 
 ### RTS 控制
@@ -426,16 +401,16 @@ Redis Stream 名称和消费参数。
 
 1. 先适当放宽 `WAIT_RESPONSE_TIMEOUT_SEC`
 2. 仍不稳再微调 `AFTER_WRITE_SLEEP_SEC`
-3. 如果自动调节不稳定，再考虑暂时关闭 `AUTO_SLEEP_ENABLE`
+3. 如果固定发后等待不适合现场抖动，再考虑打开 `AUTO_SLEEP_ENABLE`
 
 ### 2. `BB` 控制偶尔执行了但确认弱
 
 优先看：
 
 - `cmd.bb_cmd_retries`
-- `cmd.confirm_delay_sec`
-- `cmd.confirm_timeout_sec`
-- `cmd.confirm_a1`
+- `cmd.cc_confirm_delay_sec`
+- `cmd.cc_confirm_timeout_sec`
+- `cmd.cc_confirm_a1`
 
 ### 3. 日志太多
 
@@ -446,14 +421,15 @@ Redis Stream 名称和消费参数。
 - `debug_tuning.LOG_MATCH_DETAIL`
 - `debug_tuning.STATUS_PRINT_EVERY_SEC`
 
-### 4. 备用侧想保留健康探测但不想太频繁
+### 4. 端口或通信状态异常
 
 优先看：
 
-- `probe.interval_sec`
-- `probe.timeout_sec`
-- `probe.queue_threshold`
-- `probe.cooldown_after_fault_sec`
+- `Lines` 中的 `Port(H/T)`、`Link(H/T)`、`LastOK`
+- `A1Timeout(H/T|H5/T5)`、`A2Timeout(H/T|H5/T5)`
+- 最近事件中的 `[PORT]`、`device no RESP_OK`
+
+说明：当前版本不再使用额外 `probe` 探测帧，端口健康由正常 A1/A2 轮询结果、端口打开状态和最近成功响应判断。
 
 ---
 

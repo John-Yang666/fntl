@@ -32,11 +32,15 @@ from consts import (  # noqa: E402
 )
 from ingest_common import (  # noqa: E402
     build_alarms_state,
+    build_testdata_alarms_state,
     ensure_stream_group,
     extract_relay_actions,
+    extract_testdata_relay_actions,
     get_pending_count,
+    is_testdata_packet,
     load_device_cache,
     parse_analog_payload,
+    parse_testdata_switch_status,
     parse_worker_entry,
     read_stream_entries,
 )
@@ -204,14 +208,14 @@ def process_packet_batch(messages):
         worker_state["last_raw_by_device"][msg.device_id] = msg.data
         non_dedup_messages.append(msg)
 
-        if msg.length == 54:
+        if msg.length == 54 or is_testdata_packet(msg):
             ttl = switch_data_timeout
         elif msg.length == 20:
             ttl = heartbeat_timeout
         else:
             ttl = max(switch_data_timeout, heartbeat_timeout)
 
-        last_raw_updates[msg.device_id] = (msg.data, ttl, msg.length == 54)
+        last_raw_updates[msg.device_id] = (msg.data, ttl, msg.length == 54 or is_testdata_packet(msg))
 
     if last_raw_updates:
         dedup_pipe = redis_client.pipeline(transaction=False)
@@ -225,7 +229,9 @@ def process_packet_batch(messages):
     if not non_dedup_messages:
         return metrics
 
-    switch_device_ids = list(dict.fromkeys(msg.device_id for msg in non_dedup_messages if msg.length == 54))
+    switch_device_ids = list(
+        dict.fromkeys(msg.device_id for msg in non_dedup_messages if msg.length == 54 or is_testdata_packet(msg))
+    )
     ensure_local_device_state(switch_device_ids)
 
     cache_updates_no_ttl = {}
@@ -235,8 +241,13 @@ def process_packet_batch(messages):
     relay_rows = []
 
     for msg in non_dedup_messages:
-        if msg.length == 54:
-            switch_status = msg.data[4:50]
+        if msg.length == 54 or is_testdata_packet(msg):
+            if is_testdata_packet(msg):
+                switch_status = parse_testdata_switch_status(msg.data)
+                if switch_status is None:
+                    continue
+            else:
+                switch_status = msg.data[4:50]
             previous_switch_status = worker_state["switch_status_by_device"].get(msg.device_id)
             if previous_switch_status == switch_status:
                 continue
@@ -250,14 +261,24 @@ def process_packet_batch(messages):
             previous_alarms = worker_state["alarms_state_by_device"].get(msg.device_id, {})
             if not isinstance(previous_alarms, dict):
                 previous_alarms = {}
-            alarms_state = build_alarms_state(
-                device_id=msg.device_id,
-                switch_status=switch_status,
-                previous_alarms=previous_alarms,
-                now_time=msg.received_at,
-                now_monotonic=msg.received_monotonic,
-                device_alarm_filters=device_alarm_filters,
-            )
+            if is_testdata_packet(msg):
+                alarms_state = build_testdata_alarms_state(
+                    device_id=msg.device_id,
+                    switch_status=switch_status,
+                    previous_alarms=previous_alarms,
+                    now_time=msg.received_at,
+                    now_monotonic=msg.received_monotonic,
+                    device_alarm_filters=device_alarm_filters,
+                )
+            else:
+                alarms_state = build_alarms_state(
+                    device_id=msg.device_id,
+                    switch_status=switch_status,
+                    previous_alarms=previous_alarms,
+                    now_time=msg.received_at,
+                    now_monotonic=msg.received_monotonic,
+                    device_alarm_filters=device_alarm_filters,
+                )
             worker_state["alarms_state_by_device"][msg.device_id] = alarms_state
             cache_updates_no_ttl[f"device_{msg.device_id}_alarms"] = alarms_state
             cache_updates_no_ttl[f"device_{msg.device_id}_alarms_updated_at"] = msg.received_at.isoformat()
@@ -265,7 +286,14 @@ def process_packet_batch(messages):
             previous_relay_status = worker_state["relay_status_by_device"].get(msg.device_id, {})
             if not isinstance(previous_relay_status, dict):
                 previous_relay_status = {}
-            current_relay_status, actions = extract_relay_actions(previous_relay_status, switch_status, msg.received_at)
+            if is_testdata_packet(msg):
+                current_relay_status, actions = extract_testdata_relay_actions(
+                    previous_relay_status,
+                    switch_status,
+                    msg.received_at,
+                )
+            else:
+                current_relay_status, actions = extract_relay_actions(previous_relay_status, switch_status, msg.received_at)
             worker_state["relay_status_by_device"][msg.device_id] = current_relay_status
             cache_updates_no_ttl[f"device_{msg.device_id}_relay_status"] = current_relay_status
 

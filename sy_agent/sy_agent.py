@@ -78,13 +78,13 @@ from protected_runtime import agent_config_path, write_json_file
 # ============================================================
 DEBUG_TUNING = {
     # ---------- 串口/链路时序 ----------
-    "AFTER_WRITE_SLEEP_SEC": 0.035,
+    "AFTER_WRITE_SLEEP_SEC": 0.100,
     "ENABLE_AFTER_WRITE_SLEEP": True,
     "WAIT_RESPONSE_TIMEOUT_SEC": 0.20,     # 现场可略放宽
     "RX_IDLE_SLEEP_SEC": 0.002,            # 生产：降低空转 CPU
 
     # ---------- 自适应 after_write_sleep ----------
-    "AUTO_SLEEP_ENABLE": True,
+    "AUTO_SLEEP_ENABLE": False,
     "AUTO_SLEEP_WINDOW": 80,
     "AUTO_SLEEP_PCTL": 95,
     "AUTO_SLEEP_MARGIN_SEC": 0.005,
@@ -180,9 +180,9 @@ DEFAULT_CONFIG = {
         "max_tries": 20,
         "inflight_ttl_sec": 3.0,
         "no_resp_enable": True,
-        "confirm_delay_sec": 0.08,
-        "confirm_timeout_sec": 0.25,
-        "confirm_a1": True,
+        "cc_confirm_delay_sec": 0.08,
+        "cc_confirm_timeout_sec": 0.25,
+        "cc_confirm_a1": True,
         "bb_cmd_retries": 3,
         "no_resp_cmds": ["CC"],
     },
@@ -193,19 +193,12 @@ DEFAULT_CONFIG = {
     "a2_burst": {
         "enable": True,
         "max": 3,
-        "timeout_sec": 0.06,
+        "timeout_sec": 0.08,
         "budget_sec": 0.16,
     },
     "serial": {
         "default_baudrate": 19200,
         "timeout": 0.0,
-    },
-    "probe": {
-        "enable": True,
-        "interval_sec": 45.0,
-        "timeout_sec": 0.12,
-        "queue_threshold": 32,
-        "cooldown_after_fault_sec": 15.0,
     },
     "ui": {
         "mode": "dashboard",
@@ -274,7 +267,6 @@ CMD_CONFIG = CONFIG["cmd"]
 TIME_SYNC_CONFIG = CONFIG["time_sync"]
 A2_BURST_CONFIG = CONFIG["a2_burst"]
 SERIAL_CONFIG = CONFIG["serial"]
-PROBE_CONFIG = CONFIG.get("probe", {})
 UI_CONFIG = CONFIG.get("ui", {})
 
 def _safe_agent_token(value: str) -> str:
@@ -372,9 +364,9 @@ SY_CMD_INFLIGHT_TTL_SEC = float(CMD_CONFIG["inflight_ttl_sec"])
 # ✅ 新增：无回帧命令（默认仅 CC）适配配置
 # ============================================================
 SY_CMD_NO_RESP_ENABLE = bool(CMD_CONFIG["no_resp_enable"])
-SY_CMD_CONFIRM_DELAY_SEC = float(CMD_CONFIG["confirm_delay_sec"])
-SY_CMD_CONFIRM_TIMEOUT_SEC = float(CMD_CONFIG["confirm_timeout_sec"])
-SY_CMD_CONFIRM_A1 = bool(CMD_CONFIG["confirm_a1"])
+SY_CMD_CC_CONFIRM_DELAY_SEC = float(CMD_CONFIG.get("cc_confirm_delay_sec", CMD_CONFIG.get("confirm_delay_sec", 0.08)))
+SY_CMD_CC_CONFIRM_TIMEOUT_SEC = float(CMD_CONFIG.get("cc_confirm_timeout_sec", CMD_CONFIG.get("confirm_timeout_sec", 0.25)))
+SY_CMD_CC_CONFIRM_A1 = bool(CMD_CONFIG.get("cc_confirm_a1", CMD_CONFIG.get("confirm_a1", True)))
 SY_CMD_BB_CMD_RETRIES = int(CMD_CONFIG.get("bb_cmd_retries", 3))
 PRIMARY_A1_FAILOVER_THRESHOLD = 3
 SUBAGENT_CONTROL_STREAM = "sy-subagent-control"
@@ -445,12 +437,6 @@ UI_REFRESH_SEC = max(0.2, float(UI_CONFIG.get("refresh_sec", 1.0)))
 UI_EVENT_BUFFER_SIZE = max(5, int(UI_CONFIG.get("event_buffer_size", 20)))
 UI_ANSI = str(UI_CONFIG.get("ansi", "auto")).strip().lower() or "auto"
 NO_RESP_WINDOW_SEC = 300.0
-PROBE_ENABLE = bool(PROBE_CONFIG.get("enable", True))
-PROBE_INTERVAL_SEC = max(10.0, float(PROBE_CONFIG.get("interval_sec", 45.0)))
-PROBE_TIMEOUT_SEC = max(0.05, float(PROBE_CONFIG.get("timeout_sec", 0.12)))
-PROBE_QUEUE_THRESHOLD = max(1, int(PROBE_CONFIG.get("queue_threshold", 32)))
-PROBE_COOLDOWN_AFTER_FAULT_SEC = max(0.0, float(PROBE_CONFIG.get("cooldown_after_fault_sec", 15.0)))
-
 # ============================================================
 # 多线路配置（示例）
 # ============================================================
@@ -766,12 +752,12 @@ class ConsoleManager:
         device_rows = []
         for poller in pollers:
             device_rows.extend(poller.get_device_metric_rows(nowt))
-        compact_devices = width < 150
+        compact_devices = width < 190
         if compact_devices:
             lines.append("-" * min(width, 88))
         else:
-            lines.append(_trim_text("Line             Serial  NMS    Pair  Role     A1Req(H/T|H5/T5)  A2Req(H/T|H5/T5)  A1Timeout(H/T|H5/T5)  A2Timeout(H/T|H5/T5)", width))
-            lines.append("-" * min(width, 150))
+            lines.append(_trim_text("Line             Serial  NMS    Pair  Role     A1Req(H/T|H5/T5)  A2Req(H/T|H5/T5)  A1Timeout(H/T|H5/T5)  A2Timeout(H/T|H5/T5)  BadLen(H/T|H5/T5)  BadChk(H/T|H5/T5)", width))
+            lines.append("-" * min(width, 190))
 
         if device_rows:
             for row in device_rows:
@@ -783,7 +769,8 @@ class ConsoleManager:
                     )
                     metrics = (
                         f"a1_req={row['a1_req']}  a2_req={row['a2_req']}  "
-                        f"a1_to={row['a1_timeout']}  a2_to={row['a2_timeout']}"
+                        f"a1_to={row['a1_timeout']}  a2_to={row['a2_timeout']}  "
+                        f"bad_len={row['bad_len']}  bad_chk={row['bad_chk']}"
                     )
                     _append_wrapped(lines, header, width)
                     _append_wrapped(lines, metrics, width, indent="  ")
@@ -794,7 +781,8 @@ class ConsoleManager:
                         f"{row['serial_id']:<7} {row['nms_id']:<6} "
                         f"{str(row['pair_id'])[:5]:<5} {str(row['role'])[:8]:<8} "
                         f"{row['a1_req']:<18} {row['a2_req']:<18} "
-                        f"{row['a1_timeout']:<22} {row['a2_timeout']:<22}"
+                        f"{row['a1_timeout']:<22} {row['a2_timeout']:<22} "
+                        f"{row['bad_len']:<20} {row['bad_chk']:<20}"
                     )
                     lines.append(_trim_text(out, width))
         else:
@@ -832,8 +820,6 @@ def _infer_category(message: str, default: str = "general") -> str:
     if msg.startswith("[Redis]") or "[Redis]" in msg:
         return "redis"
     if msg.startswith("[PORT]") or "[PORT]" in msg:
-        return "port"
-    if msg.startswith("[PROBE]") or "[PROBE]" in msg:
         return "port"
     if msg.startswith("[Cmd") or "[Cmd" in msg or msg.startswith("CMD "):
         return "cmd"
@@ -1688,6 +1674,22 @@ class PortReceiver(threading.Thread):
         with self._last_good_lock:
             self._last_good_frame_mono = now_mono()
 
+    def _put_bad_frame(self, kind: str, frame: bytes, epoch: int, *, addr: Optional[int] = None, cmd: Optional[int] = None):
+        item = {
+            "bad_frame": kind,
+            "frame": frame,
+            "addr": addr,
+            "cmd": cmd,
+            "tmono": now_mono(),
+            "line_id": self.line_id,
+            "port": self.which,
+            "epoch": epoch,
+        }
+        try:
+            self.out_q.put_nowait(item)
+        except queue.Full:
+            self.drop_q_full += 1
+
     def log(self, msg: str):
         emit_event(msg, line_id=self.line_id, line_name=self.line_name, port=self.which)
 
@@ -1768,19 +1770,27 @@ class PortReceiver(threading.Thread):
                     addr, cmd, body = parse_resp_addr_cmd_and_body(f)
                 except Exception:
                     self.drop_parse_err += 1
+                    self._put_bad_frame("bad_len", f, cur_epoch)
                     continue
 
                 if cmd in (CMD_A1, CMD_A2, CMD_B2):
+                    if len(body) < 3:
+                        self.drop_parse_err += 1
+                        self._put_bad_frame("bad_len", f, cur_epoch, addr=addr, cmd=cmd)
+                        continue
                     if not checksum_ok_strict(f):
                         self.drop_bad_checksum += 1
+                        self._put_bad_frame("bad_chk", f, cur_epoch, addr=addr, cmd=cmd)
                         continue
                 elif cmd == CMD_NOCHANGE:
                     if len(body) != 2:
-                        self.drop_bad_checksum += 1
+                        self.drop_parse_err += 1
+                        self._put_bad_frame("bad_len", f, cur_epoch, addr=addr, cmd=cmd)
                         continue
                 else:
                     if not checksum_ok_lenient(f):
                         self.drop_bad_checksum += 1
+                        self._put_bad_frame("bad_chk", f, cur_epoch, addr=addr, cmd=cmd)
                         continue
 
                 self._touch_good()
@@ -1897,9 +1907,7 @@ class LinePoller(threading.Thread):
             }
 
         self.next_time_sync_mono = t0 + TIME_SYNC_INTERVAL if TIME_SYNC_ENABLE else float("inf")
-        self.next_probe_mono = t0 + (self.line_id % 5) * 0.5 + PROBE_INTERVAL_SEC if PROBE_ENABLE else float("inf")
         self.dev_idx = 0 if self.devices_cfg else -1
-        self.probe_target_serial_id = int(self.devices_cfg[0]["serial_id"]) if self.devices_cfg else None
 
         self.stash: Dict[Tuple[str, int, int, int], List[dict]] = {}
         self.stash_max_per_key = 8
@@ -1943,6 +1951,14 @@ class LinePoller(threading.Thread):
             "a1": {},
             "a2": {},
         }
+        self.device_bad_frame_counts = {
+            "bad_len": {},
+            "bad_chk": {},
+        }
+        self.device_bad_frame_times = {
+            "bad_len": {},
+            "bad_chk": {},
+        }
         self.a1_no_resp_count = 0
         self.a2_no_resp_count = 0
         self.cmd_no_resp_count = 0
@@ -1964,10 +1980,6 @@ class LinePoller(threading.Thread):
         self._port_down_since = {
             "head": 0.0 if is_disabled_port(self.head_port_name) else t0,
             "tail": 0.0 if is_disabled_port(self.tail_port_name) else t0,
-        }
-        self._probe_state = {
-            "head": {"status": "DIS" if is_disabled_port(self.head_port_name) else "IDLE", "last_ok_mono": 0.0, "last_fail_mono": 0.0, "fail_streak": 0},
-            "tail": {"status": "DIS" if is_disabled_port(self.tail_port_name) else "IDLE", "last_ok_mono": 0.0, "last_fail_mono": 0.0, "fail_streak": 0},
         }
         self._last_stall_action_mono = {"head": 0.0, "tail": 0.0}
 
@@ -1999,6 +2011,16 @@ class LinePoller(threading.Thread):
         pair_id, role = pair_ref
         active_role = str(self.pair_state.get(pair_id, {}).get("active_role", "primary"))
         return role != active_role
+
+    def _effective_a1_interval(self, serial_id: int, base_interval: float) -> float:
+        pair_ref = self.device_pair_role.get(int(serial_id))
+        if not pair_ref:
+            return base_interval
+        pair_id, role = pair_ref
+        active_role = str(self.pair_state.get(pair_id, {}).get("active_role", "primary"))
+        if role == "backup" and active_role == "primary":
+            return base_interval * 3.0
+        return base_interval
 
     def _update_pair_after_poll(self, *, serial_id: int, req_cmd: str, responded: bool) -> None:
         pair_ref = self.device_pair_role.get(int(serial_id))
@@ -2116,6 +2138,45 @@ class LinePoller(threading.Thread):
         tail_recent = self._prune_metric_times(times.get("tail", deque()), nowt) if times else 0
         return f"{head_total}/{tail_total} | {head_recent}/{tail_recent}"
 
+    def _format_device_bad_frame_metric(self, kind: str, serial_id: int, *, nowt: Optional[float] = None) -> str:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        counts = self.device_bad_frame_counts.get(kind, {}).get(int(serial_id), {})
+        times = self.device_bad_frame_times.get(kind, {}).get(int(serial_id), {})
+        head_total = int(counts.get("head", 0) or 0)
+        tail_total = int(counts.get("tail", 0) or 0)
+        head_recent = self._prune_metric_times(times.get("head", deque()), nowt) if times else 0
+        tail_recent = self._prune_metric_times(times.get("tail", deque()), nowt) if times else 0
+        return f"{head_total}/{tail_total} | {head_recent}/{tail_recent}"
+
+    def record_bad_frame(self, kind: str, side: Optional[str], serial_id: Optional[int]) -> None:
+        side_name = self._side_name(side)
+        if kind not in self.device_bad_frame_counts or side_name is None or serial_id is None:
+            return
+        try:
+            sid = int(serial_id)
+        except Exception:
+            return
+        if sid not in self.dev_state:
+            return
+        nowt = now_mono()
+        dev_counts = self._ensure_device_metric(self.device_bad_frame_counts, kind, sid, times=False)
+        dev_times = self._ensure_device_metric(self.device_bad_frame_times, kind, sid, times=True)
+        if dev_counts is None or dev_times is None:
+            return
+        dev_counts[side_name] += 1
+        dev_times[side_name].append(nowt)
+        self._prune_metric_times(dev_times[side_name], nowt)
+
+    def _record_bad_item_for_window(self, item: dict, *, expected_serial_id: Optional[int]) -> None:
+        kind = str(item.get("bad_frame") or "")
+        if kind == "bad_len":
+            target_serial_id = expected_serial_id
+        elif kind == "bad_chk":
+            target_serial_id = item.get("addr")
+        else:
+            return
+        self.record_bad_frame(kind, item.get("port"), target_serial_id)
+
     def get_device_metric_rows(self, nowt: Optional[float] = None) -> List[dict]:
         nowt = time.monotonic() if nowt is None else float(nowt)
         rows = []
@@ -2133,6 +2194,8 @@ class LinePoller(threading.Thread):
                     "a2_req": self._format_device_metric("a2", serial_id, no_resp=False, nowt=nowt),
                     "a1_timeout": self._format_device_metric("a1", serial_id, no_resp=True, nowt=nowt),
                     "a2_timeout": self._format_device_metric("a2", serial_id, no_resp=True, nowt=nowt),
+                    "bad_len": self._format_device_bad_frame_metric("bad_len", serial_id, nowt=nowt),
+                    "bad_chk": self._format_device_bad_frame_metric("bad_chk", serial_id, nowt=nowt),
                 }
             )
         return rows
@@ -2204,10 +2267,6 @@ class LinePoller(threading.Thread):
         tail_bad = (not is_disabled_port(self.tail_port_name)) and (self.ser_tail is None or (not self.ser_tail.is_open))
         if head_bad or tail_bad:
             return "DEGRADED"
-        for which in ("head", "tail"):
-            state = self._probe_state.get(which, {})
-            if state.get("status") == "FAIL":
-                return "AT-RISK"
         return "OK"
 
     def is_degraded(self) -> bool:
@@ -2217,20 +2276,6 @@ class LinePoller(threading.Thread):
         pref_head = sum(1 for st in self.dev_state.values() if st.get("last_good_side", "head") == "head")
         pref_tail = max(0, len(self.dev_state) - pref_head)
         return "head" if pref_head >= pref_tail else "tail"
-
-    def probe_status_text(self, which: str, nowt: Optional[float] = None) -> str:
-        nowt = time.monotonic() if nowt is None else float(nowt)
-        state = self._probe_state.get(which, {})
-        status = str(state.get("status", "IDLE")).upper()
-        if status == "DIS":
-            return "dis"
-        if status == "IDLE":
-            return "idle"
-        if status == "OK":
-            return f"ok@{_age_text(state.get('last_ok_mono', 0.0), nowt)}"
-        if status == "FAIL":
-            return f"f{int(state.get('fail_streak', 0))}@{_age_text(state.get('last_fail_mono', 0.0), nowt)}"
-        return status.lower()
 
     def recent_no_resp_count(self, kind: str, nowt: Optional[float] = None, side: Optional[str] = None) -> int:
         nowt = time.monotonic() if nowt is None else float(nowt)
@@ -2286,97 +2331,6 @@ class LinePoller(threading.Thread):
         self.last_unmatched_mono = nowt
         self.unmatched_times.append(nowt)
         self.recent_unmatched_count(nowt)
-
-    def _probe_side_candidate(self) -> Optional[str]:
-        preferred = self.preferred_side_majority()
-        candidate = "tail" if preferred == "head" else "head"
-        port_name = self.tail_port_name if candidate == "tail" else self.head_port_name
-        if is_disabled_port(port_name):
-            return None
-        return candidate
-
-    def _record_probe_result(self, side: str, ok: bool, reason: str):
-        state = self._probe_state[side]
-        nowt = now_mono()
-        prev_status = str(state.get("status", "IDLE")).upper()
-        prev_fail_streak = int(state.get("fail_streak", 0) or 0)
-
-        if ok:
-            state["status"] = "OK"
-            state["last_ok_mono"] = nowt
-            state["fail_streak"] = 0
-            if prev_status == "FAIL":
-                self.log(f"[PROBE] {side} recovered target={self.probe_target_serial_id} result={reason}")
-            return
-
-        state["status"] = "FAIL"
-        state["last_fail_mono"] = nowt
-        state["fail_streak"] = prev_fail_streak + 1
-        if prev_status != "FAIL" or int(state["fail_streak"]) in (3, 5):
-            self.log(
-                f"[PROBE] {side} failed target={self.probe_target_serial_id} streak={int(state['fail_streak'])} reason={reason}"
-            )
-
-    def _maybe_probe_health(self, nowt: float) -> bool:
-        if not PROBE_ENABLE or self.probe_target_serial_id is None:
-            return False
-        if nowt < self.next_probe_mono:
-            return False
-
-        self.next_probe_mono = nowt + PROBE_INTERVAL_SEC
-
-        if not self.redis_conn.is_ready():
-            return False
-        if not self.command_queue.empty():
-            return False
-        if self.q_head.qsize() > PROBE_QUEUE_THRESHOLD or self.q_tail.qsize() > PROBE_QUEUE_THRESHOLD:
-            return False
-        last_no_resp_mono = max(
-            float(self.last_a1_no_resp_mono or 0.0),
-            float(self.last_a2_no_resp_mono or 0.0),
-            float(self.last_cmd_no_resp_mono or 0.0),
-        )
-        if last_no_resp_mono > 0 and (nowt - last_no_resp_mono) < PROBE_COOLDOWN_AFTER_FAULT_SEC:
-            return False
-        if self.last_unmatched_mono > 0 and (nowt - self.last_unmatched_mono) < PROBE_COOLDOWN_AFTER_FAULT_SEC:
-            return False
-
-        side = self._probe_side_candidate()
-        if side is None:
-            return False
-
-        ser = self.ser_head if side == "head" else self.ser_tail
-        if ser is None or (not ser.is_open):
-            self._record_probe_result(side, False, "port_down")
-            return True
-
-        self._clear_side(side)
-        serial_id = int(self.probe_target_serial_id)
-        meta = {
-            "serial_id": serial_id,
-            "nms_id": self.serial_to_nms.get(serial_id),
-            "req_cmd": "A2",
-            "_probe": True,
-        }
-        resp_item = self._send_and_wait(
-            side,
-            build_a2_request(serial_id),
-            meta,
-            timeout=float(PROBE_TIMEOUT_SEC),
-            use_stash_first=False,
-            record_unmatched=False,
-        )
-        if resp_item is None:
-            self._record_probe_result(side, False, "timeout")
-            return True
-
-        cmd = int(resp_item.get("cmd", -1))
-        if cmd in (CMD_A2, CMD_NOCHANGE):
-            self._record_probe_result(side, True, "a2" if cmd == CMD_A2 else "nochange")
-            return True
-
-        self._record_probe_result(side, False, f"cmd_{cmd:02x}")
-        return True
 
     def enqueue_command(self, item: dict):
         self.command_queue.put(item)
@@ -2810,6 +2764,10 @@ class LinePoller(threading.Thread):
                     if min_tmono > 0.0 and item_tmono < min_tmono:
                         continue
 
+                    if item.get("bad_frame"):
+                        self._record_bad_item_for_window(item, expected_serial_id=expected_serial_id)
+                        continue
+
                     if self._item_matches_expected(
                         item,
                         expected_serial_id=expected_serial_id,
@@ -2880,7 +2838,7 @@ class LinePoller(threading.Thread):
             meta["_after_sleep"] = after_sleep
             meta.setdefault("_sent_sides", []).append(which)
             metric_kind = self._metric_kind(meta.get("req_cmd"))
-            if metric_kind in ("a1", "a2") and not bool(meta.get("_probe", False)):
+            if metric_kind in ("a1", "a2"):
                 self.record_request(metric_kind, which, meta.get("serial_id"))
             return True
 
@@ -2937,7 +2895,9 @@ class LinePoller(threading.Thread):
             if min_tmono > 0.0 and item_tmono < min_tmono:
                 continue
 
-            frame = item.get("frame") or b""
+            if item.get("bad_frame"):
+                self._record_bad_item_for_window(item, expected_serial_id=expected_serial_id)
+                continue
 
             if self._item_matches_expected(
                 item,
@@ -3135,7 +3095,7 @@ class LinePoller(threading.Thread):
         if serial_id is None:
             return False
 
-        time.sleep(max(0.0, float(SY_CMD_CONFIRM_DELAY_SEC)))
+        time.sleep(max(0.0, float(SY_CMD_CC_CONFIRM_DELAY_SEC)))
         ok_any = False
 
         # A2 confirm
@@ -3145,7 +3105,7 @@ class LinePoller(threading.Thread):
             side,
             build_a2_request(int(serial_id)),
             a2_meta,
-            timeout=float(SY_CMD_CONFIRM_TIMEOUT_SEC),
+            timeout=float(SY_CMD_CC_CONFIRM_TIMEOUT_SEC),
             use_stash_first=False,
         )
         if a2_item is not None:
@@ -3155,14 +3115,14 @@ class LinePoller(threading.Thread):
             self.record_no_resp("a2", side, serial_id)
 
         # A1 confirm (optional)
-        if bool(SY_CMD_CONFIRM_A1):
+        if bool(SY_CMD_CC_CONFIRM_A1):
             a1_meta = {"serial_id": int(serial_id), "nms_id": nms_id, "req_cmd": "A1"}
             sent_before = len(a1_meta.get("_sent_sides", []))
             a1_item = self._send_and_wait(
                 side,
                 build_a1_request(int(serial_id)),
                 a1_meta,
-                timeout=float(SY_CMD_CONFIRM_TIMEOUT_SEC),
+                timeout=float(SY_CMD_CC_CONFIRM_TIMEOUT_SEC),
                 use_stash_first=False,
             )
             if a1_item is not None:
@@ -3353,11 +3313,7 @@ class LinePoller(threading.Thread):
                 self.next_time_sync_mono = tnow + TIME_SYNC_INTERVAL
                 continue
 
-            # 3) 备链路健康探测（低频、只读、不改变主用侧）
-            if self._maybe_probe_health(tnow):
-                continue
-
-            # 4) 轮询
+            # 3) 轮询
             if not self.devices_cfg:
                 time.sleep(0.01)
                 continue
@@ -3365,7 +3321,7 @@ class LinePoller(threading.Thread):
             dev_cfg = self.devices_cfg[self.dev_idx]
             serial_id = int(dev_cfg["serial_id"])
             nms_id = int(dev_cfg["nms_id"])
-            a1_interval = float(dev_cfg.get("a1_interval", 5.0))
+            a1_interval = self._effective_a1_interval(serial_id, float(dev_cfg.get("a1_interval", 5.0)))
             st = self.dev_state[serial_id]
 
             if (tnow - float(st["last_a1_mono"])) >= a1_interval:
@@ -3764,7 +3720,6 @@ def main():
     emit_event(
         f"timing wait={float(DEBUG_TUNING['WAIT_RESPONSE_TIMEOUT_SEC']):.3f}s auto_sleep={int(DEBUG_TUNING['AUTO_SLEEP_ENABLE'])} "
         f"after_sleep={ADAPT.get_sleep():.3f}s a2_burst={int(A2_BURST_ENABLE)} "
-        f"probe={int(PROBE_ENABLE)}@{PROBE_INTERVAL_SEC:.0f}s/{PROBE_TIMEOUT_SEC:.2f}s "
         f"bb_cmd_retries={SY_CMD_BB_CMD_RETRIES} no_resp_cmds={[hex(x) for x in sorted(NO_RESP_REQ_CMDS)]}",
         category="startup",
     )

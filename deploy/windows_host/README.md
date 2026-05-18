@@ -66,7 +66,7 @@ Use these only on trusted maintenance machines where keeping source code is acce
 ## Runtime Config
 
 - `bt_agent` blocks IPs through `filters.blocked_ips` in `%ProgramData%\BT_NMS\bt_agent\config.json`
+- `bt_agent_serial` reads one TestData serial device and stores settings in `%ProgramData%\BT_NMS\bt_agent_serial\config.json`
 - `sy_agent` terminal UI settings remain under the `ui` section of `%ProgramData%\BT_NMS\sy_agent\config.json`
-- `sy_agent` probe settings remain under the `probe` section of `%ProgramData%\BT_NMS\sy_agent\config.json`
 
 Legacy `.py` config import/export remains available inside the UI as a development-only compatibility path. Protected deployment should use JSON only.

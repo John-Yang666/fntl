@@ -53,13 +53,6 @@
     "default_baudrate": 19200,
     "timeout": 0.0
   },
-  "probe": {
-    "enable": true,
-    "interval_sec": 45.0,
-    "timeout_sec": 0.12,
-    "queue_threshold": 32,
-    "cooldown_after_fault_sec": 15.0
-  },
   "ui": {
     "mode": "dashboard",
     "refresh_sec": 1.0,

@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QPlainTextEdit,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QTableWidget,
@@ -422,6 +423,7 @@ class SyUISubAgentWindow(QMainWindow):
         self.main_splitter.setStretchFactor(1, 3)
         self.main_splitter.setStretchFactor(2, 3)
         self.main_splitter.setSizes([360, 300, 300])
+        self._connect_splitter_rebalance()
         root.addWidget(self.main_splitter, stretch=1)
 
         scroll = QScrollArea(self)
@@ -431,6 +433,50 @@ class SyUISubAgentWindow(QMainWindow):
         scroll.setWidget(content)
         self.setCentralWidget(scroll)
         self._rebuild_settings_lock_targets()
+
+    def _splitter_sections(self) -> list[tuple[CollapsibleSection, int]]:
+        return [
+            (self.overview_section, 4),
+            (self.config_section, 3),
+            (self.log_section, 3),
+        ]
+
+    def _connect_splitter_rebalance(self) -> None:
+        for section, _weight in self._splitter_sections():
+            section._toggle.toggled.connect(lambda _checked, self=self: QTimer.singleShot(0, self._rebalance_main_splitter))
+        QTimer.singleShot(0, self._rebalance_main_splitter)
+
+    def _rebalance_main_splitter(self) -> None:
+        splitter = getattr(self, "main_splitter", None)
+        if splitter is None:
+            return
+
+        sections = self._splitter_sections()
+        total = max(sum(int(size) for size in splitter.sizes()), int(splitter.height() or 0), 1)
+        collapsed_sizes: dict[int, int] = {}
+        expanded: list[tuple[int, int, CollapsibleSection]] = []
+        fixed = 0
+
+        for index, (section, weight) in enumerate(sections):
+            if section._toggle.isChecked():
+                expanded.append((index, weight, section))
+                continue
+            size = max(36, int(section._toggle.sizeHint().height()) + 12, int(section.minimumSizeHint().height()))
+            collapsed_sizes[index] = size
+            fixed += size
+
+        remaining = max(0, total - fixed)
+        total_weight = sum(weight for _index, weight, _section in expanded) or 1
+        sizes: list[int] = []
+        for index, (section, _weight) in enumerate(sections):
+            if index in collapsed_sizes:
+                sizes.append(collapsed_sizes[index])
+                continue
+            weight = next(item_weight for item_index, item_weight, _section in expanded if item_index == index)
+            size = int(remaining * weight / total_weight)
+            sizes.append(max(90, size))
+
+        splitter.setSizes(sizes)
 
     def _build_top_panel(self) -> QWidget:
         top = QWidget(self)
@@ -608,10 +654,11 @@ class SyUISubAgentWindow(QMainWindow):
         self.log_text = QTextEdit(self)
         self.log_text.setReadOnly(True)
         self.log_text.setMinimumHeight(EDITOR_PANEL_MIN_HEIGHT)
+        self.log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         mono = QFont("Menlo")
         mono.setStyleHint(QFont.Monospace)
         self.log_text.setFont(mono)
-        layout.addWidget(self.log_text)
+        layout.addWidget(self.log_text, stretch=1)
         return box
 
     def _wrap_disk_checks(self) -> QWidget:

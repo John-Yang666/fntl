@@ -1,7 +1,73 @@
 from alarm_delay_switch_bt import ALARM_DELAY_SWITCH
 
+TESTDATA_CPU_NAMES = ("I-A", "I-B", "II-A", "II-B")
+TESTDATA_POWER_MEANINGS = {
+    8000: "TestData I系电源板A故障",
+    8001: "TestData I系电源板B故障",
+    8002: "TestData II系电源板A故障",
+    8003: "TestData II系电源板B故障",
+    8004: "TestData 网管板到I-CPU板A系485通信中断",
+    8005: "TestData 网管板到I-CPU板B系485通信中断",
+    8006: "TestData 网管板到II-CPU板A系485通信中断",
+    8007: "TestData 网管板到II-CPU板B系485通信中断",
+    8010: "TestData I路电源断电",
+    8011: "TestData II路电源断电",
+}
+TESTDATA_CPU_FAULT_MEANINGS = {
+    0: "系统自检故障",
+    1: "地址码错误",
+    2: "1CPU/2CPU之间TTL通信故障(同步)",
+    3: "1CPU/2CPU同步数据1错误",
+    4: "1CPU/2CPU同步数据2错误",
+    5: "1CPU/2CPU状态不一致错误",
+    6: "1CPU/2CPU之间开关量输入表决错误",
+    7: "1CPU/2CPU之间开关量输出表决错误",
+    8: "通信板A单元故障",
+    9: "通信板B单元故障",
+    10: "通信A数据故障",
+    11: "通信A链路故障",
+    12: "通信B数据故障",
+    13: "通信B链路故障",
+    14: "I/O单元动态继电器故障",
+    15: "I/O单元故障采集错误",
+    16: "A/B系通信故障",
+    17: "A/B系通信通道1错误",
+    18: "A/B系通信通道2错误",
+    19: "A/B系之间心跳信号故障",
+    20: "主备机同步错误",
+    21: "主备切换错误",
+    23: "配置数据信息错误",
+    24: "数据风暴",
+    25: "通信A闪断",
+    26: "通信B闪断",
+    27: "通信A预处理发送端口故障",
+    28: "通信B预处理发送端口故障",
+    29: "通信A预处理发送端口错误",
+    30: "通信B预处理发送端口错误",
+    40: "网管通信A中断故障",
+    41: "网管通信B中断故障",
+}
+TESTDATA_TXB_MEANINGS = {
+    0: "TXBA 系统自检故障",
+    1: "TXBA Los故障",
+    2: "TXBB 系统自检故障",
+    3: "TXBB Los故障",
+}
+TESTDATA_ALARM_CODES = (
+    tuple(range(8000, 8008))
+    + tuple(range(8010, 8012))
+    + tuple(8200 + cpu * 100 + code for cpu in range(4) for code in range(42))
+    + tuple(8400 + cpu * 10 + idx for cpu in range(4) for idx in range(4))
+    + tuple(8500 + cpu for cpu in range(4))
+    + tuple(8510 + cpu for cpu in range(4))
+)
+
 #extract_alarms_task.py中使用的告警代码
-ALARM_CODES = {40, 41, 42, 43, 44, 45, 46, 47, 70, 71, 72, 74, 110, 111, 112, 114, 150, 162, 164, 176, 190, 240, 252, 254, 266, 280, 330, 342, 344, 356, 370, 420, 432, 434, 446, 460}
+ALARM_CODES = {
+    40, 41, 42, 43, 44, 45, 46, 47, 70, 71, 72, 74, 110, 111, 112, 114, 150, 162, 164, 176,
+    190, 240, 252, 254, 266, 280, 330, 342, 344, 356, 370, 420, 432, 434, 446, 460,
+    *TESTDATA_ALARM_CODES,
+}
 
 #告警含义
 ALARM_MEANINGS = {
@@ -44,6 +110,17 @@ ALARM_MEANINGS = {
     460: "CPU板离线（二方向B系）",
 }
 
+ALARM_MEANINGS.update(TESTDATA_POWER_MEANINGS)
+for _cpu_index, _cpu_name in enumerate(TESTDATA_CPU_NAMES):
+    for _code in range(42):
+        ALARM_MEANINGS[8200 + _cpu_index * 100 + _code] = (
+            f"TestData {_cpu_name}系{TESTDATA_CPU_FAULT_MEANINGS.get(_code, f'故障码{_code:02d}')}"
+        )
+    for _txb_index, _text in TESTDATA_TXB_MEANINGS.items():
+        ALARM_MEANINGS[8400 + _cpu_index * 10 + _txb_index] = f"TestData {_cpu_name}系{_text}"
+    ALARM_MEANINGS[8500 + _cpu_index] = f"TestData {_cpu_name}系监测单元异常"
+    ALARM_MEANINGS[8510 + _cpu_index] = f"TestData {_cpu_name}系监测单元复位"
+
 # 通信超时参数（秒）(0号告警延时参数)
 COMMUNICATION_TIMEOUT = 60 #60
 
@@ -59,6 +136,7 @@ ALARM_DELAY = {
     150: 5, 240: 5, 330: 5, 420: 5, 
     190: 5, 280: 5, 370: 5, 460: 5,   
 }
+ALARM_DELAY.update({code: 5 for code in TESTDATA_ALARM_CODES})
 
 ALARM_DELAY2 = {
     40: 5, 41: 5, 42: 5, 43: 5, 44: 5, 45: 5, 46: 5, 47: 5,
@@ -71,6 +149,7 @@ ALARM_DELAY2 = {
     150: 5, 240: 5, 330: 5, 420: 5,
     190: 5, 280: 5, 370: 5, 460: 5,
 }
+ALARM_DELAY2.update({code: 5 for code in TESTDATA_ALARM_CODES})
 
 if ALARM_DELAY_SWITCH == 2:
     ALARM_DELAY = ALARM_DELAY2.copy()

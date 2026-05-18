@@ -59,8 +59,8 @@ function Build-NuitkaApp {
         "--standalone",
         "--assume-yes-for-downloads",
         "--remove-output",
-        "--output-dir", $NuitkaRoot,
-        "--output-filename", "$Name.exe"
+        "--output-dir=$NuitkaRoot",
+        "--output-filename=$Name.exe"
     ) + $ExtraArgs + @($ResolvedScript)
 
     Invoke-PythonExe -PythonExe $PythonExe -CommandArgs $Args
@@ -83,21 +83,28 @@ if (-not (Test-Path (Join-Path $VenvPath "Scripts\python.exe"))) {
 $PythonExe = Join-Path $VenvPath "Scripts\python.exe"
 Invoke-PythonExe -PythonExe $PythonExe -CommandArgs ($PipInstallBaseArgs + @("--upgrade", "pip", "setuptools", "wheel"))
 Invoke-PythonExe -PythonExe $PythonExe -CommandArgs ($PipInstallBaseArgs + @("nuitka", "ordered-set", "zstandard"))
-Invoke-PythonExe -PythonExe $PythonExe -CommandArgs ($PipInstallBaseArgs + @("-r", (Join-Path $RepoRoot "bt_agent\requirements.txt"), "-r", (Join-Path $RepoRoot "sy_agent\requirements.txt")))
+Invoke-PythonExe -PythonExe $PythonExe -CommandArgs ($PipInstallBaseArgs + @("-r", (Join-Path $RepoRoot "bt_agent\requirements.txt"), "-r", (Join-Path $RepoRoot "bt_agent_serial\requirements.txt"), "-r", (Join-Path $RepoRoot "sy_agent\requirements.txt")))
+
+$DiskAlarmAsset = Join-Path $RepoRoot "sy_agent\assets\disk_space_alarm.wav"
+$SyAssetsDir = Join-Path $RepoRoot "sy_agent\assets"
 
 Build-NuitkaApp -Name "bt_agent" -ScriptPath "bt_agent\bt_agent.py"
 Build-NuitkaApp -Name "bt_agent_ui" -ScriptPath "bt_agent\bt_agent_ui.py" -ExtraArgs @(
     "--enable-plugin=pyside6",
-    "--include-data-files=" + (Join-Path $RepoRoot "sy_agent\assets\disk_space_alarm.wav") + "=assets/disk_space_alarm.wav"
+    "--include-data-files=$DiskAlarmAsset=assets/disk_space_alarm.wav"
+)
+Build-NuitkaApp -Name "bt_agent_serial" -ScriptPath "bt_agent_serial\bt_agent_serial.py"
+Build-NuitkaApp -Name "bt_agent_serial_ui" -ScriptPath "bt_agent_serial\bt_agent_serial_ui.py" -ExtraArgs @(
+    "--enable-plugin=pyside6"
 )
 Build-NuitkaApp -Name "sy_agent" -ScriptPath "sy_agent\sy_agent.py"
 Build-NuitkaApp -Name "sy_agent_ui" -ScriptPath "sy_agent\sy_agent_ui.py" -ExtraArgs @(
     "--enable-plugin=pyside6",
-    "--include-data-dir=" + (Join-Path $RepoRoot "sy_agent\assets") + "=assets"
+    "--include-data-dir=$SyAssetsDir=assets"
 )
 Build-NuitkaApp -Name "sy_agent_sub_ui" -ScriptPath "sy_agent\sy_agent_sub_ui.py" -ExtraArgs @(
     "--enable-plugin=pyside6",
-    "--include-data-dir=" + (Join-Path $RepoRoot "sy_agent\assets") + "=assets"
+    "--include-data-dir=$SyAssetsDir=assets"
 )
 
 $ScriptsOut = Join-Path $OutputRoot "scripts"
@@ -106,14 +113,18 @@ New-Item -ItemType Directory -Force -Path $ScriptsOut, $TemplatesOut | Out-Null
 
 Copy-Item (Join-Path $ScriptDir "run_bt_agent.bat") $ScriptsOut -Force
 Copy-Item (Join-Path $ScriptDir "run_bt_agent_ui.bat") $ScriptsOut -Force
+Copy-Item (Join-Path $ScriptDir "run_bt_agent_serial.bat") $ScriptsOut -Force
+Copy-Item (Join-Path $ScriptDir "run_bt_agent_serial_ui.bat") $ScriptsOut -Force
 Copy-Item (Join-Path $ScriptDir "run_sy_agent.bat") $ScriptsOut -Force
 Copy-Item (Join-Path $ScriptDir "run_sy_agent_ui.bat") $ScriptsOut -Force
 Copy-Item (Join-Path $ScriptDir "run_sy_agent_sub_ui.bat") $ScriptsOut -Force
 Copy-Item (Join-Path $ScriptDir "run_agents.bat") $ScriptsOut -Force
 Copy-Item (Join-Path $ScriptDir "run_bt_agent_exe.bat") $ScriptsOut -Force
+Copy-Item (Join-Path $ScriptDir "run_bt_agent_serial_exe.bat") $ScriptsOut -Force
 Copy-Item (Join-Path $ScriptDir "run_sy_agent_exe.bat") $ScriptsOut -Force
 Copy-Item (Join-Path $ScriptDir "run_agents_exe.bat") $ScriptsOut -Force
 Copy-Item (Join-Path $RepoRoot "bt_agent\default_config.json") (Join-Path $TemplatesOut "bt_agent.config.json") -Force
+Copy-Item (Join-Path $RepoRoot "bt_agent_serial\default_config.json") (Join-Path $TemplatesOut "bt_agent_serial.config.json") -Force
 Copy-Item (Join-Path $RepoRoot "sy_agent\default_config.json") (Join-Path $TemplatesOut "sy_agent.config.json") -Force
 
 Write-Host ""
