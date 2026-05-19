@@ -200,6 +200,9 @@ class RawFrameLog(models.Model):
         ordering = ["-timestamp"]
         verbose_name = "原始协议帧"
         verbose_name_plural = "原始协议帧"
+        indexes = [
+            models.Index(fields=["timestamp"], name="sy_rawframe_ts_idx"),
+        ]
 
 
 # ---------------------------------------
@@ -228,6 +231,9 @@ class SwitchData(models.Model):
         ordering = ['-timestamp']
         verbose_name = "状态字快照"
         verbose_name_plural = "状态字快照"
+        indexes = [
+            models.Index(fields=["timestamp"], name="sy_switch_ts_idx"),
+        ]
 
     # ====== 通用 bit 工具 ======
     def _byte_at(self, idx: int) -> int:
@@ -412,7 +418,10 @@ class ChangeBitEvent(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True, verbose_name="时间")
 
     class Meta:
-        indexes = [models.Index(fields=["device", "timestamp"])]
+        indexes = [
+            models.Index(fields=["device", "timestamp"]),
+            models.Index(fields=["timestamp"], name="sy_changebit_ts_idx"),
+        ]
         ordering = ["-timestamp"]
         verbose_name = "变化量事件"
         verbose_name_plural = "变化量事件"
@@ -488,6 +497,9 @@ class RelayAction(models.Model):
         verbose_name = "继电器动作记录"
         verbose_name_plural = "继电器动作"
         ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=["timestamp"], name="sy_relay_ts_idx"),
+        ]
 
     def __str__(self):
         return f"Device {self.device.device_id} - Relay {self.relay} - Action {self.action} at {self.timestamp}"
@@ -505,6 +517,9 @@ class UserOperation(models.Model):
         verbose_name = "用户操作记录"
         verbose_name_plural = "用户操作"
         ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=["timestamp"], name="sy_userop_ts_idx"),
+        ]
 
     def __str__(self):
         device_label = str(self.device) if self.device_id is not None else "系统级操作"

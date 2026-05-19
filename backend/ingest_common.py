@@ -8,7 +8,7 @@ import time
 import redis
 
 from myapp.models import Device
-from consts import ALARM_CODES
+from consts import BT_ALARM_CODES
 
 
 RELAY_MAPPING = (
@@ -341,7 +341,7 @@ def build_alarms_state(
     alarm_filters = device_alarm_filters.get(device_id, set())
     alarms_state = {}
 
-    for alarm_code in ALARM_CODES:
+    for alarm_code in BT_ALARM_CODES:
         if alarm_code in alarm_filters:
             alarms_state[alarm_code] = {"bit_value": 0}
             continue

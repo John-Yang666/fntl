@@ -62,10 +62,16 @@ TESTDATA_ALARM_CODES = (
     + tuple(8510 + cpu for cpu in range(4))
 )
 
-#extract_alarms_task.py中使用的告警代码
-ALARM_CODES = {
+# 普通 BT 开关量包使用的告警代码。TestData 告警码不要放进这里，
+# 否则每个普通包都会额外遍历大量越界码。
+BT_ALARM_CODES = {
     40, 41, 42, 43, 44, 45, 46, 47, 70, 71, 72, 74, 110, 111, 112, 114, 150, 162, 164, 176,
     190, 240, 252, 254, 266, 280, 330, 342, 344, 356, 370, 420, 432, 434, 446, 460,
+}
+
+# 系统全量告警代码，用于配置、回显和兼容老引用。
+ALARM_CODES = {
+    *BT_ALARM_CODES,
     *TESTDATA_ALARM_CODES,
 }
 

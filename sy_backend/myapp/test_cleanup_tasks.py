@@ -40,6 +40,7 @@ class SyCleanupTaskTests(TestCase):
         self.assertEqual(result["status"], "deleted")
         self.assertEqual(result["candidate_count"], 1)
         self.assertEqual(result["deleted_count"], 1)
+        self.assertEqual(result["exported_count"], 1)
         self.assertFalse(RawFrameLog.objects.filter(pk=old_row.pk).exists())
         self.assertTrue(RawFrameLog.objects.filter(pk=new_row.pk).exists())
 
@@ -61,7 +62,7 @@ class SyCleanupTaskTests(TestCase):
 
         with self.settings(DATA_DIR=self.temp_dir.name), patch.object(
             cleanup_tasks,
-            "export_cleanup_queryset_to_csv",
+            "export_cleanup_snapshot_to_csv",
             side_effect=RuntimeError("boom"),
         ):
             result = cleanup_tasks.cleanup_change_bit_event(30)
@@ -81,6 +82,7 @@ class SyCleanupTaskTests(TestCase):
         self.assertFalse(result["export_enabled"])
         self.assertEqual(result["export_path"], "")
         self.assertEqual(result["deleted_count"], 1)
+        self.assertEqual(result["exported_count"], 0)
         self.assertFalse(RawFrameLog.objects.filter(pk=old_row.pk).exists())
         export_dir = Path(self.temp_dir.name) / "cleanup_exports"
         self.assertFalse(export_dir.exists())
@@ -88,7 +90,7 @@ class SyCleanupTaskTests(TestCase):
     def test_cleanup_switch_data_freezes_snapshot_ids(self):
         original_row = SwitchData.objects.create(device=self.device, switch_status=b"\xAA\xBB\xCC\xDD", version="v4")
         self._set_old_timestamp(SwitchData, original_row.pk)
-        original_export = cleanup_tasks.export_cleanup_queryset_to_csv
+        original_export = cleanup_tasks.export_cleanup_snapshot_to_csv
 
         def delayed_export(**kwargs):
             injected_row = SwitchData.objects.create(device=self.device, switch_status=b"\x11\x22\x33\x44", version="v4")
@@ -98,7 +100,7 @@ class SyCleanupTaskTests(TestCase):
 
         with self.settings(DATA_DIR=self.temp_dir.name), patch.object(
             cleanup_tasks,
-            "export_cleanup_queryset_to_csv",
+            "export_cleanup_snapshot_to_csv",
             side_effect=delayed_export,
         ):
             first_result = cleanup_tasks.cleanup_switch_data(30)
@@ -114,3 +116,35 @@ class SyCleanupTaskTests(TestCase):
         self.assertEqual(second_result["status"], "deleted")
         self.assertEqual(second_result["candidate_count"], 1)
         self.assertFalse(SwitchData.objects.filter(pk=delayed_export.injected_pk).exists())
+
+    def test_cleanup_raw_frame_log_streams_export_and_delete_in_batches(self):
+        old_rows = [
+            RawFrameLog.objects.create(device=self.device, cmd=f"A{idx}", note="old", raw_frame=bytes([idx]) * 2)
+            for idx in range(1, 4)
+        ]
+        for row in old_rows:
+            self._set_old_timestamp(RawFrameLog, row.pk)
+        new_row = RawFrameLog.objects.create(device=self.device, cmd="A9", note="new", raw_frame=b"\x09\x09")
+
+        with self.settings(DATA_DIR=self.temp_dir.name), patch.object(
+            cleanup_tasks,
+            "EXPORT_BATCH_SIZE",
+            2,
+        ), patch.object(
+            cleanup_tasks,
+            "DELETE_BATCH_SIZE",
+            2,
+        ):
+            result = cleanup_tasks.cleanup_raw_frame_log(30)
+
+        self.assertEqual(result["status"], "deleted")
+        self.assertEqual(result["candidate_count"], 3)
+        self.assertEqual(result["exported_count"], 3)
+        self.assertEqual(result["deleted_count"], 3)
+        self.assertFalse(RawFrameLog.objects.filter(pk__in=[row.pk for row in old_rows]).exists())
+        self.assertTrue(RawFrameLog.objects.filter(pk=new_row.pk).exists())
+
+        export_file = Path(result["export_path"])
+        content = export_file.read_text(encoding="utf-8-sig")
+        self.assertEqual(content.count("HEX帧"), 1)
+        self.assertEqual(len([line for line in content.splitlines() if line.strip()]), 4)

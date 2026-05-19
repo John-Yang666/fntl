@@ -18,7 +18,6 @@ import redis
 
 from myapp.models import Device, AlarmActive, AlarmData
 from myapp.tasks.topology_processing import process_topology_status
-from consts import ALARM_CODES
 from myapp.runtime_config import get_alarm_delay_map, get_communication_timeout
 
 logger = logging.getLogger(__name__)
@@ -29,7 +28,24 @@ redis_client = redis.StrictRedis(host='redis', port=6379, db=2, decode_responses
 
 SUMMARY_INTERVAL_SEC = float(os.getenv("SUMMARY_INTERVAL_SEC", "1"))
 SUMMARY_DEVICE_CACHE_REFRESH_SEC = float(os.getenv("SUMMARY_DEVICE_CACHE_REFRESH_SEC", "30"))
-NON_ZERO_ALARM_CODES = [code for code in ALARM_CODES if code != 0]
+
+
+def _iter_non_zero_alarm_codes(current_alarms: dict):
+    if not isinstance(current_alarms, dict):
+        return
+    for raw_code in current_alarms.keys():
+        try:
+            alarm_code = int(raw_code)
+        except (TypeError, ValueError):
+            continue
+        if alarm_code != 0:
+            yield alarm_code
+
+
+def _get_alarm_status(current_alarms: dict, alarm_code: int):
+    if not isinstance(current_alarms, dict):
+        return None
+    return current_alarms.get(alarm_code) or current_alarms.get(str(alarm_code))
 
 # ---------- 工具函数 ----------
 def parse_iso_aware(s: str):
@@ -95,10 +111,7 @@ def hydrate_cache_from_db_many(device_ids: list[int]):
     if not device_ids:
         return {}
 
-    alarms_state_by_device = {
-        device_id: {code: {'bit_value': 0} for code in NON_ZERO_ALARM_CODES}
-        for device_id in device_ids
-    }
+    alarms_state_by_device = {device_id: {} for device_id in device_ids}
     actives = (
         AlarmActive.objects
         .filter(device_id__in=device_ids)
@@ -260,8 +273,8 @@ def summarize_alarms():
 
                 alarms_of_this_device = {}
 
-                for alarm_code in NON_ZERO_ALARM_CODES:
-                    alarm_status = current_alarms.get(alarm_code)
+                for alarm_code in _iter_non_zero_alarm_codes(current_alarms):
+                    alarm_status = _get_alarm_status(current_alarms, alarm_code)
                     if not alarm_status:
                         continue
 
@@ -339,7 +352,7 @@ def summarize_alarms():
 
             current_alarms = alarm_state_by_device.get(device_id) or {}
 
-            bit_info = current_alarms.get(alarm_code)
+            bit_info = _get_alarm_status(current_alarms, alarm_code)
             if not bit_info:
                 continue
 

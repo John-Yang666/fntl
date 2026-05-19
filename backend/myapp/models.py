@@ -157,6 +157,9 @@ class SwitchData(models.Model):
         ordering = ['-timestamp']
         verbose_name = '开关量数据记录'
         verbose_name_plural = '开关量数据'
+        indexes = [
+            models.Index(fields=['timestamp'], name='bt_switch_ts_idx'),
+        ]
 
     def __str__(self):
         status_bits = self.get_status_bits()
@@ -216,6 +219,9 @@ class AnalogData(models.Model):
         ordering = ['-timestamp']
         verbose_name = '电压电流数据'
         verbose_name_plural = '电压电流数据'
+        indexes = [
+            models.Index(fields=['timestamp'], name='bt_analog_ts_idx'),
+        ]
 
     def __str__(self):
         return f"Device {self.device.device_id} - Voltage 1: {self.voltage_1} - Current 1: {self.current_1} - Voltage 2: {self.voltage_2} - Current 2: {self.current_2}"
@@ -283,6 +289,9 @@ class RelayAction(models.Model):
         verbose_name = "继电器动作记录"
         verbose_name_plural = "继电器动作"
         ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['timestamp'], name='bt_relay_ts_idx'),
+        ]
     
     def __str__(self):
         return f"Device {self.device.device_id} - Relay {self.relay} - Action {self.action} at {self.timestamp}"
@@ -299,6 +308,9 @@ class UserOperation(models.Model):
         verbose_name = "用户操作记录"
         verbose_name_plural = "用户操作"
         ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['timestamp'], name='bt_userop_ts_idx'),
+        ]
 
     def __str__(self):
         device_label = str(self.device) if self.device_id is not None else "系统级操作"
