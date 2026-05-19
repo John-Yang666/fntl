@@ -12,7 +12,8 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
-from myapp.models import UserOperation
+from consts import ALARM_DELAY
+from myapp.models import RuntimeConfig, UserOperation
 from myapp.runtime_config import (
     build_runtime_config_payload,
     get_alarm_delay_map,
@@ -177,6 +178,24 @@ class RuntimeConfigApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_runtime_config_fills_missing_alarm_codes_when_loading_stored_values(self):
+        payload = build_runtime_config_payload(force_refresh=True)["values"]
+        legacy_alarm_delay = deepcopy(payload["ALARM_DELAY"])
+        legacy_alarm_delay.pop(40, None)
+        RuntimeConfig.objects.update_or_create(
+            pk=1,
+            defaults={
+                "values": {"ALARM_DELAY": legacy_alarm_delay},
+                "updated_by": self.superuser,
+            },
+        )
+        cache.clear()
+
+        values = build_runtime_config_payload(force_refresh=True)["values"]
+
+        self.assertEqual(values["ALARM_DELAY"][40], ALARM_DELAY[40])
+        self.assertEqual(get_alarm_delay_map()[40], ALARM_DELAY[40])
 
     def test_runtime_config_rejects_invalid_cleanup_time(self):
         payload = build_runtime_config_payload(force_refresh=True)["values"]

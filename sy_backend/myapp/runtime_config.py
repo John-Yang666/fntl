@@ -270,7 +270,12 @@ def _normalize_int(value: Any, *, field: dict[str, Any]) -> int:
     return parsed
 
 
-def _normalize_alarm_delay_map(value: Any, *, field: dict[str, Any]) -> dict[int, int]:
+def _normalize_alarm_delay_map(
+    value: Any,
+    *,
+    field: dict[str, Any],
+    fill_missing: bool = False,
+) -> dict[int, int]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{field['label']}必须是对象。")
 
@@ -284,6 +289,10 @@ def _normalize_alarm_delay_map(value: Any, *, field: dict[str, Any]) -> dict[int
         if code not in expected_codes:
             raise ValueError(f"{field['label']}包含未知告警码：{code}")
         normalized[code] = _normalize_int(value=raw_delay, field=field)
+
+    if fill_missing:
+        for code in expected_codes - set(normalized.keys()):
+            normalized[code] = _normalize_int(value=field["default"][code], field=field)
 
     if set(normalized.keys()) != expected_codes:
         missing_codes = sorted(expected_codes - set(normalized.keys()))
@@ -321,7 +330,11 @@ def _normalize_bool(value: Any, *, field: dict[str, Any]) -> bool:
     raise ValueError(f"{field['label']}必须是布尔值。")
 
 
-def validate_runtime_config_values(values: Mapping[str, Any] | None) -> dict[str, Any]:
+def validate_runtime_config_values(
+    values: Mapping[str, Any] | None,
+    *,
+    fill_missing_alarm_delay: bool = False,
+) -> dict[str, Any]:
     if not isinstance(values, Mapping):
         raise ValueError("values 必须是对象。")
 
@@ -341,7 +354,11 @@ def validate_runtime_config_values(values: Mapping[str, Any] | None) -> dict[str
         elif field["type"] == "boolean":
             validated[key] = _normalize_bool(values[key], field=field)
         elif field["type"] == "alarm_delay_map":
-            validated[key] = _normalize_alarm_delay_map(values[key], field=field)
+            validated[key] = _normalize_alarm_delay_map(
+                values[key],
+                field=field,
+                fill_missing=fill_missing_alarm_delay,
+            )
         else:
             raise ValueError(f"不支持的配置类型：{field['type']}")
     return validated
@@ -565,7 +582,7 @@ def build_runtime_config_payload(*, force_refresh: bool = False) -> dict[str, An
         except (OperationalError, ProgrammingError):
             storage_ready = False
     runtime_stored_values = {key: value for key, value in stored_values.items() if key in _runtime_field_keys()}
-    values = validate_runtime_config_values(runtime_stored_values)
+    values = validate_runtime_config_values(runtime_stored_values, fill_missing_alarm_delay=True)
     cleanup_values, cleanup_ready, cleanup_error = _load_cleanup_config()
     values.update(cleanup_values)
     payload = {

@@ -169,6 +169,40 @@ class DepotScopedAdmin(ReadOnlyForNonSuperuserAdminMixin, admin.ModelAdmin):
             actions.pop("truncate_table", None)
         return actions
 
+    def lookup_allowed(self, lookup, value, request=None):
+        if super().lookup_allowed(lookup, value, request=request):
+            return True
+
+        list_filter = self.get_list_filter(request) if request is not None else self.list_filter
+        for filter_item in list_filter:
+            if isinstance(filter_item, (tuple, list)):
+                filter_field = filter_item[0]
+            elif isinstance(filter_item, str):
+                filter_field = filter_item
+            else:
+                if (
+                    isinstance(filter_item, type)
+                    and issubclass(filter_item, admin.SimpleListFilter)
+                    and getattr(filter_item, "parameter_name", None) == lookup
+                ):
+                    return True
+                continue
+
+            if "__" in filter_field:
+                continue
+
+            try:
+                field = self.model._meta.get_field(filter_field)
+            except Exception:
+                continue
+
+            target_field = getattr(field, "target_field", None)
+            target_name = getattr(target_field, "name", None)
+            if target_name and lookup == f"{filter_field}__{target_name}__exact":
+                return True
+
+        return False
+
     def changelist_view(self, request, extra_context=None):
         # Django admin 默认要求 action 必须勾选条目；为“清空整表”放宽该限制。
         if request.method == "POST" and request.POST.get("action") == "truncate_table":
@@ -849,7 +883,7 @@ class RelayActionAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, Dep
     resource_class = RelayActionResource
     list_display = ('timestamp_with_seconds', 'device', 'relay', 'action')
     search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'relay', 'action')
-    list_filter = (('timestamp', MyDateRangePicker), 'device')
+    list_filter = (('timestamp', MyDateRangePicker), 'device', 'relay')
     actions = [batch_delete, truncate_table]
 
     def timestamp_with_seconds(self, obj):

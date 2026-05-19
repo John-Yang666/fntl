@@ -53,6 +53,13 @@ def _get_env_list(*names: str):
     return values
 
 
+def _get_env_bool(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _get_data_dir():
     raw_value = os.getenv("DATA_DIR", "").strip() or "/srv/bt_nms_data"
 
@@ -108,7 +115,7 @@ _load_project_root_env()
 SECRET_KEY = 'django-insecure-7*q-54ac9t=+c)2cs6w9#c^sm%!f$=r+y+r7z+si8%8)1y!-h7'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _get_env_bool("DEBUG", True)
 #DEBUG = False #20241218 改成false之后后端admin界面显示不出css样式
 
 AUTH_USER_MODEL = 'myapp.CustomUser' 
