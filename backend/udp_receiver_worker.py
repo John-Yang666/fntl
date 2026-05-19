@@ -30,9 +30,11 @@ from myapp.runtime_config import (  # noqa: E402
 from consts import (  # noqa: E402
     LAST_COMMUNICATION_TIME_TIMEOUT,
 )
-from ingest_common import (  # noqa: E402
+from extract_bt_alarms import (  # noqa: E402
     build_alarms_state,
     build_testdata_alarms_state,
+)
+from ingest_common import (  # noqa: E402
     ensure_stream_group,
     extract_relay_actions,
     extract_testdata_relay_actions,

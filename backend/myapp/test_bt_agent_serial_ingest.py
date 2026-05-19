@@ -20,9 +20,9 @@ fake_redis = types.ModuleType("redis")
 fake_redis.Redis = object
 sys.modules.setdefault("redis", fake_redis)
 
+from extract_bt_alarms import build_testdata_alarms_state
 from ingest_common import (
     TESTDATA_SOURCE,
-    build_testdata_alarms_state,
     decode_packet_fields,
     extract_testdata_relay_actions,
     parse_testdata_switch_status,
