@@ -81,7 +81,7 @@ CONFIG = {
         "inflight_ttl_sec": 3.0,
         "no_resp_enable": True,
         "cc_confirm_delay_sec": 0.08,
-        "cc_confirm_timeout_sec": 0.25,
+        "cc_confirm_timeout_sec": 0.20,
         "cc_confirm_a1": True,
         "bb_cmd_retries": 3,
         "no_resp_cmds": ["CC"],
@@ -107,7 +107,7 @@ CONFIG = {
         "ansi": "auto",
     },
     "debug_tuning": {
-        "AFTER_WRITE_SLEEP_SEC": 0.100,
+        "AFTER_WRITE_SLEEP_SEC": 0.08,
         "ENABLE_AFTER_WRITE_SLEEP": True,
         "WAIT_RESPONSE_TIMEOUT_SEC": 0.20,
         "RX_IDLE_SLEEP_SEC": 0.002,
