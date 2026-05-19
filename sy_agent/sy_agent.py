@@ -437,6 +437,8 @@ UI_REFRESH_SEC = max(0.2, float(UI_CONFIG.get("refresh_sec", 1.0)))
 UI_EVENT_BUFFER_SIZE = max(5, int(UI_CONFIG.get("event_buffer_size", 20)))
 UI_ANSI = str(UI_CONFIG.get("ansi", "auto")).strip().lower() or "auto"
 NO_RESP_WINDOW_SEC = 300.0
+PREFERRED_PORT_FAIL_THRESHOLD = 3
+PREFERRED_PORT_BACKOFF_MULTIPLIER = 10.0
 # ============================================================
 # 多线路配置（示例）
 # ============================================================
@@ -752,12 +754,12 @@ class ConsoleManager:
         device_rows = []
         for poller in pollers:
             device_rows.extend(poller.get_device_metric_rows(nowt))
-        compact_devices = width < 190
+        compact_devices = width < 215
         if compact_devices:
             lines.append("-" * min(width, 88))
         else:
-            lines.append(_trim_text("Line             Serial  NMS    Pair  Role     A1Req(H/T|H5/T5)  A2Req(H/T|H5/T5)  A1Timeout(H/T|H5/T5)  A2Timeout(H/T|H5/T5)  BadLen(H/T|H5/T5)  BadChk(H/T|H5/T5)", width))
-            lines.append("-" * min(width, 190))
+            lines.append(_trim_text("Line             Serial  NMS    Pair  Role     PrefPort  A1Req(H/T|H5/T5)  A2Req(H/T|H5/T5)  A1Timeout(H/T|H5/T5)  A2Timeout(H/T|H5/T5)  LateResp(H/T|H5/T5)  BadLen(H/T|H5/T5)  BadChk(H/T|H5/T5)", width))
+            lines.append("-" * min(width, 215))
 
         if device_rows:
             for row in device_rows:
@@ -765,11 +767,12 @@ class ConsoleManager:
                     header = (
                         f"line={row['line_id']}/{row['line_name']}  "
                         f"serial={row['serial_id']}  nms={row['nms_id']}  "
-                        f"pair={row['pair_id']}  role={row['role']}"
+                        f"pair={row['pair_id']}  role={row['role']}  pref_port={row['preferred_port']}"
                     )
                     metrics = (
                         f"a1_req={row['a1_req']}  a2_req={row['a2_req']}  "
                         f"a1_to={row['a1_timeout']}  a2_to={row['a2_timeout']}  "
+                        f"late_resp={row['late_resp']}  "
                         f"bad_len={row['bad_len']}  bad_chk={row['bad_chk']}"
                     )
                     _append_wrapped(lines, header, width)
@@ -779,9 +782,10 @@ class ConsoleManager:
                     out = (
                         f"{(str(row['line_id']) + '/' + str(row['line_name']))[:16]:<16} "
                         f"{row['serial_id']:<7} {row['nms_id']:<6} "
-                        f"{str(row['pair_id'])[:5]:<5} {str(row['role'])[:8]:<8} "
+                        f"{str(row['pair_id'])[:5]:<5} {str(row['role'])[:8]:<8} {str(row['preferred_port'])[:8]:<8} "
                         f"{row['a1_req']:<18} {row['a2_req']:<18} "
                         f"{row['a1_timeout']:<22} {row['a2_timeout']:<22} "
+                        f"{row['late_resp']:<22} "
                         f"{row['bad_len']:<20} {row['bad_chk']:<20}"
                     )
                     lines.append(_trim_text(out, width))
@@ -877,6 +881,16 @@ CMD_NOCHANGE = 0x05
 # ✅ 命令类：BB 控制命令收到 0x05 执行确认；CC 默认无回帧
 CMD_BB = 0xBB
 CMD_CC = 0xCC
+
+
+def normalize_preferred_port(value) -> str:
+    text = str(value or "").strip().lower()
+    if text in ("head", "h", "头", "头端", "头端口"):
+        return "head"
+    if text in ("tail", "t", "尾", "尾端", "尾端口"):
+        return "tail"
+    return ""
+
 
 # ✅ 无回帧命令集合：即使旧配置里带了 BB，也强制按“BB 等待 0x05”处理
 _NO_RESP_FROM_CONFIG = _parse_hex_cmd_list(CMD_CONFIG.get("no_resp_cmds", ["CC"]))
@@ -1875,7 +1889,13 @@ class LinePoller(threading.Thread):
             d["nms_id"] = nms_id
             self.serial_to_nms[serial_id] = nms_id
             self.nms_to_serial[nms_id] = serial_id
-            self.dev_state[serial_id] = {"last_a1_mono": t0, "last_good_side": "head"}
+            self.dev_state[serial_id] = {
+                "last_a1_mono": t0,
+                "last_good_side": "head",
+                "preferred_fail_streak": 0,
+                "preferred_backoff_until_mono": 0.0,
+                "preferred_last_probe_mono": 0.0,
+            }
             pair_id = str(d.get("pair_id", "")).strip()
             role = self._normalize_pair_role(d.get("role"))
             if pair_id and role:
@@ -1959,6 +1979,12 @@ class LinePoller(threading.Thread):
             "bad_len": {},
             "bad_chk": {},
         }
+        self.device_late_resp_counts = {
+            "late_resp": {},
+        }
+        self.device_late_resp_times = {
+            "late_resp": {},
+        }
         self.a1_no_resp_count = 0
         self.a2_no_resp_count = 0
         self.cmd_no_resp_count = 0
@@ -2021,6 +2047,71 @@ class LinePoller(threading.Thread):
         if role == "backup" and active_role == "primary":
             return base_interval * 3.0
         return base_interval
+
+    def _device_config_for_serial(self, serial_id: Optional[int]) -> Optional[dict]:
+        if serial_id is not None:
+            for device in self.devices_cfg:
+                try:
+                    if int(device.get("serial_id")) == int(serial_id):
+                        return device
+                except Exception:
+                    continue
+        return None
+
+    def _preferred_port_for_device(self, serial_id: Optional[int]) -> str:
+        device = self._device_config_for_serial(serial_id)
+        if not device:
+            return ""
+        return normalize_preferred_port(device.get("preferred_port"))
+
+    def _preferred_backoff_interval(self, serial_id: Optional[int]) -> float:
+        device = self._device_config_for_serial(serial_id)
+        if not device or serial_id is None:
+            return 0.0
+        try:
+            base_interval = float(device.get("a1_interval", 5.0))
+        except Exception:
+            base_interval = 5.0
+        return self._effective_a1_interval(int(serial_id), base_interval) * PREFERRED_PORT_BACKOFF_MULTIPLIER
+
+    def _preferred_sides_for_device(self, serial_id: Optional[int]) -> List[str]:
+        preferred = self._preferred_port_for_device(serial_id)
+        if preferred and serial_id is not None:
+            st = self.dev_state.get(int(serial_id), {})
+            nowt = now_mono()
+            backoff_until = float(st.get("preferred_backoff_until_mono", 0.0) or 0.0)
+            last_probe = float(st.get("preferred_last_probe_mono", 0.0) or 0.0)
+            probe_interval = self._preferred_backoff_interval(serial_id)
+            in_backoff = backoff_until > nowt
+            probe_due = probe_interval <= 0.0 or (nowt - last_probe) >= probe_interval
+            if in_backoff and not probe_due:
+                other = self._other_side(preferred)
+                return [other, preferred]
+            st["preferred_last_probe_mono"] = nowt
+            return [preferred, self._other_side(preferred)]
+        if not preferred and serial_id is not None:
+            st = self.dev_state.get(int(serial_id))
+            if st:
+                preferred = str(st.get("last_good_side", "head")).strip().lower()
+        if preferred == "tail":
+            return ["tail", "head"]
+        return ["head", "tail"]
+
+    def _record_preferred_port_result(self, serial_id: Optional[int], side: str, ok: bool) -> None:
+        preferred = self._preferred_port_for_device(serial_id)
+        if not preferred or serial_id is None or side != preferred:
+            return
+        st = self.dev_state.get(int(serial_id))
+        if not st:
+            return
+        if ok:
+            st["preferred_fail_streak"] = 0
+            st["preferred_backoff_until_mono"] = 0.0
+            return
+        streak = int(st.get("preferred_fail_streak", 0) or 0) + 1
+        st["preferred_fail_streak"] = streak
+        if streak >= PREFERRED_PORT_FAIL_THRESHOLD:
+            st["preferred_backoff_until_mono"] = now_mono() + max(1.0, self._preferred_backoff_interval(serial_id))
 
     def _update_pair_after_poll(self, *, serial_id: int, req_cmd: str, responded: bool) -> None:
         pair_ref = self.device_pair_role.get(int(serial_id))
@@ -2148,6 +2239,16 @@ class LinePoller(threading.Thread):
         tail_recent = self._prune_metric_times(times.get("tail", deque()), nowt) if times else 0
         return f"{head_total}/{tail_total} | {head_recent}/{tail_recent}"
 
+    def _format_device_late_resp_metric(self, serial_id: int, *, nowt: Optional[float] = None) -> str:
+        nowt = time.monotonic() if nowt is None else float(nowt)
+        counts = self.device_late_resp_counts.get("late_resp", {}).get(int(serial_id), {})
+        times = self.device_late_resp_times.get("late_resp", {}).get(int(serial_id), {})
+        head_total = int(counts.get("head", 0) or 0)
+        tail_total = int(counts.get("tail", 0) or 0)
+        head_recent = self._prune_metric_times(times.get("head", deque()), nowt) if times else 0
+        tail_recent = self._prune_metric_times(times.get("tail", deque()), nowt) if times else 0
+        return f"{head_total}/{tail_total} | {head_recent}/{tail_recent}"
+
     def record_bad_frame(self, kind: str, side: Optional[str], serial_id: Optional[int]) -> None:
         side_name = self._side_name(side)
         if kind not in self.device_bad_frame_counts or side_name is None or serial_id is None:
@@ -2177,11 +2278,48 @@ class LinePoller(threading.Thread):
             return
         self.record_bad_frame(kind, item.get("port"), target_serial_id)
 
+    def record_late_resp(self, side: Optional[str], serial_id: Optional[int]) -> None:
+        side_name = self._side_name(side)
+        if side_name is None or serial_id is None:
+            return
+        try:
+            sid = int(serial_id)
+        except Exception:
+            return
+        if sid not in self.dev_state:
+            return
+        nowt = now_mono()
+        dev_counts = self._ensure_device_metric(self.device_late_resp_counts, "late_resp", sid, times=False)
+        dev_times = self._ensure_device_metric(self.device_late_resp_times, "late_resp", sid, times=True)
+        if dev_counts is None or dev_times is None:
+            return
+        dev_counts[side_name] += 1
+        dev_times[side_name].append(nowt)
+        self._prune_metric_times(dev_times[side_name], nowt)
+
+    def _record_late_resp_if_needed(self, *, side: str, serial_id: Optional[int], resp_item: Optional[dict], send_meta: dict) -> None:
+        if not resp_item:
+            return
+        try:
+            after_sleep = float(send_meta.get("_after_sleep", 0.0) or 0.0)
+            send_t = float(send_meta.get("_send_tmono", 0.0) or 0.0)
+            resp_t = float(resp_item.get("tmono", 0.0) or 0.0)
+        except Exception:
+            return
+        if after_sleep <= 0.0 or send_t <= 0.0 or resp_t <= 0.0:
+            return
+        if resp_t > (send_t + after_sleep + 0.001):
+            self.record_late_resp(resp_item.get("port") or side, serial_id)
+
     def get_device_metric_rows(self, nowt: Optional[float] = None) -> List[dict]:
         nowt = time.monotonic() if nowt is None else float(nowt)
         rows = []
         for device in self.devices_cfg:
             serial_id = int(device["serial_id"])
+            preferred_port = normalize_preferred_port(device.get("preferred_port")) or "auto"
+            st = self.dev_state.get(serial_id, {})
+            if preferred_port != "auto" and float(st.get("preferred_backoff_until_mono", 0.0) or 0.0) > nowt:
+                preferred_port = f"{preferred_port}*"
             rows.append(
                 {
                     "line_id": self.line_id,
@@ -2190,10 +2328,12 @@ class LinePoller(threading.Thread):
                     "nms_id": int(device.get("nms_id", serial_id)),
                     "role": str(device.get("role", "") or "-"),
                     "pair_id": str(device.get("pair_id", "") or "-"),
+                    "preferred_port": preferred_port,
                     "a1_req": self._format_device_metric("a1", serial_id, no_resp=False, nowt=nowt),
                     "a2_req": self._format_device_metric("a2", serial_id, no_resp=False, nowt=nowt),
                     "a1_timeout": self._format_device_metric("a1", serial_id, no_resp=True, nowt=nowt),
                     "a2_timeout": self._format_device_metric("a2", serial_id, no_resp=True, nowt=nowt),
+                    "late_resp": self._format_device_late_resp_metric(serial_id, nowt=nowt),
                     "bad_len": self._format_device_bad_frame_metric("bad_len", serial_id, nowt=nowt),
                     "bad_chk": self._format_device_bad_frame_metric("bad_chk", serial_id, nowt=nowt),
                 }
@@ -2948,11 +3088,12 @@ class LinePoller(threading.Thread):
             record_unmatched=record_unmatched,
         )
 
-    def _report_ok(self, side: str, *, serial_id: Optional[int], nms_id: Optional[int], req_cmd: Optional[str], frame: bytes, send_meta: dict):
+    def _report_ok(self, side: str, *, serial_id: Optional[int], nms_id: Optional[int], req_cmd: Optional[str], frame: bytes, send_meta: dict, resp_item: Optional[dict] = None):
         recv_t = now_mono()
         send_t = float(send_meta.get("_send_tmono", recv_t))
         rtt = max(0.0, recv_t - send_t)
         ADAPT.on_resp_ok(rtt)
+        self._record_late_resp_if_needed(side=side, serial_id=serial_id, resp_item=resp_item, send_meta=send_meta)
         self.last_ok_mono = recv_t
         self.last_ok_side = side
 
@@ -3027,7 +3168,7 @@ class LinePoller(threading.Thread):
                     self.record_no_resp("a2", side, serial_id)
                 break
 
-            ok = self._report_ok(side, serial_id=serial_id, nms_id=nms_id, req_cmd="A2", frame=resp_item["frame"], send_meta=meta)
+            ok = self._report_ok(side, serial_id=serial_id, nms_id=nms_id, req_cmd="A2", frame=resp_item["frame"], send_meta=meta, resp_item=resp_item)
             if not ok:
                 return
 
@@ -3109,7 +3250,7 @@ class LinePoller(threading.Thread):
             use_stash_first=False,
         )
         if a2_item is not None:
-            _ = self._report_ok(side, serial_id=int(serial_id), nms_id=nms_id, req_cmd="A2", frame=a2_item["frame"], send_meta=a2_meta)
+            _ = self._report_ok(side, serial_id=int(serial_id), nms_id=nms_id, req_cmd="A2", frame=a2_item["frame"], send_meta=a2_meta, resp_item=a2_item)
             ok_any = True
         elif len(a2_meta.get("_sent_sides", [])) > sent_before:
             self.record_no_resp("a2", side, serial_id)
@@ -3126,7 +3267,7 @@ class LinePoller(threading.Thread):
                 use_stash_first=False,
             )
             if a1_item is not None:
-                _ = self._report_ok(side, serial_id=int(serial_id), nms_id=nms_id, req_cmd="A1", frame=a1_item["frame"], send_meta=a1_meta)
+                _ = self._report_ok(side, serial_id=int(serial_id), nms_id=nms_id, req_cmd="A1", frame=a1_item["frame"], send_meta=a1_meta, resp_item=a1_item)
                 ok_any = True
             elif len(a1_meta.get("_sent_sides", [])) > sent_before:
                 self.record_no_resp("a1", side, serial_id)
@@ -3212,19 +3353,14 @@ class LinePoller(threading.Thread):
 
                 meta["_expected_cmds"] = infer_expected_resp_cmds_from_request(cmd_frame)
 
-                preferred = "head"
-                if meta.get("serial_id") is not None:
-                    st = self.dev_state.get(int(meta["serial_id"]))
-                    if st:
-                        preferred = st.get("last_good_side", "head")
-
-                sides = ["head", "tail"] if preferred == "head" else ["tail", "head"]
+                sides = self._preferred_sides_for_device(meta.get("serial_id"))
 
                 sent_ok = False
                 cmd_timeout_sides = set()
                 for i, side in enumerate(sides):
                     ser = self.ser_head if side == "head" else self.ser_tail
                     if ser is None or (not ser.is_open):
+                        self._record_preferred_port_result(meta.get("serial_id"), side, False)
                         continue
                     if i == 1:
                         self._clear_side(side)
@@ -3233,6 +3369,7 @@ class LinePoller(threading.Thread):
                     if meta.get("_no_resp_mode", False):
                         ok_send = self._send_frame(side, cmd_frame, meta)
                         if not ok_send:
+                            self._record_preferred_port_result(meta.get("serial_id"), side, False)
                             continue
 
                         # ✅ 关键：发送成功就先 mark_done，避免 pending 重放造成多次执行
@@ -3271,8 +3408,10 @@ class LinePoller(threading.Thread):
                     if resp_item is None:
                         if len(meta.get("_sent_sides", [])) > sent_before:
                             cmd_timeout_sides.add(side)
+                            self._record_preferred_port_result(meta.get("serial_id"), side, False)
                         continue
                     if resp_item is not None:
+                        self._record_preferred_port_result(meta.get("serial_id"), side, True)
                         # ✅ SAFE(建议#1)：先 mark_done（至少本地），防 Redis 抖动导致命令重复执行
                         self._cmd_mark_done(msg_id)
 
@@ -3283,6 +3422,7 @@ class LinePoller(threading.Thread):
                             req_cmd=meta.get("req_cmd"),
                             frame=resp_item["frame"],
                             send_meta=meta,
+                            resp_item=resp_item,
                         )
 
                         sent_ok = True
@@ -3337,8 +3477,7 @@ class LinePoller(threading.Thread):
                 self.dev_idx = (self.dev_idx + 1) % len(self.devices_cfg)
                 continue
 
-            preferred = st.get("last_good_side", "head")
-            sides = ["head", "tail"] if preferred == "head" else ["tail", "head"]
+            sides = self._preferred_sides_for_device(serial_id)
 
             got_ok = False
             device_responded = False
@@ -3347,6 +3486,7 @@ class LinePoller(threading.Thread):
             for i, side in enumerate(sides):
                 ser = self.ser_head if side == "head" else self.ser_tail
                 if ser is None or (not ser.is_open):
+                    self._record_preferred_port_result(serial_id, side, False)
                     continue
 
                 if i == 1:
@@ -3363,9 +3503,11 @@ class LinePoller(threading.Thread):
                 if resp_item is None:
                     if len(send_meta.get("_sent_sides", [])) > sent_before:
                         self.record_no_resp("a1" if req_cmd == "A1" else "a2", side, serial_id)
+                        self._record_preferred_port_result(serial_id, side, False)
                     continue
 
                 device_responded = True
+                self._record_preferred_port_result(serial_id, side, True)
                 ok = self._report_ok(
                     side,
                     serial_id=serial_id,
@@ -3373,6 +3515,7 @@ class LinePoller(threading.Thread):
                     req_cmd=req_cmd,
                     frame=resp_item["frame"],
                     send_meta=send_meta,
+                    resp_item=resp_item,
                 )
                 if not ok:
                     break

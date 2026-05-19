@@ -371,6 +371,9 @@ def _normalize_device(device: dict) -> dict:
         normalized["pair_id"] = pair_id
     if role:
         normalized["role"] = role
+    preferred_port = _normalize_preferred_port(device.get("preferred_port"))
+    if preferred_port:
+        normalized["preferred_port"] = preferred_port
     return normalized
 
 
@@ -381,6 +384,24 @@ def _normalize_pair_role(value: Any) -> str:
     if text in ("backup", "standby", "secondary", "备", "备机"):
         return "backup"
     return ""
+
+
+def _normalize_preferred_port(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in ("head", "h", "头", "头端", "头端口"):
+        return "head"
+    if text in ("tail", "t", "尾", "尾端", "尾端口"):
+        return "tail"
+    return ""
+
+
+def _preferred_port_label(value: Any) -> str:
+    port = _normalize_preferred_port(value)
+    if port == "head":
+        return "头端"
+    if port == "tail":
+        return "尾端"
+    return "自动"
 
 
 def _pair_role_label(value: Any) -> str:
@@ -1724,6 +1745,10 @@ class SyUIAgentWindow(QMainWindow):
         self.device_serial_edit = QLineEdit(self)
         self.device_nms_edit = QLineEdit(self)
         self.device_a1_interval_edit = QLineEdit(self)
+        self.device_preferred_port_combo = QComboBox(self)
+        self.device_preferred_port_combo.addItem("自动", "")
+        self.device_preferred_port_combo.addItem("头端", "head")
+        self.device_preferred_port_combo.addItem("尾端", "tail")
         self.device_pair_id_edit = QLineEdit(self)
         self.device_role_combo = QComboBox(self)
         self.device_role_combo.addItem("未配置", "")
@@ -1734,6 +1759,7 @@ class SyUIAgentWindow(QMainWindow):
         right_form.addRow("播码地址", self.device_serial_edit)
         right_form.addRow("网管中的设备ID", self.device_nms_edit)
         right_form.addRow("A1 间隔", self.device_a1_interval_edit)
+        right_form.addRow("优先串口", self.device_preferred_port_combo)
         right_form.addRow("主备组", self.device_pair_id_edit)
         right_form.addRow("主备角色", self.device_role_combo)
         right_form.addRow("", self.apply_device_button)
@@ -1996,6 +2022,7 @@ class SyUIAgentWindow(QMainWindow):
             self.device_serial_edit,
             self.device_nms_edit,
             self.device_a1_interval_edit,
+            self.device_preferred_port_combo,
             self.device_pair_id_edit,
             self.device_role_combo,
             self.apply_device_button,
@@ -2896,6 +2923,7 @@ class SyUIAgentWindow(QMainWindow):
         self.device_serial_edit.clear()
         self.device_nms_edit.clear()
         self.device_a1_interval_edit.clear()
+        self.device_preferred_port_combo.setCurrentIndex(0)
         self.device_pair_id_edit.clear()
         self.device_role_combo.setCurrentIndex(0)
 
@@ -2935,6 +2963,9 @@ class SyUIAgentWindow(QMainWindow):
                 pair_parts.append(role_label)
             if pair_id:
                 pair_parts.append(f"G{pair_id}")
+            preferred_port = _normalize_preferred_port(device.get("preferred_port"))
+            if preferred_port:
+                pair_parts.append(_preferred_port_label(preferred_port))
             pair_text = f" {' '.join(pair_parts)}" if pair_parts else ""
             self.devices_list.addItem(
                 QListWidgetItem(f"{device['serial_id']} -> {device['nms_id']} @ {device['a1_interval']}{pair_text}")
@@ -2960,6 +2991,9 @@ class SyUIAgentWindow(QMainWindow):
         self.device_serial_edit.setText(str(device["serial_id"]))
         self.device_nms_edit.setText(str(device["nms_id"]))
         self.device_a1_interval_edit.setText(str(device["a1_interval"]))
+        preferred_port = _normalize_preferred_port(device.get("preferred_port"))
+        preferred_index = self.device_preferred_port_combo.findData(preferred_port)
+        self.device_preferred_port_combo.setCurrentIndex(preferred_index if preferred_index >= 0 else 0)
         self.device_pair_id_edit.setText(str(device.get("pair_id", "")))
         role = _normalize_pair_role(device.get("role"))
         role_index = self.device_role_combo.findData(role)
@@ -3048,8 +3082,13 @@ class SyUIAgentWindow(QMainWindow):
             device["serial_id"] = int(self.device_serial_edit.text().strip())
             device["nms_id"] = int(self.device_nms_edit.text().strip())
             device["a1_interval"] = float(self.device_a1_interval_edit.text().strip())
+            preferred_port = str(self.device_preferred_port_combo.currentData() or "").strip()
             pair_id = self.device_pair_id_edit.text().strip()
             role = str(self.device_role_combo.currentData() or "").strip()
+            if preferred_port:
+                device["preferred_port"] = preferred_port
+            else:
+                device.pop("preferred_port", None)
             if pair_id:
                 device["pair_id"] = pair_id
             else:

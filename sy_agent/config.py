@@ -1,9 +1,17 @@
-def make_devices(start_serial_id: int, end_serial_id: int, *, nms_offset: int = 0, a1_interval: float = 5.0):
+def make_devices(
+    start_serial_id: int,
+    end_serial_id: int,
+    *,
+    nms_offset: int = 0,
+    a1_interval: float = 5.0,
+    preferred_port: str = "",
+):
     return [
         {
             "serial_id": serial_id,
             "nms_id": serial_id + nms_offset,
             "a1_interval": a1_interval,
+            **({"preferred_port": preferred_port} if preferred_port else {}),
         }
         for serial_id in range(start_serial_id, end_serial_id + 1)
     ]
@@ -16,6 +24,8 @@ def make_paired_devices(
     pair_id,
     nms_offset: int = 0,
     a1_interval: float = 5.0,
+    primary_preferred_port: str = "",
+    backup_preferred_port: str = "",
 ):
     return [
         {
@@ -24,6 +34,7 @@ def make_paired_devices(
             "a1_interval": a1_interval,
             "pair_id": str(pair_id),
             "role": "primary",
+            **({"preferred_port": primary_preferred_port} if primary_preferred_port else {}),
         },
         {
             "serial_id": backup_serial_id,
@@ -31,6 +42,7 @@ def make_paired_devices(
             "a1_interval": a1_interval,
             "pair_id": str(pair_id),
             "role": "backup",
+            **({"preferred_port": backup_preferred_port} if backup_preferred_port else {}),
         },
     ]
 
