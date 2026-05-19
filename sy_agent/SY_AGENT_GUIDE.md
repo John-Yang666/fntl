@@ -207,6 +207,125 @@ Redis Stream 名称和消费参数。
 
 ---
 
+## 终端详情 / Dashboard 字段说明
+
+终端详情页显示的是 `sy_agent` 的实时运行状态。字段中的计数格式约定如下：
+
+- `T/5m`：累计总数 / 最近 5 分钟数量。
+- `H/T`：头端口 head / 尾端口 tail。
+- `H5/T5`：最近 5 分钟内 head / tail。
+- `H/T|H5/T5`：累计 head/tail 与最近 5 分钟 head/tail，例如 `10/2 | 3/1` 表示累计 head=10、tail=2，最近 5 分钟 head=3、tail=1。
+
+常见取值约定：
+
+- `head` / `tail`：线路两端串口，分别来自线路配置中的 `head_port` / `tail_port`。
+- `open`：串口已打开。
+- `down`：串口启用但当前未打开、打开失败或通信线程判定异常。
+- `dis`：该侧串口未配置或配置为 `NONE`，表示禁用。
+- `good`：该侧最近收到过有效回复，通信状态正常。
+- `bad`：串口已打开，但最近没有有效回复或超过健康判定窗口。
+- `init` / `unknown`：刚启动或还没有足够通信结果，暂不能判断。
+- `-`：无数据、不适用，或当前字段没有可显示值。
+
+窄屏时 dashboard 会自动折行显示。折行后的 `a1_req=...`、`a2_to=...`、`bad_chk=...` 等字段与宽屏表头含义相同，只是改成了短字段名。
+
+### 顶部状态
+
+| 字段 | 说明 |
+| --- | --- |
+| `mode` | 终端显示模式，`dashboard` 为单屏刷新，`plain` 为滚动文本 |
+| `time` | 当前本机时间 |
+| `redis` | Redis 连接状态，`UP` 表示可连接，`DOWN` 表示断开 |
+| `consumer` | 当前 agent 的命令消费消费者名 |
+| `pid` | 当前 `sy_agent` 进程 ID |
+| `target` | Redis 地址，格式为 `host:port/db` |
+| `raw` | 原始上报 Redis Stream |
+| `cmd` | 命令下发 Redis Stream |
+| `group` | 当前 agent 的命令消费组 |
+| `lines` | 当前加载的线路数量 |
+| `after_sleep` | 发完串口请求后的等待时间 |
+| `degraded_lines` | 当前退化线路数量，通常表示端口未打开或异常 |
+| `a1_req(T/5m)` | 全部线路 A1 请求累计 / 最近 5 分钟 |
+| `a2_req(T/5m)` | 全部线路 A2 请求累计 / 最近 5 分钟 |
+| `a1_timeout(T/5m)` | 全部线路 A1 未收到有效响应累计 / 最近 5 分钟 |
+| `a2_timeout(T/5m)` | 全部线路 A2 未收到有效响应累计 / 最近 5 分钟 |
+| `cmd_timeout(T/5m)` | 有回帧命令未收到有效响应累计 / 最近 5 分钟 |
+| `wait` | 单次等待响应窗口，即 `WAIT_RESPONSE_TIMEOUT_SEC` |
+| `bb_cmd_retries` | BB 命令未收到 `0x05` 确认时的额外重发次数 |
+| `no_resp_cmds` | 按无回帧命令处理的命令字列表 |
+| `config` | 当前实际读取的配置文件路径 |
+
+### Lines 表
+
+| 字段 | 说明 |
+| --- | --- |
+| `ID` | 线路 ID，即 `line_id` |
+| `Name` | 线路名称 |
+| `Pref(H/T)` | 当前设备首选通信侧统计，head/tail 分别有多少设备最近从该侧通信成功 |
+| `Port(H/T)` | head/tail 串口打开状态：`open`、`down`、`dis` |
+| `Link(H/T)` | head/tail 通信状态：`good`、`bad`、`down`、`dis`、`init` |
+| `DownFor(H/T)` | head/tail 端口已 down 的持续时间；`dis` 表示禁用 |
+| `Devs` | 本线路设备数量 |
+| `A1Req(H/T|H5/T5)` | 本线路 A1 请求次数，按 head/tail 和最近 5 分钟拆分 |
+| `A2Req(H/T|H5/T5)` | 本线路 A2 请求次数，按 head/tail 和最近 5 分钟拆分 |
+| `A1Timeout(H/T|H5/T5)` | 本线路 A1 请求已发送但未收到有效回复的次数 |
+| `A2Timeout(H/T|H5/T5)` | 本线路 A2 请求已发送但未收到有效回复的次数 |
+| `CmdTimeout(H/T|H5/T5)` | 本线路有回帧命令已发送但未收到有效回复的次数 |
+| `Unmatch(T/5m)` | 收到完整有效帧，但不匹配当前等待的设备或命令的次数 |
+| `QFull(H/T)` | head/tail 接收队列满导致丢帧次数 |
+| `Queue(H/T)` | head/tail 当前接收队列长度 |
+| `LastOK` | 本线路最近一次成功收到有效响应距现在的时间 |
+
+说明：
+
+- `Port(H/T)` 只表示串口是否可用，不等于设备通信一定正常。
+- `Link(H/T)` 表示该端口上的通信质量，主要由正常 A1/A2 轮询结果和最近有效回复判断，不再依赖额外 probe。
+- `A1Req` / `A2Req` 只统计真正发出的请求；主备策略跳过的备机 A2 不计入请求，也不计入 timeout。
+- `A1Timeout` / `A2Timeout` / `CmdTimeout` 不统计端口未打开导致无法发送的情况，只统计请求已实际发出但等待窗口内没有有效回复。
+
+### Devices 表
+
+| 字段 | 说明 |
+| --- | --- |
+| `Line` | 所属线路，格式为 `line_id/name` |
+| `Serial` | 下位机播码地址，即串口协议地址 |
+| `NMS` | 网管中的设备 ID |
+| `Pair` | 主备组编号；未配置显示 `-` |
+| `Role` | 主备角色：`primary`、`backup` 或 `-` |
+| `PrefPort` | 配置的优先串口：`head`、`tail`、`auto`；带 `*` 表示该优先口正在退避中 |
+| `A1Req(H/T|H5/T5)` | 该设备 A1 请求次数，按端口和最近 5 分钟拆分 |
+| `A2Req(H/T|H5/T5)` | 该设备 A2 请求次数，按端口和最近 5 分钟拆分 |
+| `A1Timeout(H/T|H5/T5)` | 该设备 A1 请求未收到有效回复次数 |
+| `A2Timeout(H/T|H5/T5)` | 该设备 A2 请求未收到有效回复次数 |
+| `LateResp(H/T|H5/T5)` | 有效回复晚于 `after_sleep` 但仍在 `wait` 窗口内到达的次数 |
+| `BadLen(H/T|H5/T5)` | 响应窗口内结构或长度不正确的帧数量，按当前请求设备归属 |
+| `BadChk(H/T|H5/T5)` | 响应窗口内能解析地址但校验失败的帧数量，按帧内地址归属 |
+
+说明：
+
+- `Timeout` 不统计端口未打开导致无法发送的情况，只统计实际发出请求后没有有效回复。
+- `A1Req` / `A2Req` 是请求次数，不是成功次数；成功次数当前不单独显示。
+- `LateResp` 增长说明 `AFTER_WRITE_SLEEP_SEC` 可能偏短，但只要没有 timeout，不一定是故障。
+- `BadLen` 增长多见于帧边界、长度异常或串口噪声。
+- `BadChk` 增长多见于线路干扰、波特率/校验位不匹配或数据损坏。
+- `PrefPort=head*` 或 `tail*` 表示该优先口连续失败后处于退避中，系统会先尝试另一口，并按 `a1_interval * 10` 周期探测优先口是否恢复。
+- 主备设备配置 `Pair` / `Role` 后，`primary` 正常时 `backup` 的 A2 会被跳过；只有主机 A1 连续整轮失败达到阈值后，备机 A2 才开始发送。
+- `BadLen` 只有在响应窗口内才能可靠归属到当前请求设备；响应窗口外的坏长度帧不会写入 Devices 表。
+- `BadChk` 会优先按帧内地址归属到对应设备；如果地址不属于当前线路设备，则不会写入 Devices 表。
+
+### Recent events
+
+`Recent events` 显示最近关键事件，主要用于排障：
+
+- `[Redis]`：Redis 连接成功、断开、恢复、写入失败。
+- `[PORT]`：串口打开失败、关闭、重连、写入异常、watchdog 重开。
+- `device no RESP_OK`：某设备 A1/A2 已发送但未收到有效响应。
+- `CMD no RESP_OK`：有回帧控制命令未收到期望响应。
+- `[PAIR]`：主备设备对切换、主机 A1 恢复等事件。
+- `[DLQ]` / `[CmdACK]` / `[CmdRetry]`：命令消费、确认、重试、死信相关事件。
+
+---
+
 ## `debug_tuning`
 
 这一组是运行时调优参数。大多数项目上线后只会改其中少数几项，其他保持默认。
