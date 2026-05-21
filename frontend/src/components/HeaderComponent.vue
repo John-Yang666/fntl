@@ -64,6 +64,7 @@ const username = computed(() => userStore.user?.username ?? null);
 const isSuperuser = computed(() => userStore.isSuperuser);
 const selectedDevices = ref<string[]>([]);
 const hasAlerts = ref(false);
+const hasUnconfirmedAlerts = ref(false);
 const activeAlertsTabLabel = ref('当前告警');
 
 const soundEnabled = ref<boolean>(true);
@@ -307,7 +308,7 @@ const toggleSound = () => {
     ssDel('alertSoundPaused');
   } else {
     void ensureAutoplayPrepared().then((primed) => {
-      if (primed && hasAlerts.value) {
+      if (primed && hasUnconfirmedAlerts.value) {
         void playAlertSound();
       }
     });
@@ -320,6 +321,7 @@ let previousAlertKeysBySystem: Record<SystemType, Set<string>> = {
   bt: new Set<string>(),
   sy: new Set<string>(),
 };
+let previousHasUnconfirmedAlerts = false;
 
 const buildAlertKey = (system: SystemType, deviceId: number, alarmCode: number) =>
   `${system}:${deviceId}-${alarmCode}`;
@@ -328,10 +330,12 @@ const checkAlerts = async () => {
   if (!userStore.isAuthenticated) {
     activeAlertsTabLabel.value = '当前告警';
     hasAlerts.value = false;
+    hasUnconfirmedAlerts.value = false;
     previousAlertKeysBySystem = {
       bt: new Set<string>(),
       sy: new Set<string>(),
     };
+    previousHasUnconfirmedAlerts = false;
     closeEndedAlertNotice();
     return;
   }
@@ -342,6 +346,7 @@ const checkAlerts = async () => {
       alerts: await userStore.requestWithAuth<Array<{
         device_id: number;
         alarm_code: number;
+        confirmed: boolean;
       }>>(system, {
         method: 'get',
         url: '/active-alarms/',
@@ -373,20 +378,29 @@ const checkAlerts = async () => {
     bt: new Set<string>(),
     sy: new Set<string>(),
   };
+  const currentUnconfirmedAlertKeysBySystem: Record<SystemType, Set<string>> = {
+    bt: new Set<string>(),
+    sy: new Set<string>(),
+  };
 
   filteredAlerts.forEach((alert) => {
-    currentAlertKeysBySystem[alert.system].add(buildAlertKey(alert.system, alert.device_id, alert.alarm_code));
+    const alertKey = buildAlertKey(alert.system, alert.device_id, alert.alarm_code);
+    currentAlertKeysBySystem[alert.system].add(alertKey);
+    if (!alert.confirmed) {
+      currentUnconfirmedAlertKeysBySystem[alert.system].add(alertKey);
+    }
   });
 
-  let hasNewAlerts = false;
+  let hasNewUnconfirmedAlerts = false;
   SYSTEMS.forEach((system) => {
     const currentAlertKeys = currentAlertKeysBySystem[system];
+    const currentUnconfirmedAlertKeys = currentUnconfirmedAlertKeysBySystem[system];
     const previousAlertKeys = previousAlertKeysBySystem[system];
-    const systemHasNewAlerts = Array.from(currentAlertKeys).some((key) => !previousAlertKeys.has(key));
+    const systemHasNewUnconfirmedAlerts = Array.from(currentUnconfirmedAlertKeys).some((key) => !previousAlertKeys.has(key));
     const systemHasEndedAlerts = Array.from(previousAlertKeys).some((key) => !currentAlertKeys.has(key));
 
-    if (systemHasNewAlerts) {
-      hasNewAlerts = true;
+    if (systemHasNewUnconfirmedAlerts) {
+      hasNewUnconfirmedAlerts = true;
     }
 
     if (systemHasEndedAlerts) {
@@ -394,22 +408,30 @@ const checkAlerts = async () => {
     }
   });
 
-  if (hasNewAlerts) {
+  if (hasNewUnconfirmedAlerts) {
     ssDel('alertSoundPaused');
   }
 
+  const currentHasUnconfirmedAlerts = filteredAlerts.some((alert) => !alert.confirmed);
+  const allCurrentAlertsConfirmed = filteredAlerts.length > 0 && !currentHasUnconfirmedAlerts;
+  if (previousHasUnconfirmedAlerts && allCurrentAlertsConfirmed) {
+    void pauseAlerts();
+  }
+  hasUnconfirmedAlerts.value = currentHasUnconfirmedAlerts;
+  previousHasUnconfirmedAlerts = currentHasUnconfirmedAlerts;
   previousAlertKeysBySystem = currentAlertKeysBySystem;
 
   const count = filteredAlerts.length;
   if (count > 0) {
     activeAlertsTabLabel.value = `当前告警 (${count})`;
     hasAlerts.value = true;
-    if (soundEnabled.value && hasNewAlerts) {
+    if (soundEnabled.value && hasNewUnconfirmedAlerts) {
       void playAlertSound();
     }
   } else {
     activeAlertsTabLabel.value = '当前告警';
     hasAlerts.value = false;
+    hasUnconfirmedAlerts.value = false;
   }
 };
 
@@ -461,7 +483,7 @@ onMounted(async () => {
   }
 
   await checkAlerts();
-  if (soundEnabled.value && (hasAlerts.value || pendingAlertPlayback.value)) {
+  if (soundEnabled.value && (hasUnconfirmedAlerts.value || pendingAlertPlayback.value)) {
     void playAlertSound();
   }
   intervalId = window.setInterval(checkAlerts, 3000);
