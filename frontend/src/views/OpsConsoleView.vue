@@ -3,7 +3,7 @@
     <section class="ops-header">
       <div>
         <h1>BT 运维管理</h1>
-        <p>维护 BT 设备、车间、线路、批量导入导出和重连命令。记录页的后端入口保留为兜底入口。</p>
+        <p>维护 BT 设备、车间、线路、批量导入导出和重连命令。</p>
       </div>
       <div class="ops-header-actions">
         <el-button :loading="loading.bootstrap" @click="reloadAll">刷新</el-button>
@@ -207,6 +207,14 @@
       <div class="import-row">
         <input ref="fileInputRef" type="file" accept=".csv,.xlsx" @change="handleImportFileChange" />
         <el-button :loading="loading.importPreview" @click="previewImport">导入预检</el-button>
+        <span
+          v-if="importPreview.resultText"
+          class="import-preview-result"
+          :class="{ 'has-errors': importPreview.summary.error > 0 }"
+          aria-live="polite"
+        >
+          {{ importPreview.resultText }}
+        </span>
       </div>
       <div class="summary-row">
         <el-tag>新增 {{ importPreview.summary.create }}</el-tag>
@@ -330,6 +338,7 @@ const importPreview = reactive({
   summary: { create: 0, update: 0, error: 0 },
   rows: [] as Record<string, unknown>[],
   errors: [] as ImportErrorRow[],
+  resultText: '',
 });
 
 const emptyDeviceForm = (): Omit<OpsDevice, 'id' | 'depot_name' | 'line_name' | 'line_id'> & { id?: string; line_id?: number } => ({
@@ -651,6 +660,7 @@ const resetImportPreview = () => {
   Object.assign(importPreview.summary, { create: 0, update: 0, error: 0 });
   importPreview.rows = [];
   importPreview.errors = [];
+  importPreview.resultText = '';
 };
 
 const openImportDialog = () => {
@@ -660,6 +670,10 @@ const openImportDialog = () => {
 
 const handleImportFileChange = () => {
   importFile.value = fileInputRef.value?.files?.[0] ?? null;
+  Object.assign(importPreview.summary, { create: 0, update: 0, error: 0 });
+  importPreview.rows = [];
+  importPreview.errors = [];
+  importPreview.resultText = '';
 };
 
 const previewImport = async () => {
@@ -684,7 +698,7 @@ const previewImport = async () => {
     importPreview.rows = response.rows;
     importPreview.errors = response.errors;
     addResult('导入预检', `新增 ${response.summary.create}，更新 ${response.summary.update}，错误 ${response.summary.error}`);
-    ElMessage.success(`预检完成：新增 ${response.summary.create}，更新 ${response.summary.update}，错误 ${response.summary.error}`);
+    importPreview.resultText = `预检完成：新增 ${response.summary.create}，更新 ${response.summary.update}，错误 ${response.summary.error}`;
   } catch (error) {
     console.error(error);
     ElMessage.error('导入预检失败');
@@ -795,6 +809,15 @@ onMounted(() => {
 
 .tag-gap {
   margin-left: 6px;
+}
+
+.import-preview-result {
+  color: #409eff;
+  font-size: 14px;
+}
+
+.import-preview-result.has-errors {
+  color: #f56c6c;
 }
 
 .dialog-grid {
