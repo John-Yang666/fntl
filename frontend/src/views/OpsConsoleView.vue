@@ -679,12 +679,14 @@ const previewImport = async () => {
       method: 'post',
       url: '/ops/devices/import/preview/',
       data: formData,
-      headers: { 'Content-Type': 'multipart/form-data' },
     });
     Object.assign(importPreview.summary, response.summary);
     importPreview.rows = response.rows;
     importPreview.errors = response.errors;
     addResult('导入预检', `新增 ${response.summary.create}，更新 ${response.summary.update}，错误 ${response.summary.error}`);
+  } catch (error) {
+    console.error(error);
+    ElMessage.error('导入预检失败');
   } finally {
     loading.importPreview = false;
   }

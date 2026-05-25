@@ -259,6 +259,17 @@ class OpsDeviceImportExportTests(OpsApiBase):
         self.assertIn("A设备", content)
         self.assertNotIn("B设备", content)
 
+    def test_export_normalizes_legacy_alarm_filter_string(self):
+        self.device_a.alarm_filters = "[]"
+        self.device_a.save(update_fields=["alarm_filters"])
+        self.client.force_authenticate(self.ops_user)
+
+        response = self.client.get(reverse("ops-device-export"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        content = response.content.decode("utf-8-sig")
+        self.assertNotIn("[;]", content)
+
     def test_import_preview_reports_create_update_and_errors_without_writing(self):
         self.client.force_authenticate(self.ops_user)
         csv_content = (
@@ -278,6 +289,22 @@ class OpsDeviceImportExportTests(OpsApiBase):
         self.assertEqual(response.data["summary"]["update"], 1)
         self.assertEqual(response.data["summary"]["error"], 1)
         self.assertEqual(Device.objects.filter(device_id=105).count(), 0)
+
+    def test_import_preview_accepts_legacy_exported_empty_alarm_filter_marker(self):
+        self.client.force_authenticate(self.ops_user)
+        csv_content = (
+            "设备ID,设备名称,车间,线路,IP地址,X坐标,Y坐标,一方向邻站ID,一方向邻站方向,"
+            "二方向邻站ID,二方向邻站方向,一方向启用,二方向启用,备注,过滤告警码\n"
+            "101,A设备改名,A车间,1号线,10.0.0.101,1,2,0,2,0,1,是,否,更新,[;]\n"
+        ).encode("utf-8")
+        upload = BytesIO(csv_content)
+        upload.name = "devices.csv"
+
+        response = self.client.post(reverse("ops-device-import-preview"), {"file": upload}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["summary"], {"create": 0, "update": 1, "error": 0})
+        self.assertEqual(response.data["rows"][0]["alarm_filters"], [])
 
     def test_import_commit_writes_valid_rows(self):
         self.client.force_authenticate(self.ops_user)

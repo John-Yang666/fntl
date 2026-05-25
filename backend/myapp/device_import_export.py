@@ -1,4 +1,5 @@
 import csv
+import json
 from io import StringIO
 
 import tablib
@@ -6,6 +7,7 @@ from django.db import transaction
 
 from .models import Depot, Device, Line
 from .ops_permissions import ensure_depot_allowed
+from .ops_serializers import normalize_alarm_filters
 
 EXPORT_HEADERS = [
     "设备ID",
@@ -49,10 +51,30 @@ def _parse_float(value, default=0.0):
 
 
 def _parse_alarm_filters(value):
+    if value in (None, ""):
+        return []
     if isinstance(value, list):
-        return [int(item) for item in value]
-    raw = str(value or "").replace(",", ";").replace("，", ";")
-    return [int(item.strip()) for item in raw.split(";") if item.strip()]
+        return normalize_alarm_filters(value)
+
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    if raw.startswith("[") and raw.endswith("]"):
+        try:
+            return normalize_alarm_filters(json.loads(raw))
+        except json.JSONDecodeError:
+            raw = raw[1:-1]
+
+    filters = []
+    for item in raw.replace(",", ";").replace("，", ";").split(";"):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            filters.append(int(item))
+        except ValueError:
+            continue
+    return filters
 
 
 def export_devices_csv(queryset) -> bytes:
@@ -77,7 +99,7 @@ def export_devices_csv(queryset) -> bytes:
                 _bool_to_text(device.direction1_enabled),
                 _bool_to_text(device.direction2_enabled),
                 device.remark or "",
-                ";".join(str(item) for item in (device.alarm_filters or [])),
+                ";".join(str(item) for item in normalize_alarm_filters(device.alarm_filters)),
             ]
         )
     return output.getvalue().encode("utf-8")
