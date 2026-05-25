@@ -35,6 +35,7 @@ frontend/.vite/
 Thumbs.db
 .idea/
 .vscode/
+.superpowers/
 
 # Local databases, runtime dumps, and logs
 *.log
