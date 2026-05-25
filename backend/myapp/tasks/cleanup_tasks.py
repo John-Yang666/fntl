@@ -15,6 +15,7 @@ from ..cleanup_export_resources import CLEANUP_EXPORT_RESOURCE_MAP
 
 EXPORT_BATCH_SIZE = 5000
 DELETE_BATCH_SIZE = 5000
+MAX_EXPORT_ROWS_PER_FILE = 1_000_000
 SYSTEM_LABEL = "bt"
 CLEANUP_EXPORT_TEST_DAYS = 99999
 
@@ -143,36 +144,95 @@ def export_cleanup_queryset_to_csv(*, queryset, resource_class, export_file):
     export_file.write_text(dataset.export("csv"), encoding="utf-8-sig")
 
 
-def export_cleanup_snapshot_to_csv(*, model, temp_table, date_field, resource_class, export_file, batch_size):
+def _build_export_part_file(export_file, part_number, split_export):
+    if not split_export:
+        return export_file
+    return export_file.with_name(f"{export_file.stem}_part{part_number:04d}{export_file.suffix}")
+
+
+def _open_export_part(export_file, export_headers, part_number, split_export):
+    final_file = _build_export_part_file(export_file, part_number, split_export)
+    tmp_file = final_file.with_name(f"{final_file.name}.tmp")
+    handle = tmp_file.open("w", encoding="utf-8-sig", newline="")
+    writer = csv.writer(handle)
+    writer.writerow(export_headers)
+    return final_file, tmp_file, handle, writer
+
+
+def export_cleanup_snapshot_to_csv(
+    *,
+    model,
+    temp_table,
+    date_field,
+    resource_class,
+    export_file,
+    batch_size,
+    candidate_count,
+    max_rows_per_file,
+):
     resource = resource_class()
     export_headers = resource.get_export_headers()
-    tmp_export_file = export_file.with_name(f"{export_file.name}.tmp")
     exported_count = 0
+    rows_in_current_file = 0
+    part_number = 1
     last_sort = None
+    split_export = candidate_count > max_rows_per_file
+    export_files = []
+    tmp_files = []
+    handle = None
+    writer = None
 
     try:
-        with tmp_export_file.open("w", encoding="utf-8-sig", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(export_headers)
-            while True:
-                ids, last_sort = _fetch_snapshot_batch(
-                    model,
-                    temp_table,
-                    date_field,
-                    batch_size,
-                    last_sort=last_sort,
-                )
-                if not ids:
-                    break
-                for obj in _ordered_snapshot_objects(model, ids):
-                    writer.writerow(resource.export_resource(obj))
-                    exported_count += 1
-        tmp_export_file.replace(export_file)
+        final_file, tmp_file, handle, writer = _open_export_part(
+            export_file,
+            export_headers,
+            part_number,
+            split_export,
+        )
+        export_files.append(final_file)
+        tmp_files.append(tmp_file)
+
+        while True:
+            ids, last_sort = _fetch_snapshot_batch(
+                model,
+                temp_table,
+                date_field,
+                batch_size,
+                last_sort=last_sort,
+            )
+            if not ids:
+                break
+            for obj in _ordered_snapshot_objects(model, ids):
+                if rows_in_current_file >= max_rows_per_file:
+                    handle.close()
+                    part_number += 1
+                    rows_in_current_file = 0
+                    final_file, tmp_file, handle, writer = _open_export_part(
+                        export_file,
+                        export_headers,
+                        part_number,
+                        split_export,
+                    )
+                    export_files.append(final_file)
+                    tmp_files.append(tmp_file)
+                writer.writerow(resource.export_resource(obj))
+                exported_count += 1
+                rows_in_current_file += 1
+
+        handle.close()
+        handle = None
+        for tmp_file, final_file in zip(tmp_files, export_files, strict=True):
+            tmp_file.replace(final_file)
     except Exception:
-        tmp_export_file.unlink(missing_ok=True)
+        if handle is not None:
+            handle.close()
+        for tmp_file in tmp_files:
+            tmp_file.unlink(missing_ok=True)
+        for final_file in export_files:
+            final_file.unlink(missing_ok=True)
         raise
 
-    return exported_count
+    return exported_count, [str(export_file) for export_file in export_files]
 
 
 def _next_delete_batch_ids(temp_table, batch_size):
@@ -229,8 +289,11 @@ def cleanup_old_data(model, days, date_field="timestamp", *, auto_export=True):
         "export_enabled": bool(auto_export),
         "export_test": False,
         "export_path": "",
+        "export_paths": [],
+        "export_file_count": 0,
         "exported_count": 0,
         "export_batch_size": EXPORT_BATCH_SIZE,
+        "export_max_rows_per_file": MAX_EXPORT_ROWS_PER_FILE,
         "delete_batch_size": DELETE_BATCH_SIZE,
         "deleted_count": 0,
         "error": "",
@@ -253,15 +316,20 @@ def cleanup_old_data(model, days, date_field="timestamp", *, auto_export=True):
             try:
                 export_dir = _get_cleanup_export_dir()
                 export_file = export_dir / _build_export_filename(model.__name__, threshold_date, run_at)
-                result["exported_count"] = export_cleanup_snapshot_to_csv(
+                exported_count, export_paths = export_cleanup_snapshot_to_csv(
                     model=model,
                     temp_table=temp_table,
                     date_field=date_field,
                     resource_class=resource_class,
                     export_file=export_file,
                     batch_size=EXPORT_BATCH_SIZE,
+                    candidate_count=candidate_count,
+                    max_rows_per_file=MAX_EXPORT_ROWS_PER_FILE,
                 )
-                result["export_path"] = str(export_file)
+                result["exported_count"] = exported_count
+                result["export_paths"] = export_paths
+                result["export_file_count"] = len(export_paths)
+                result["export_path"] = export_paths[0] if export_paths else ""
             except Exception as exc:
                 result["status"] = "failed"
                 result["error"] = f"{type(exc).__name__}: {exc}"
@@ -291,8 +359,11 @@ def export_cleanup_test(model, days, date_field="timestamp"):
         "export_enabled": True,
         "export_test": True,
         "export_path": "",
+        "export_paths": [],
+        "export_file_count": 0,
         "exported_count": 0,
         "export_batch_size": EXPORT_BATCH_SIZE,
+        "export_max_rows_per_file": MAX_EXPORT_ROWS_PER_FILE,
         "delete_batch_size": DELETE_BATCH_SIZE,
         "deleted_count": 0,
         "error": "",
@@ -312,15 +383,20 @@ def export_cleanup_test(model, days, date_field="timestamp"):
         try:
             export_dir = _get_cleanup_export_dir()
             export_file = export_dir / _build_export_filename(model.__name__, threshold_date, run_at, export_test=True)
-            result["exported_count"] = export_cleanup_snapshot_to_csv(
+            exported_count, export_paths = export_cleanup_snapshot_to_csv(
                 model=model,
                 temp_table=temp_table,
                 date_field=date_field,
                 resource_class=resource_class,
                 export_file=export_file,
                 batch_size=EXPORT_BATCH_SIZE,
+                candidate_count=candidate_count,
+                max_rows_per_file=MAX_EXPORT_ROWS_PER_FILE,
             )
-            result["export_path"] = str(export_file)
+            result["exported_count"] = exported_count
+            result["export_paths"] = export_paths
+            result["export_file_count"] = len(export_paths)
+            result["export_path"] = export_paths[0] if export_paths else ""
         except Exception as exc:
             result["status"] = "failed"
             result["error"] = f"{type(exc).__name__}: {exc}"

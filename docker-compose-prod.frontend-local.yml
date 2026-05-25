@@ -3,5 +3,4 @@ services:
     # Serve host-built frontend assets so small offline edits can be applied
     # without rebuilding the production image.
     volumes:
-      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./frontend/dist:/usr/share/nginx/html:ro

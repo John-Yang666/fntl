@@ -136,17 +136,28 @@ class BtCleanupTaskTests(TestCase):
             cleanup_tasks,
             "DELETE_BATCH_SIZE",
             2,
+        ), patch.object(
+            cleanup_tasks,
+            "MAX_EXPORT_ROWS_PER_FILE",
+            2,
         ):
             result = cleanup_tasks.cleanup_switch_data(30)
 
         self.assertEqual(result["status"], "deleted")
         self.assertEqual(result["candidate_count"], 3)
         self.assertEqual(result["exported_count"], 3)
+        self.assertEqual(result["export_file_count"], 2)
         self.assertEqual(result["deleted_count"], 3)
         self.assertFalse(SwitchData.objects.filter(pk__in=[row.pk for row in old_rows]).exists())
         self.assertTrue(SwitchData.objects.filter(pk=new_row.pk).exists())
 
-        export_file = Path(result["export_path"])
-        content = export_file.read_text(encoding="utf-8-sig")
-        self.assertEqual(content.count("设备ID"), 1)
-        self.assertEqual(len([line for line in content.splitlines() if line.strip()]), 4)
+        export_files = [Path(path) for path in result["export_paths"]]
+        self.assertTrue(all(path.exists() for path in export_files))
+        self.assertTrue(export_files[0].name.endswith("_part0001.csv"))
+        self.assertTrue(export_files[1].name.endswith("_part0002.csv"))
+        line_counts = []
+        for export_file in export_files:
+            content = export_file.read_text(encoding="utf-8-sig")
+            self.assertEqual(content.count("设备ID"), 1)
+            line_counts.append(len([line for line in content.splitlines() if line.strip()]))
+        self.assertEqual(line_counts, [3, 2])
