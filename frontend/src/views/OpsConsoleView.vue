@@ -780,4 +780,40 @@ onMounted(() => {
 .dialog-grid :deep(.el-form-item) {
   margin-right: 0;
 }
+
+:deep(.el-dialog) {
+  max-width: calc(100vw - 32px);
+}
+
+:deep(.el-dialog__body) {
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+}
+
+@media (max-width: 720px) {
+  .ops-page {
+    padding: 12px 8px;
+  }
+
+  .ops-tabs {
+    padding: 8px;
+  }
+
+  .toolbar {
+    flex-direction: column;
+  }
+
+  .toolbar-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .toolbar-actions :deep(.el-button) {
+    margin-left: 0;
+  }
+
+  .dialog-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
