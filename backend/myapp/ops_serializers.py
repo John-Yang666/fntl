@@ -1,7 +1,31 @@
+import json
+
 from rest_framework import serializers
 
 from .models import Depot, Device, Line
 from .ops_permissions import ensure_depot_allowed
+
+
+def normalize_alarm_filters(value):
+    if value in (None, ""):
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(value, list):
+        return []
+
+    normalized = []
+    for item in value:
+        if isinstance(item, bool):
+            continue
+        try:
+            normalized.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return normalized
 
 
 class OpsDepotSerializer(serializers.ModelSerializer):
@@ -45,6 +69,11 @@ class OpsDeviceSerializer(serializers.ModelSerializer):
             "remark",
         ]
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["alarm_filters"] = normalize_alarm_filters(representation.get("alarm_filters"))
+        return representation
+
     def validate(self, attrs):
         request = self.context["request"]
         depot = attrs.get("depot") or getattr(self.instance, "depot", None)
@@ -60,8 +89,10 @@ class OpsDeviceSerializer(serializers.ModelSerializer):
         if queryset.filter(ip_address=ip_address).exists():
             raise serializers.ValidationError({"ip_address": "IP地址已存在。"})
 
-        alarm_filters = attrs.get("alarm_filters", getattr(self.instance, "alarm_filters", []))
-        if not isinstance(alarm_filters, list) or any(not isinstance(item, int) for item in alarm_filters):
+        if "alarm_filters" in attrs and (
+            not isinstance(attrs["alarm_filters"], list)
+            or any(not isinstance(item, int) for item in attrs["alarm_filters"])
+        ):
             raise serializers.ValidationError({"alarm_filters": "过滤告警码必须是整数数组。"})
 
         for field in ("direction1_neighbor_id", "direction2_neighbor_id"):

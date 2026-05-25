@@ -276,8 +276,8 @@ interface OpsDevice {
   direction2_neighbor_direction: number;
   direction1_enabled: boolean;
   direction2_enabled: boolean;
-  alarm_filters: number[];
-  remark: string;
+  alarm_filters: number[] | string | null;
+  remark: string | null;
 }
 
 interface Paginated<T> {
@@ -446,15 +446,38 @@ const handleDevicePageSizeChange = () => {
   void fetchDevices();
 };
 
+const normalizeAlarmFilters = (value: OpsDevice['alarm_filters']) => {
+  if (Array.isArray(value)) {
+    return value.filter((item) => Number.isInteger(item));
+  }
+  if (typeof value !== 'string' || value.trim() === '') {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => Number.parseInt(String(item), 10)).filter((item) => !Number.isNaN(item))
+      : [];
+  } catch {
+    return value
+      .split(/[;,，]/)
+      .map((item) => Number.parseInt(item.trim(), 10))
+      .filter((item) => !Number.isNaN(item));
+  }
+};
+
 const openDeviceDialog = (device?: OpsDevice) => {
   const form = device ? { ...device } : emptyDeviceForm();
+  const alarmFilters = normalizeAlarmFilters(form.alarm_filters);
   deviceDialog.form = {
     ...form,
     line_id: form.line_id ?? undefined,
     direction1_neighbor_id: form.direction1_neighbor_id || 0,
     direction2_neighbor_id: form.direction2_neighbor_id || 0,
+    alarm_filters: alarmFilters,
+    remark: form.remark ?? '',
   };
-  deviceDialog.alarmFilterText = (form.alarm_filters || []).join(';');
+  deviceDialog.alarmFilterText = alarmFilters.join(';');
   deviceDialog.visible = true;
 };
 
