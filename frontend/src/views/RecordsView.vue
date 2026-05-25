@@ -16,6 +16,8 @@
           <el-button @click="openAdmin(selectedSystem, 'alarmdata')">历史告警记录</el-button>
           <el-button @click="openAdmin(selectedSystem, 'relayaction')">继电器动作记录</el-button>
           <el-button @click="openAdmin(selectedSystem, 'useroperation')">用户操作记录</el-button>
+          <el-button @click="openAdmin(selectedSystem, 'switchdata')">开关量记录</el-button>
+          <el-button v-if="selectedSystem === 'bt'" @click="openAdmin(selectedSystem, 'analogdata')">电压电流记录</el-button>
           <el-button @click="openAdmin(selectedSystem, 'device')">设备信息</el-button>
         </div>
       </div>
@@ -50,12 +52,7 @@
         </el-form-item>
 
         <el-form-item label="设备">
-          <el-select
-            v-model="selectedDeviceId"
-            filterable
-            placeholder="全部设备"
-            style="width: 280px;"
-          >
+          <el-select v-model="selectedDeviceId" filterable placeholder="全部设备" style="width: 280px;">
             <el-option key="all-devices" label="全部设备" value="all" />
             <el-option
               v-for="device in filteredDeviceOptions"
@@ -66,7 +63,7 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item label="告警码">
+        <el-form-item v-if="activeRecordType === 'alerts'" label="告警码">
           <el-input-number
             v-model="alarmCode"
             :min="0"
@@ -76,7 +73,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="确认状态">
+        <el-form-item v-if="activeRecordType === 'alerts'" label="确认状态">
           <el-select v-model="confirmedFilter" style="width: 160px;">
             <el-option label="全部" value="all" />
             <el-option label="未确认" value="unconfirmed" />
@@ -85,9 +82,7 @@
         </el-form-item>
 
         <el-form-item>
-          <el-button type="primary" :loading="loading.alerts || loading.relayActions" @click="handleQuery">
-            查询
-          </el-button>
+          <el-button type="primary" :loading="activeState.loading" @click="handleQuery">查询</el-button>
           <el-button @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
@@ -102,42 +97,70 @@
     </section>
 
     <section class="table-section">
+      <el-tabs v-model="activeRecordType" @tab-change="handleRecordTabChange">
+        <el-tab-pane
+          v-for="tab in availableRecordTabs"
+          :key="tab.type"
+          :name="tab.type"
+          :label="tab.label"
+        />
+      </el-tabs>
+
       <div class="section-header">
-        <h2>历史告警</h2>
+        <h2>{{ activeTabLabel }}</h2>
         <div class="section-actions">
-          <span class="section-count">{{ alertsTotalText }} 条</span>
-          <el-button v-if="errors.alerts" size="small" @click="retryAlerts">重试</el-button>
+          <span class="section-count">{{ activeTotalText }} 条</span>
+          <el-button :loading="activeState.loading" size="small" @click="fetchActiveRecord({ refreshTotal: true })">
+            刷新
+          </el-button>
+          <el-button :loading="exporting[activeRecordType]" size="small" @click="exportActiveRecord">
+            导出
+          </el-button>
+          <el-button
+            v-if="activeRecordType === 'alerts'"
+            type="primary"
+            size="small"
+            :loading="confirmingSelectedAlerts"
+            @click="confirmSelectedAlerts"
+          >
+            确认选中
+          </el-button>
+          <el-button v-if="activeState.error" size="small" @click="fetchActiveRecord({ refreshTotal: true })">
+            重试
+          </el-button>
         </div>
       </div>
 
       <el-alert
-        v-if="errors.alerts"
+        v-if="activeState.error"
         type="error"
         :closable="false"
         show-icon
-        :title="errors.alerts"
+        :title="activeState.error"
         class="section-alert"
       />
 
-      <el-table :data="alerts" stripe v-loading="loading.alerts">
+      <el-table
+        v-if="activeRecordType === 'alerts'"
+        :data="alertRows"
+        row-key="id"
+        stripe
+        v-loading="activeState.loading"
+        @selection-change="handleAlertSelectionChange"
+      >
+        <el-table-column type="selection" width="44" :selectable="isAlertSelectable" />
         <el-table-column prop="device_id" label="设备ID" width="100" />
         <el-table-column prop="device_name" label="设备名称" min-width="180" />
         <el-table-column prop="alarm_code" label="告警码" width="100" />
         <el-table-column prop="alarm_meaning" label="告警含义" min-width="180" />
         <el-table-column prop="timestamp" label="开始时间" min-width="180">
-          <template #default="{ row }">
-            {{ formatToLocalTime(row.timestamp) }}
-          </template>
+          <template #default="{ row }">{{ formatToLocalTime(row.timestamp) }}</template>
         </el-table-column>
         <el-table-column prop="timestamp_end" label="结束时间" min-width="180">
-          <template #default="{ row }">
-            {{ formatToLocalTime(row.timestamp_end) }}
-          </template>
+          <template #default="{ row }">{{ formatToLocalTime(row.timestamp_end) }}</template>
         </el-table-column>
         <el-table-column prop="duration_seconds" label="持续时长" min-width="130">
-          <template #default="{ row }">
-            {{ formatDuration(row.duration_seconds) }}
-          </template>
+          <template #default="{ row }">{{ formatDuration(row.duration_seconds) }}</template>
         </el-table-column>
         <el-table-column prop="is_confirmed" label="确认状态" width="100">
           <template #default="{ row }">
@@ -161,114 +184,86 @@
         </el-table-column>
       </el-table>
 
-      <div class="pagination-wrap">
-        <el-pagination
-          v-model:current-page="alertsPagination.page"
-          v-model:page-size="alertsPagination.pageSize"
-          :total="alertsPagination.total"
-          :page-sizes="[20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="handleAlertsPageChange"
-          @size-change="handleAlertsSizeChange"
-        />
-      </div>
-    </section>
-
-    <section class="table-section">
-      <div class="section-header">
-        <h2>继电器动作</h2>
-        <div class="section-actions">
-          <span class="section-count">{{ relayTotalText }} 条</span>
-          <el-button v-if="errors.relayActions" size="small" @click="retryRelayActions">重试</el-button>
-        </div>
-      </div>
-
-      <el-alert
-        v-if="errors.relayActions"
-        type="error"
-        :closable="false"
-        show-icon
-        :title="errors.relayActions"
-        class="section-alert"
-      />
-
-      <el-table :data="relayActions" stripe v-loading="loading.relayActions">
+      <el-table
+        v-else-if="activeRecordType === 'relay-actions'"
+        :data="relayRows"
+        stripe
+        v-loading="activeState.loading"
+      >
         <el-table-column prop="device_id" label="设备ID" width="100" />
         <el-table-column prop="device_name" label="设备名称" min-width="180" />
         <el-table-column prop="relay" label="继电器" min-width="140" />
         <el-table-column prop="action" label="动作" min-width="120" />
+        <el-table-column v-if="selectedSystem === 'sy'" prop="source" label="来源" width="100" />
         <el-table-column prop="timestamp" label="时间" min-width="180">
-          <template #default="{ row }">
-            {{ formatToLocalTime(row.timestamp) }}
-          </template>
+          <template #default="{ row }">{{ formatToLocalTime(row.timestamp) }}</template>
         </el-table-column>
       </el-table>
 
-      <div class="pagination-wrap">
-        <el-pagination
-          v-model:current-page="relayPagination.page"
-          v-model:page-size="relayPagination.pageSize"
-          :total="relayPagination.total"
-          :page-sizes="[20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="handleRelayPageChange"
-          @size-change="handleRelaySizeChange"
-        />
-      </div>
-    </section>
-
-    <section class="table-section">
-      <div class="section-header">
-        <h2>用户操作记录</h2>
-        <div class="section-actions">
-          <span class="section-count">{{ userOperationTotalText }} 条</span>
-          <el-button v-if="errors.userOperations" size="small" @click="retryUserOperations">重试</el-button>
-        </div>
-      </div>
-
-      <el-alert
-        v-if="errors.userOperations"
-        type="error"
-        :closable="false"
-        show-icon
-        :title="errors.userOperations"
-        class="section-alert"
-      />
-
-      <el-table :data="userOperations" stripe v-loading="loading.userOperations">
+      <el-table
+        v-else-if="activeRecordType === 'user-operations'"
+        :data="userOperationRows"
+        stripe
+        v-loading="activeState.loading"
+      >
         <el-table-column prop="device_id" label="设备ID" width="100">
-          <template #default="{ row }">
-            {{ row.device_id ?? '-' }}
-          </template>
+          <template #default="{ row }">{{ row.device_id ?? '-' }}</template>
         </el-table-column>
         <el-table-column prop="device_name" label="设备名称" min-width="180">
-          <template #default="{ row }">
-            {{ row.device_name || '系统级操作' }}
-          </template>
+          <template #default="{ row }">{{ row.device_name || '系统级操作' }}</template>
         </el-table-column>
         <el-table-column prop="function_code" label="操作码" min-width="120" />
         <el-table-column prop="operation" label="操作名称" min-width="150" />
         <el-table-column prop="username" label="用户名" min-width="120">
-          <template #default="{ row }">
-            {{ row.username || '-' }}
-          </template>
+          <template #default="{ row }">{{ row.username || '-' }}</template>
         </el-table-column>
         <el-table-column prop="timestamp" label="操作时间" min-width="180">
-          <template #default="{ row }">
-            {{ formatToLocalTime(row.timestamp) }}
-          </template>
+          <template #default="{ row }">{{ formatToLocalTime(row.timestamp) }}</template>
+        </el-table-column>
+      </el-table>
+
+      <el-table
+        v-else-if="activeRecordType === 'switch-data'"
+        :data="switchRows"
+        stripe
+        v-loading="activeState.loading"
+      >
+        <el-table-column prop="device_id" label="设备ID" width="100" />
+        <el-table-column prop="device_name" label="设备名称" min-width="180" />
+        <el-table-column prop="switch_status_hex" label="HEX" min-width="180" />
+        <el-table-column prop="switch_status_text" label="开关量" min-width="320" show-overflow-tooltip />
+        <el-table-column v-if="selectedSystem === 'sy'" prop="version" label="版本" width="100" />
+        <el-table-column prop="timestamp" label="时间" min-width="180">
+          <template #default="{ row }">{{ formatToLocalTime(row.timestamp) }}</template>
+        </el-table-column>
+      </el-table>
+
+      <el-table
+        v-else-if="activeRecordType === 'analog-data'"
+        :data="analogRows"
+        stripe
+        v-loading="activeState.loading"
+      >
+        <el-table-column prop="device_id" label="设备ID" width="100" />
+        <el-table-column prop="device_name" label="设备名称" min-width="180" />
+        <el-table-column prop="voltage_1" label="电压1(V)" min-width="120" />
+        <el-table-column prop="current_1" label="电流1(mA)" min-width="130" />
+        <el-table-column prop="voltage_2" label="电压2(V)" min-width="120" />
+        <el-table-column prop="current_2" label="电流2(mA)" min-width="130" />
+        <el-table-column prop="timestamp" label="时间" min-width="180">
+          <template #default="{ row }">{{ formatToLocalTime(row.timestamp) }}</template>
         </el-table-column>
       </el-table>
 
       <div class="pagination-wrap">
         <el-pagination
-          v-model:current-page="userOperationPagination.page"
-          v-model:page-size="userOperationPagination.pageSize"
-          :total="userOperationPagination.total"
+          v-model:current-page="activeState.pagination.page"
+          v-model:page-size="activeState.pagination.pageSize"
+          :total="activeState.pagination.total"
           :page-sizes="[20, 50, 100]"
           layout="total, sizes, prev, pager, next, jumper"
-          @current-change="handleUserOperationPageChange"
-          @size-change="handleUserOperationSizeChange"
+          @current-change="handleActivePageChange"
+          @size-change="handleActiveSizeChange"
         />
       </div>
     </section>
@@ -277,7 +272,7 @@
 
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useUserStore } from '@/stores/userStore';
 import { SYSTEM_LABELS, SYSTEMS, getSystemOrigin, type SystemType } from '@/utils/systems';
 
@@ -301,22 +296,50 @@ interface AlertRecord {
 
 interface RelayActionRecord {
   id: string;
-  device_id: number;
-  device_name: string;
+  device?: number;
+  device_id?: number;
+  device_name?: string;
   relay: string;
   action: string;
+  source?: string;
   timestamp: string;
 }
 
 interface UserOperationRecord {
   id: string;
-  device_id: number | null;
-  device_name: string | null;
+  device?: number | null;
+  device_id?: number | null;
+  device_name?: string | null;
   function_code: string;
   operation: string;
   username: string | null;
   timestamp: string;
 }
+
+interface SwitchDataRecord {
+  id: string;
+  device?: number;
+  device_id?: number;
+  device_name?: string;
+  switch_status_text?: string;
+  switch_status_hex?: string;
+  version?: string;
+  timestamp: string;
+}
+
+interface AnalogDataRecord {
+  id: string;
+  device?: number;
+  device_id?: number;
+  device_name?: string;
+  voltage_1: number;
+  current_1: number;
+  voltage_2: number;
+  current_2: number;
+  timestamp: string;
+}
+
+type RecordType = 'alerts' | 'relay-actions' | 'user-operations' | 'switch-data' | 'analog-data';
 
 type ListResponse<T> = {
   count?: number | null;
@@ -328,10 +351,30 @@ type CountResponse = {
   approximate?: boolean;
 };
 
+type RecordState = {
+  rows: unknown[];
+  loading: boolean;
+  error: string | null;
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    approximateTotal: boolean;
+  };
+};
+
 const systems = SYSTEMS;
 const labels = SYSTEM_LABELS;
 const RECORDS_SELECTED_SYSTEM_KEY = 'records:selectedSystem';
 const userStore = useUserStore();
+
+const recordTabs: Array<{ type: RecordType; label: string; systems: SystemType[] }> = [
+  { type: 'alerts', label: '历史告警', systems: ['bt', 'sy'] },
+  { type: 'relay-actions', label: '继电器动作', systems: ['bt', 'sy'] },
+  { type: 'user-operations', label: '用户操作', systems: ['bt', 'sy'] },
+  { type: 'switch-data', label: '开关量', systems: ['bt', 'sy'] },
+  { type: 'analog-data', label: '电压电流', systems: ['bt'] },
+];
 
 const loadStoredSystem = (): SystemType => {
   if (typeof window === 'undefined') {
@@ -354,6 +397,7 @@ const persistSelectedSystem = (system: SystemType) => {
 };
 
 const selectedSystem = ref<SystemType>(loadStoredSystem());
+const activeRecordType = ref<RecordType>('alerts');
 
 const defaultTimeRange = (): [Date, Date] => {
   const end = new Date();
@@ -364,7 +408,19 @@ const defaultTimeRange = (): [Date, Date] => {
   return [start, end];
 };
 
-const timeRange = ref<[Date, Date]>(defaultTimeRange());
+const createRecordState = (): RecordState => ({
+  rows: [],
+  loading: false,
+  error: null,
+  pagination: {
+    page: 1,
+    pageSize: 20,
+    total: 0,
+    approximateTotal: false,
+  },
+});
+
+const timeRange = ref<[Date, Date] | undefined>(defaultTimeRange());
 const selectedLine = ref<string>('');
 const selectedDeviceId = ref<number | 'all'>('all');
 const alarmCode = ref<number | undefined>(undefined);
@@ -372,51 +428,39 @@ const confirmedFilter = ref<'all' | 'unconfirmed' | 'confirmed'>('unconfirmed');
 
 const lineOptions = ref<string[]>([]);
 const deviceOptions = ref<DeviceOption[]>([]);
-const alerts = ref<AlertRecord[]>([]);
-const relayActions = ref<RelayActionRecord[]>([]);
-const userOperations = ref<UserOperationRecord[]>([]);
 const lastUpdatedAt = ref<Date | null>(null);
 const confirmingAlertIds = ref<string[]>([]);
-const alertsRequestId = ref(0);
+const selectedAlertRows = ref<AlertRecord[]>([]);
+const confirmingSelectedAlerts = ref(false);
+
+const recordStates = reactive<Record<RecordType, RecordState>>({
+  alerts: createRecordState(),
+  'relay-actions': createRecordState(),
+  'user-operations': createRecordState(),
+  'switch-data': createRecordState(),
+  'analog-data': createRecordState(),
+});
+
+const exporting = reactive<Record<RecordType, boolean>>({
+  alerts: false,
+  'relay-actions': false,
+  'user-operations': false,
+  'switch-data': false,
+  'analog-data': false,
+});
 
 const loading = reactive({
   devices: false,
-  alerts: false,
-  relayActions: false,
-  userOperations: false,
 });
 
 const errors = reactive({
   devices: null as string | null,
-  alerts: null as string | null,
-  relayActions: null as string | null,
-  userOperations: null as string | null,
 });
 
-const alertsPagination = reactive({
-  page: 1,
-  pageSize: 20,
-  total: 0,
-  approximateTotal: false,
-});
-
-const relayPagination = reactive({
-  page: 1,
-  pageSize: 20,
-  total: 0,
-  approximateTotal: false,
-});
-
-const userOperationPagination = reactive({
-  page: 1,
-  pageSize: 20,
-  total: 0,
-  approximateTotal: false,
-});
-
-const isRefreshing = computed(() =>
-  loading.devices || loading.alerts || loading.relayActions || loading.userOperations,
-);
+const availableRecordTabs = computed(() => recordTabs.filter((tab) => tab.systems.includes(selectedSystem.value)));
+const activeState = computed(() => recordStates[activeRecordType.value]);
+const activeTabLabel = computed(() => recordTabs.find((tab) => tab.type === activeRecordType.value)?.label || '');
+const isRefreshing = computed(() => loading.devices || activeState.value.loading);
 
 const filteredDeviceOptions = computed(() => {
   if (!selectedLine.value) {
@@ -432,17 +476,16 @@ const lastUpdatedText = computed(() => {
   return `最后刷新：${formatToLocalTime(lastUpdatedAt.value.toISOString())}`;
 });
 
-const alertsTotalText = computed(() => (
-  `${alertsPagination.approximateTotal ? '约 ' : ''}${alertsPagination.total}`
-));
+const activeTotalText = computed(() => {
+  const pagination = activeState.value.pagination;
+  return `${pagination.approximateTotal ? '约 ' : ''}${pagination.total}`;
+});
 
-const relayTotalText = computed(() => (
-  `${relayPagination.approximateTotal ? '约 ' : ''}${relayPagination.total}`
-));
-
-const userOperationTotalText = computed(() => (
-  `${userOperationPagination.approximateTotal ? '约 ' : ''}${userOperationPagination.total}`
-));
+const alertRows = computed(() => recordStates.alerts.rows as AlertRecord[]);
+const relayRows = computed(() => recordStates['relay-actions'].rows as RelayActionRecord[]);
+const userOperationRows = computed(() => recordStates['user-operations'].rows as UserOperationRecord[]);
+const switchRows = computed(() => recordStates['switch-data'].rows as SwitchDataRecord[]);
+const analogRows = computed(() => recordStates['analog-data'].rows as AnalogDataRecord[]);
 
 const formatToLocalTime = (timestamp: string | null): string => {
   if (!timestamp) {
@@ -512,7 +555,21 @@ const toEndOfDayIso = (date: Date): string => {
   return value.toISOString();
 };
 
-const applyCommonFilters = (query: URLSearchParams, timeField: 'timestamp_start' | 'timestamp') => {
+const timeFieldForRecord = (recordType: RecordType): 'timestamp_start' | 'timestamp' => (
+  recordType === 'alerts' ? 'timestamp_start' : 'timestamp'
+);
+
+const buildRecordQuery = (recordType: RecordType, includePagination: boolean): URLSearchParams => {
+  const query = new URLSearchParams();
+  const state = recordStates[recordType];
+  const timeField = timeFieldForRecord(recordType);
+
+  if (includePagination) {
+    query.set('page', String(state.pagination.page));
+    query.set('page_size', String(state.pagination.pageSize));
+    query.set('include_count', '0');
+  }
+
   if (timeRange.value && timeRange.value.length === 2) {
     query.set(`${timeField}__gte`, toStartOfDayIso(timeRange.value[0]));
     query.set(`${timeField}__lte`, toEndOfDayIso(timeRange.value[1]));
@@ -523,6 +580,19 @@ const applyCommonFilters = (query: URLSearchParams, timeField: 'timestamp_start'
   } else if (selectedLine.value) {
     query.set('device__line', selectedLine.value);
   }
+
+  if (recordType === 'alerts') {
+    if (alarmCode.value !== undefined) {
+      query.set('alarm_code', String(alarmCode.value));
+    }
+    if (confirmedFilter.value === 'confirmed') {
+      query.set('is_confirmed', 'true');
+    } else if (confirmedFilter.value === 'unconfirmed') {
+      query.set('is_confirmed', 'false');
+    }
+  }
+
+  return query;
 };
 
 const loadDevicesForSystem = async () => {
@@ -574,230 +644,118 @@ const loadDevicesForSystem = async () => {
   }
 };
 
-const buildAlertsQuery = (): URLSearchParams => {
-  const query = new URLSearchParams();
-  query.set('page', String(alertsPagination.page));
-  query.set('page_size', String(alertsPagination.pageSize));
-  applyCommonFilters(query, 'timestamp_start');
-
-  if (alarmCode.value !== undefined) {
-    query.set('alarm_code', String(alarmCode.value));
-  }
-
-  if (confirmedFilter.value === 'confirmed') {
-    query.set('is_confirmed', 'true');
-  } else if (confirmedFilter.value === 'unconfirmed') {
-    query.set('is_confirmed', 'false');
-  }
-
-  return query;
-};
-
-const requestAlertsCount = async (query: URLSearchParams): Promise<CountResponse> => {
-  return userStore.requestWithAuth<CountResponse>(selectedSystem.value, {
-    method: 'get',
-    url: `/alerts/count/?${query.toString()}`,
-  });
-};
-
-const requestRelayActionsCount = async (query: URLSearchParams): Promise<CountResponse> => {
-  return userStore.requestWithAuth<CountResponse>(selectedSystem.value, {
-    method: 'get',
-    url: `/relay-actions/count/?${query.toString()}`,
-  });
-};
-
-const requestUserOperationsCount = async (query: URLSearchParams): Promise<CountResponse> => {
-  return userStore.requestWithAuth<CountResponse>(selectedSystem.value, {
-    method: 'get',
-    url: `/user-operations/count/?${query.toString()}`,
-  });
-};
-
-const fetchAlerts = async (options: { refreshTotal?: boolean } = {}) => {
-  const requestId = ++alertsRequestId.value;
-  loading.alerts = true;
-  errors.alerts = null;
-
-  try {
-    const refreshTotal = options.refreshTotal ?? true;
-    const pageQuery = buildAlertsQuery();
-    pageQuery.set('include_count', '0');
-
-    const data = await userStore.requestWithAuth<ListResponse<AlertRecord>>(selectedSystem.value, {
-      method: 'get',
-      url: `/alerts/?${pageQuery.toString()}`,
-    });
-    if (requestId !== alertsRequestId.value) {
-      return;
-    }
-
-    alerts.value = data.results;
-
-    if (refreshTotal) {
-      requestAlertsCount(buildAlertsQuery())
-        .then((countData) => {
-          if (requestId !== alertsRequestId.value) {
-            return;
-          }
-          alertsPagination.total = countData.count ?? data.results.length;
-          alertsPagination.approximateTotal = Boolean(countData.approximate);
-        })
-        .catch((error) => {
-          if (requestId !== alertsRequestId.value) {
-            return;
-          }
-          console.error('加载历史告警总数失败:', error);
-          alertsPagination.total = data.results.length;
-          alertsPagination.approximateTotal = false;
-        });
-    } else if (alertsPagination.total === 0) {
-      alertsPagination.total = data.results.length;
-      alertsPagination.approximateTotal = false;
-    }
-  } catch (error) {
-    console.error('加载历史告警失败:', error);
-    errors.alerts = '历史告警加载失败，请重试。';
-    alerts.value = [];
-    alertsPagination.total = 0;
-    alertsPagination.approximateTotal = false;
-    throw error;
-  } finally {
-    loading.alerts = false;
-  }
-};
-
-const resolveDeviceName = (deviceId: number | null, fallbackName?: string | null): string => {
+const normalizeDeviceName = (deviceId: number | null | undefined, fallbackName?: string | null): string => {
   if (fallbackName) {
     return fallbackName;
   }
-  if (deviceId === null) {
+  if (deviceId === null || deviceId === undefined) {
     return '系统级操作';
   }
   return deviceOptions.value.find((device) => device.device_id === deviceId)?.name || `设备 ${deviceId}`;
 };
 
-const fetchRelayActions = async () => {
-  loading.relayActions = true;
-  errors.relayActions = null;
-
-  try {
-    const query = new URLSearchParams();
-    query.set('page', String(relayPagination.page));
-    query.set('page_size', String(relayPagination.pageSize));
-    query.set('include_count', '0');
-    applyCommonFilters(query, 'timestamp');
-
-    const data = await userStore.requestWithAuth<ListResponse<{
-      id: string;
-      device?: number;
-      device_id?: number;
-      device_name?: string;
-      relay: string;
-      action: string;
-      timestamp: string;
-    }>>(selectedSystem.value, {
-      method: 'get',
-      url: `/relay-actions/?${query.toString()}`,
-    });
-
-    relayActions.value = data.results.map((record) => {
+const normalizeRows = (recordType: RecordType, rows: unknown[]): unknown[] => {
+  if (recordType === 'relay-actions') {
+    return (rows as RelayActionRecord[]).map((record) => {
       const deviceId = record.device_id ?? record.device ?? 0;
       return {
-        id: record.id,
+        ...record,
         device_id: deviceId,
-        device_name: resolveDeviceName(deviceId, record.device_name),
-        relay: record.relay,
-        action: record.action,
-        timestamp: record.timestamp,
+        device_name: normalizeDeviceName(deviceId, record.device_name),
       };
     });
-
-    requestRelayActionsCount(new URLSearchParams(query))
-      .then((countData) => {
-        relayPagination.total = countData.count ?? data.results.length;
-        relayPagination.approximateTotal = Boolean(countData.approximate);
-      })
-      .catch((error) => {
-        console.error('加载继电器动作总数失败:', error);
-        relayPagination.total = data.results.length;
-        relayPagination.approximateTotal = false;
-      });
-  } catch (error) {
-    console.error('加载继电器动作失败:', error);
-    errors.relayActions = '继电器动作加载失败，请重试。';
-    relayActions.value = [];
-    relayPagination.total = 0;
-    relayPagination.approximateTotal = false;
-    throw error;
-  } finally {
-    loading.relayActions = false;
   }
-};
 
-const fetchUserOperations = async () => {
-  loading.userOperations = true;
-  errors.userOperations = null;
-
-  try {
-    const query = new URLSearchParams();
-    query.set('page', String(userOperationPagination.page));
-    query.set('page_size', String(userOperationPagination.pageSize));
-    query.set('include_count', '0');
-    applyCommonFilters(query, 'timestamp');
-
-    const data = await userStore.requestWithAuth<ListResponse<{
-      id: string;
-      device?: number | null;
-      device_id?: number | null;
-      device_name?: string | null;
-      function_code: string;
-      operation: string;
-      username: string | null;
-      timestamp: string;
-    }>>(selectedSystem.value, {
-      method: 'get',
-      url: `/user-operations/?${query.toString()}`,
-    });
-
-    userOperations.value = data.results.map((record) => {
+  if (recordType === 'user-operations') {
+    return (rows as UserOperationRecord[]).map((record) => {
       const deviceId = record.device_id ?? record.device ?? null;
       return {
-        id: record.id,
+        ...record,
         device_id: deviceId,
-        device_name: resolveDeviceName(deviceId, record.device_name),
-        function_code: record.function_code,
-        operation: record.operation,
-        username: record.username,
-        timestamp: record.timestamp,
+        device_name: normalizeDeviceName(deviceId, record.device_name),
       };
     });
-    requestUserOperationsCount(new URLSearchParams(query))
-      .then((countData) => {
-        userOperationPagination.total = countData.count ?? data.results.length;
-        userOperationPagination.approximateTotal = Boolean(countData.approximate);
-      })
-      .catch((error) => {
-        console.error('加载用户操作总数失败:', error);
-        userOperationPagination.total = data.results.length;
-        userOperationPagination.approximateTotal = false;
-      });
+  }
+
+  if (recordType === 'switch-data') {
+    return (rows as SwitchDataRecord[]).map((record) => {
+      const deviceId = record.device_id ?? record.device ?? 0;
+      return {
+        ...record,
+        device_id: deviceId,
+        device_name: normalizeDeviceName(deviceId, record.device_name),
+        switch_status_text: record.switch_status_text || '-',
+        switch_status_hex: record.switch_status_hex || '-',
+      };
+    });
+  }
+
+  if (recordType === 'analog-data') {
+    return (rows as AnalogDataRecord[]).map((record) => {
+      const deviceId = record.device_id ?? record.device ?? 0;
+      return {
+        ...record,
+        device_id: deviceId,
+        device_name: normalizeDeviceName(deviceId, record.device_name),
+      };
+    });
+  }
+
+  return rows;
+};
+
+const requestRecordCount = async (recordType: RecordType): Promise<CountResponse> => {
+  return userStore.requestWithAuth<CountResponse>(selectedSystem.value, {
+    method: 'get',
+    url: `/${recordType}/count/`,
+    params: buildRecordQuery(recordType, false),
+  });
+};
+
+const fetchRecord = async (recordType: RecordType, options: { refreshTotal?: boolean } = {}) => {
+  const state = recordStates[recordType];
+  state.loading = true;
+  state.error = null;
+
+  try {
+    const data = await userStore.requestWithAuth<ListResponse<unknown>>(selectedSystem.value, {
+      method: 'get',
+      url: `/${recordType}/`,
+      params: buildRecordQuery(recordType, true),
+    });
+
+    state.rows = normalizeRows(recordType, data.results || []);
+
+    if (options.refreshTotal ?? true) {
+      const countData = await requestRecordCount(recordType);
+      state.pagination.total = countData.count ?? state.rows.length;
+      state.pagination.approximateTotal = Boolean(countData.approximate);
+    } else if (state.pagination.total === 0) {
+      state.pagination.total = state.rows.length;
+      state.pagination.approximateTotal = false;
+    }
+
+    if (recordType === 'alerts') {
+      selectedAlertRows.value = [];
+    }
+    lastUpdatedAt.value = new Date();
   } catch (error) {
-    console.error('加载用户操作记录失败:', error);
-    errors.userOperations = '用户操作记录加载失败，请重试。';
-    userOperations.value = [];
-    userOperationPagination.total = 0;
-    userOperationPagination.approximateTotal = false;
+    console.error(`加载${recordType}失败:`, error);
+    state.error = `${recordTabs.find((tab) => tab.type === recordType)?.label || '记录'}加载失败，请重试。`;
+    state.rows = [];
+    state.pagination.total = 0;
+    state.pagination.approximateTotal = false;
     throw error;
   } finally {
-    loading.userOperations = false;
+    state.loading = false;
   }
 };
 
-const refreshRecords = async () => {
-  const results = await Promise.allSettled([fetchAlerts(), fetchRelayActions(), fetchUserOperations()]);
-  if (results.some((result) => result.status === 'fulfilled')) {
-    lastUpdatedAt.value = new Date();
+const fetchActiveRecord = async (options: { refreshTotal?: boolean } = {}) => {
+  try {
+    await fetchRecord(activeRecordType.value, options);
+  } catch {
+    // fetchRecord already stores the user-facing error.
   }
 };
 
@@ -805,7 +763,13 @@ const refreshAll = async (reloadDevices: boolean) => {
   if (reloadDevices) {
     await loadDevicesForSystem();
   }
-  await refreshRecords();
+  await fetchActiveRecord({ refreshTotal: true });
+};
+
+const resetPaginationForAll = () => {
+  Object.values(recordStates).forEach((state) => {
+    state.pagination.page = 1;
+  });
 };
 
 const handleManualRefresh = async () => {
@@ -813,57 +777,31 @@ const handleManualRefresh = async () => {
 };
 
 const handleQuery = async () => {
-  alertsPagination.page = 1;
-  relayPagination.page = 1;
-  userOperationPagination.page = 1;
-  await refreshRecords();
+  resetPaginationForAll();
+  await fetchActiveRecord({ refreshTotal: true });
 };
 
 const handleReset = async () => {
   const systemChanged = selectedSystem.value !== 'bt';
   selectedSystem.value = 'bt';
+  activeRecordType.value = 'alerts';
   timeRange.value = defaultTimeRange();
   selectedLine.value = '';
   selectedDeviceId.value = 'all';
   alarmCode.value = undefined;
   confirmedFilter.value = 'unconfirmed';
-  alertsPagination.page = 1;
-  relayPagination.page = 1;
-  userOperationPagination.page = 1;
-  alertsPagination.pageSize = 20;
-  relayPagination.pageSize = 20;
-  userOperationPagination.pageSize = 20;
+  Object.values(recordStates).forEach((state) => {
+    state.pagination.page = 1;
+    state.pagination.pageSize = 20;
+  });
   if (systemChanged) {
     return;
   }
   await refreshAll(true);
 };
 
-const retryAlerts = async () => {
-  try {
-    await fetchAlerts({ refreshTotal: true });
-    lastUpdatedAt.value = new Date();
-  } catch {
-    // error already handled in fetchAlerts
-  }
-};
-
-const retryRelayActions = async () => {
-  try {
-    await fetchRelayActions();
-    lastUpdatedAt.value = new Date();
-  } catch {
-    // error already handled in fetchRelayActions
-  }
-};
-
-const retryUserOperations = async () => {
-  try {
-    await fetchUserOperations();
-    lastUpdatedAt.value = new Date();
-  } catch {
-    // error already handled in fetchUserOperations
-  }
+const handleRecordTabChange = async () => {
+  await fetchActiveRecord({ refreshTotal: true });
 };
 
 const isConfirmingAlert = (alertId?: string): boolean => {
@@ -886,6 +824,10 @@ const confirmHistoricalAlert = async (alert: AlertRecord) => {
     });
     alert.is_confirmed = true;
     ElMessage.success('历史告警已确认');
+    await requestRecordCount('alerts').then((countData) => {
+      recordStates.alerts.pagination.total = countData.count ?? recordStates.alerts.pagination.total;
+      recordStates.alerts.pagination.approximateTotal = Boolean(countData.approximate);
+    });
   } catch (error) {
     console.error('确认历史告警失败:', error);
     ElMessage.error('确认失败，请重试。');
@@ -894,40 +836,94 @@ const confirmHistoricalAlert = async (alert: AlertRecord) => {
   }
 };
 
-const handleAlertsPageChange = async () => {
-  await fetchAlerts({ refreshTotal: false });
+const isAlertSelectable = (row: AlertRecord) => !row.is_confirmed && !!row.id;
+
+const handleAlertSelectionChange = (rows: AlertRecord[]) => {
+  selectedAlertRows.value = rows;
 };
 
-const handleAlertsSizeChange = async () => {
-  alertsPagination.page = 1;
-  await fetchAlerts({ refreshTotal: false });
+const confirmSelectedAlerts = async () => {
+  const ids = selectedAlertRows.value.filter((row) => !row.is_confirmed && row.id).map((row) => row.id);
+  if (ids.length === 0) {
+    ElMessage.warning('请选择未确认的历史告警');
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm(`确认选中的 ${ids.length} 条历史告警？`, '确认选中告警', {
+      type: 'warning',
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+    });
+  } catch {
+    return;
+  }
+
+  confirmingSelectedAlerts.value = true;
+  try {
+    const result = await userStore.requestWithAuth<{ confirmed: number; skipped: number }>(selectedSystem.value, {
+      method: 'post',
+      url: '/alerts/bulk-confirm/',
+      data: { ids },
+    });
+    ElMessage.success(`已确认 ${result.confirmed} 条，跳过 ${result.skipped} 条`);
+    await fetchRecord('alerts', { refreshTotal: true });
+  } catch (error) {
+    console.error('批量确认历史告警失败:', error);
+    ElMessage.error('确认选中失败，请重试。');
+  } finally {
+    confirmingSelectedAlerts.value = false;
+  }
 };
 
-const handleRelayPageChange = async () => {
-  await fetchRelayActions();
+const getExportFilename = (recordType: RecordType) => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${selectedSystem.value}-${recordType}-${year}${month}${day}.csv`;
 };
 
-const handleRelaySizeChange = async () => {
-  relayPagination.page = 1;
-  await fetchRelayActions();
+const exportActiveRecord = async () => {
+  const recordType = activeRecordType.value;
+  exporting[recordType] = true;
+  try {
+    const blob = await userStore.requestWithAuth<Blob>(selectedSystem.value, {
+      method: 'get',
+      url: `/${recordType}/export/`,
+      params: buildRecordQuery(recordType, false),
+      responseType: 'blob',
+    });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = getExportFilename(recordType);
+    link.click();
+    URL.revokeObjectURL(link.href);
+  } catch (error) {
+    console.error('导出记录失败:', error);
+    ElMessage.error('导出失败，请重试。');
+  } finally {
+    exporting[recordType] = false;
+  }
 };
 
-const handleUserOperationPageChange = async () => {
-  await fetchUserOperations();
+const handleActivePageChange = async () => {
+  await fetchActiveRecord({ refreshTotal: false });
 };
 
-const handleUserOperationSizeChange = async () => {
-  userOperationPagination.page = 1;
-  await fetchUserOperations();
+const handleActiveSizeChange = async () => {
+  activeState.value.pagination.page = 1;
+  await fetchActiveRecord({ refreshTotal: false });
 };
 
 watch(selectedSystem, async (system) => {
   persistSelectedSystem(system);
   selectedLine.value = '';
   selectedDeviceId.value = 'all';
-  alertsPagination.page = 1;
-  relayPagination.page = 1;
-  userOperationPagination.page = 1;
+  if (!availableRecordTabs.value.some((tab) => tab.type === activeRecordType.value)) {
+    activeRecordType.value = 'alerts';
+  }
+  resetPaginationForAll();
   await refreshAll(true);
 });
 
@@ -954,10 +950,12 @@ onMounted(async () => {
   margin-top: 16px;
 }
 
-.system-selector-card {
+.system-selector-card,
+.filter-section,
+.table-section {
   border: 1px solid #dcdfe6;
-  border-radius: 12px;
-  padding: 16px 20px;
+  border-radius: 8px;
+  padding: 16px;
   background: #ffffff;
 }
 
@@ -975,32 +973,40 @@ onMounted(async () => {
   max-width: 180px;
 }
 
-.filter-section {
+.system-summary-card {
   border: 1px solid #dcdfe6;
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 16px;
   background: #ffffff;
 }
 
-.filter-header {
+.summary-header,
+.filter-header,
+.section-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
-.filter-header h2 {
+.summary-header h2,
+.filter-header h2,
+.section-header h2 {
   margin: 0;
 }
 
-.filter-header-actions {
+.summary-actions,
+.filter-header-actions,
+.section-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.last-updated {
+.last-updated,
+.section-count {
   color: #5b6b82;
   font-size: 13px;
 }
@@ -1009,63 +1015,7 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 8px;
-}
-
-.system-summary-card {
-  border: 1px solid #dcdfe6;
-  border-radius: 12px;
-  padding: 20px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-}
-
-.summary-header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.summary-header h2 {
-  margin: 0;
-}
-
-.summary-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-
-.table-section {
-  border: 1px solid #dcdfe6;
-  border-radius: 12px;
-  padding: 20px;
-  background: #ffffff;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  gap: 10px;
-}
-
-.section-header h2 {
-  margin: 0;
-}
-
-.section-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.section-count {
-  color: #5b6b82;
-  font-size: 14px;
+  margin-top: 14px;
 }
 
 .section-alert {
@@ -1073,8 +1023,32 @@ onMounted(async () => {
 }
 
 .pagination-wrap {
-  margin-top: 14px;
   display: flex;
   justify-content: flex-end;
+  margin-top: 14px;
+}
+
+@media (max-width: 768px) {
+  .summary-header,
+  .filter-header,
+  .section-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .query-form :deep(.el-form-item) {
+    width: 100%;
+  }
+
+  .query-form :deep(.el-form-item__content),
+  .query-form :deep(.el-select),
+  .query-form :deep(.el-date-editor) {
+    width: 100% !important;
+  }
+
+  .pagination-wrap {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
 }
 </style>

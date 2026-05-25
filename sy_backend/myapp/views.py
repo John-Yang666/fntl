@@ -43,6 +43,7 @@ from django.db import connection
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .runtime_config import build_runtime_config_payload, save_runtime_config_values
 from .tasks.cleanup_tasks import run_cleanup_export_test
+import csv
 
 from .sy_command_sender import (
     make_cmd_a1,
@@ -167,6 +168,53 @@ def _estimated_queryset_count(queryset):
     estimated_count = int(row[0])
     cache.set(cache_key, estimated_count, FAST_COUNT_CACHE_TTL)
     return estimated_count
+
+
+def _local_datetime_text(value):
+    if value is None:
+        return ""
+    from django.utils import timezone
+
+    return timezone.localtime(value).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _dated_records_export_filename(record_type):
+    from django.utils import timezone
+
+    return f"sy-{record_type}-{timezone.localdate().strftime('%Y%m%d')}.csv"
+
+
+def _csv_export_response(record_type, headers, rows):
+    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
+    response["Content-Disposition"] = f'attachment; filename="{_dated_records_export_filename(record_type)}"'
+    response.write("\ufeff")
+    writer = csv.writer(response)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    return response
+
+
+def _list_without_count(viewset, request):
+    queryset = viewset.filter_queryset(viewset.get_queryset())
+    paginator = viewset.paginator
+    page_size = paginator.get_page_size(request) if paginator else None
+    page_size = page_size or 20
+
+    try:
+        page_number = max(int(request.query_params.get("page", "1")), 1)
+    except (TypeError, ValueError):
+        page_number = 1
+
+    offset = (page_number - 1) * page_size
+    serializer = viewset.get_serializer(queryset[offset:offset + page_size], many=True)
+    return Response({"count": None, "results": serializer.data})
+
+
+def _count_response_for_queryset(queryset):
+    estimated_count = _estimated_queryset_count(queryset)
+    approximate = estimated_count is not None
+    total_count = estimated_count if approximate else queryset.count()
+    return Response({"count": total_count, "approximate": approximate})
 
 # =========================
 # BB 命令中文名称映射表
@@ -390,18 +438,57 @@ class DeviceFlagsView(APIView):
         )
 
 
-class SwitchDataViewSet(viewsets.ModelViewSet):  # 从数据库读取开关量信息
-    queryset = SwitchData.objects.all()
-    serializer_class = SwitchDataSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return _filter_related_device_queryset_for_request(super().get_queryset(), self.request)
-
-
 class CustomPageNumberPagination(PageNumberPagination):
     page_size_query_param = "page_size"
     max_page_size = 10000
+
+
+class SwitchDataViewSet(viewsets.ModelViewSet):  # 从数据库读取开关量信息
+    queryset = SwitchData.objects.all()
+    serializer_class = SwitchDataSerializer
+    pagination_class = CustomPageNumberPagination
+    filter_backends = [DjangoFilterBackend]
+    permission_classes = [IsAuthenticated]
+    filterset_fields = {
+        "timestamp": ["gte", "lte"],
+        "device": ["exact"],
+    }
+
+    def get_queryset(self):
+        queryset = (
+            _filter_related_device_queryset_for_request(super().get_queryset(), self.request)
+            .select_related("device")
+            .order_by("-timestamp")
+        )
+        device_id = self.request.query_params.get("device")
+        if device_id is not None:
+            queryset = queryset.filter(device_id=device_id)
+        return _apply_device_line_name_filter(queryset, self.request)
+
+    def list(self, request, *args, **kwargs):
+        if _is_truthy_query_param(request.query_params.get("include_count", "1")):
+            return super().list(request, *args, **kwargs)
+        return _list_without_count(self, request)
+
+    @action(detail=False, methods=["get"], url_path="count")
+    def count(self, request):
+        return _count_response_for_queryset(self.filter_queryset(self.get_queryset()))
+
+    @action(detail=False, methods=["get"], url_path="export")
+    def export(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        rows = [
+            [
+                _local_datetime_text(record.timestamp),
+                record.device.device_id,
+                record.device.name,
+                bytes(record.switch_status or b"").hex().upper(),
+                " ".join(f"({idx + 1}){byte:08b}" for idx, byte in enumerate(bytes(record.switch_status or b""))),
+                record.version,
+            ]
+            for record in queryset
+        ]
+        return _csv_export_response("switch-data", ["时间", "设备ID", "设备名称", "HEX", "状态字", "版本"], rows)
 
 
 class RelayActionViewSet(viewsets.ModelViewSet):
@@ -424,6 +511,31 @@ class RelayActionViewSet(viewsets.ModelViewSet):
         queryset = queryset.order_by("-timestamp")
         return queryset
 
+    def list(self, request, *args, **kwargs):
+        if _is_truthy_query_param(request.query_params.get("include_count", "1")):
+            return super().list(request, *args, **kwargs)
+        return _list_without_count(self, request)
+
+    @action(detail=False, methods=["get"], url_path="count")
+    def count(self, request):
+        return _count_response_for_queryset(self.filter_queryset(self.get_queryset()))
+
+    @action(detail=False, methods=["get"], url_path="export")
+    def export(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        rows = [
+            [
+                _local_datetime_text(record.timestamp),
+                record.device.device_id,
+                record.device.name,
+                record.relay,
+                record.action,
+                record.source,
+            ]
+            for record in queryset.select_related("device")
+        ]
+        return _csv_export_response("relay-actions", ["时间", "设备ID", "设备名称", "继电器", "动作", "来源"], rows)
+
 
 class UserOperationViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = UserOperation.objects.all()
@@ -443,6 +555,31 @@ class UserOperationViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(device_id=device_id)
         queryset = _apply_device_line_name_filter(queryset, self.request)
         return queryset.order_by("-timestamp")
+
+    def list(self, request, *args, **kwargs):
+        if _is_truthy_query_param(request.query_params.get("include_count", "1")):
+            return super().list(request, *args, **kwargs)
+        return _list_without_count(self, request)
+
+    @action(detail=False, methods=["get"], url_path="count")
+    def count(self, request):
+        return _count_response_for_queryset(self.filter_queryset(self.get_queryset()))
+
+    @action(detail=False, methods=["get"], url_path="export")
+    def export(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        rows = [
+            [
+                _local_datetime_text(record.timestamp),
+                record.device.device_id if record.device else "",
+                record.device.name if record.device else "系统级操作",
+                record.function_code,
+                record.operation,
+                record.username or "",
+            ]
+            for record in queryset.select_related("device")
+        ]
+        return _csv_export_response("user-operations", ["时间", "设备ID", "设备名称", "操作码", "操作名称", "用户名"], rows)
 
 
 class ActiveAlarmListView(APIView):
@@ -511,28 +648,44 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
     def list(self, request, *args, **kwargs):
         if _is_truthy_query_param(request.query_params.get("include_count", "1")):
             return super().list(request, *args, **kwargs)
-
-        queryset = self.filter_queryset(self.get_queryset())
-        paginator = self.paginator
-        page_size = paginator.get_page_size(request) if paginator else None
-        page_size = page_size or 20
-
-        try:
-            page_number = max(int(request.query_params.get("page", "1")), 1)
-        except (TypeError, ValueError):
-            page_number = 1
-
-        offset = (page_number - 1) * page_size
-        serializer = self.get_serializer(queryset[offset:offset + page_size], many=True)
-        return Response({"count": None, "results": serializer.data})
+        return _list_without_count(self, request)
 
     @action(detail=False, methods=["get"], url_path="count")
     def count(self, request):
-        queryset = self.filter_queryset(AlarmData.objects.all())
-        estimated_count = _estimated_queryset_count(queryset)
-        approximate = estimated_count is not None
-        total_count = estimated_count if approximate else queryset.count()
-        return Response({"count": total_count, "approximate": approximate})
+        return _count_response_for_queryset(self.filter_queryset(self.get_queryset()))
+
+    @action(detail=False, methods=["get"], url_path="export")
+    def export(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        rows = [
+            [
+                _local_datetime_text(record.timestamp_start),
+                _local_datetime_text(record.timestamp_end),
+                record.device.device_id,
+                record.device.name,
+                record.alarm_code,
+                record.alarm_meaning,
+                "已确认" if record.is_confirmed else "未确认",
+            ]
+            for record in queryset.select_related("device")
+        ]
+        return _csv_export_response(
+            "alerts",
+            ["开始时间", "结束时间", "设备ID", "设备名称", "告警码", "告警含义", "确认状态"],
+            rows,
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk-confirm")
+    def bulk_confirm(self, request):
+        ids = request.data.get("ids", [])
+        if not isinstance(ids, list):
+            return Response({"detail": "ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+
+        unique_ids = [str(item) for item in dict.fromkeys(ids) if item]
+        queryset = self.get_queryset().filter(id__in=unique_ids)
+        scoped_count = queryset.count()
+        queryset.filter(is_confirmed=False).update(is_confirmed=True)
+        return Response({"confirmed": scoped_count, "skipped": max(len(unique_ids) - scoped_count, 0)})
 
     @action(detail=True, methods=["post"], url_path="confirm")
     def confirm(self, request, pk=None):

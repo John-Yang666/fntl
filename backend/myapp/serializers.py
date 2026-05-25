@@ -34,9 +34,29 @@ class DeviceSerializer(serializers.ModelSerializer):
         return obj.line_name or None
 
 class SwitchDataSerializer(serializers.ModelSerializer):
+    device_id = serializers.IntegerField(source='device.device_id', read_only=True)
+    device_name = serializers.CharField(source='device.name', read_only=True)
+    switch_status_text = serializers.SerializerMethodField()
+    switch_status_hex = serializers.SerializerMethodField()
+
     class Meta:
         model = SwitchData
-        fields = '__all__'
+        fields = [
+            'id',
+            'device',
+            'device_id',
+            'device_name',
+            'switch_status',
+            'switch_status_text',
+            'switch_status_hex',
+            'timestamp',
+        ]
+
+    def get_switch_status_text(self, obj):
+        return obj.get_status_bits_grouped_by_byte(start_byte=4)
+
+    def get_switch_status_hex(self, obj):
+        return bytes(obj.switch_status or b'').hex().upper()
 
 class AlarmActiveSerializer(serializers.ModelSerializer):
     device_id = serializers.IntegerField(source='device.device_id')
@@ -53,14 +73,38 @@ class AlarmActiveSerializer(serializers.ModelSerializer):
         return obj.alarm_meaning
     
 class AnalogDataSerializer(serializers.ModelSerializer):
+    device_id = serializers.IntegerField(source='device.device_id', read_only=True)
+    device_name = serializers.CharField(source='device.name', read_only=True)
+
     class Meta:
         model = AnalogData
-        fields = '__all__'
+        fields = [
+            'id',
+            'device',
+            'device_id',
+            'device_name',
+            'voltage_1',
+            'current_1',
+            'voltage_2',
+            'current_2',
+            'timestamp',
+        ]
 
 class RelayActionSerializer(serializers.ModelSerializer):
+    device_id = serializers.IntegerField(source='device.device_id', read_only=True)
+    device_name = serializers.CharField(source='device.name', read_only=True)
+
     class Meta:
         model = RelayAction
-        fields = '__all__'
+        fields = [
+            'id',
+            'device',
+            'device_id',
+            'device_name',
+            'relay',
+            'action',
+            'timestamp',
+        ]
 
 class UserOperationSerializer(serializers.ModelSerializer):
     device_id = serializers.IntegerField(source='device.device_id', read_only=True, allow_null=True)
