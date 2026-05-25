@@ -36,6 +36,7 @@ Thumbs.db
 .idea/
 .vscode/
 .superpowers/
+.worktrees/
 
 # Local databases, runtime dumps, and logs
 *.log
