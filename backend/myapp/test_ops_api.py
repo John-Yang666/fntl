@@ -241,6 +241,10 @@ class OpsDeviceImportExportTests(OpsApiBase):
         response = self.client.get(reverse("ops-device-export"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         content = response.content.decode("utf-8-sig")
+        self.assertRegex(
+            response["Content-Disposition"],
+            r'attachment; filename="bt-devices-\d{8}\.csv"',
+        )
         self.assertIn("设备ID", content)
         self.assertIn("A设备", content)
         self.assertNotIn("B设备", content)

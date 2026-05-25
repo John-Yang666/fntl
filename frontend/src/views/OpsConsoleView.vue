@@ -3,7 +3,7 @@
     <section class="ops-header">
       <div>
         <h1>BT 运维管理</h1>
-        <p>维护 BT 设备、车间、线路、导入导出和重连命令。记录页的后端入口保留为兜底入口。</p>
+        <p>维护 BT 设备、车间、线路、批量导入导出和重连命令。记录页的后端入口保留为兜底入口。</p>
       </div>
       <div class="ops-header-actions">
         <el-button :loading="loading.bootstrap" @click="reloadAll">刷新</el-button>
@@ -50,7 +50,8 @@
             </el-form>
             <div class="toolbar-actions">
               <el-button type="primary" @click="openDeviceDialog()">新增设备</el-button>
-              <el-button :disabled="selectedDevices.length === 0" @click="exportDevices">导出</el-button>
+              <el-button @click="openImportDialog">导入设备</el-button>
+              <el-button :disabled="loading.devices" @click="exportDevices">导出</el-button>
               <el-button :disabled="selectedDevices.length === 0" @click="confirmBulkReconnect">批量重连</el-button>
               <el-button type="danger" :disabled="selectedDevices.length === 0" @click="confirmBulkDelete">批量删除</el-button>
             </div>
@@ -151,33 +152,6 @@
         </section>
       </el-tab-pane>
 
-      <el-tab-pane label="导入导出" name="importExport">
-        <section class="ops-section compact">
-          <div class="import-row">
-            <input ref="fileInputRef" type="file" accept=".csv,.xlsx" @change="handleImportFileChange" />
-            <el-button :loading="loading.importPreview" @click="previewImport">导入预检</el-button>
-            <el-button
-              type="primary"
-              :disabled="importPreview.rows.length === 0 || importPreview.summary.error > 0"
-              :loading="loading.importCommit"
-              @click="commitImport"
-            >
-              提交导入
-            </el-button>
-          </div>
-          <div class="summary-row">
-            <el-tag>新增 {{ importPreview.summary.create }}</el-tag>
-            <el-tag>更新 {{ importPreview.summary.update }}</el-tag>
-            <el-tag :type="importPreview.summary.error ? 'danger' : 'success'">错误 {{ importPreview.summary.error }}</el-tag>
-          </div>
-          <el-table :data="importPreview.errors" border stripe>
-            <el-table-column prop="row" label="行号" width="90" />
-            <el-table-column prop="field" label="字段" width="180" />
-            <el-table-column prop="message" label="错误" />
-          </el-table>
-        </section>
-      </el-tab-pane>
-
       <el-tab-pane label="操作结果" name="results">
         <section class="ops-section compact">
           <el-table :data="operationResults" border stripe>
@@ -226,6 +200,34 @@
       <template #footer>
         <el-button @click="deviceDialog.visible = false">取消</el-button>
         <el-button type="primary" :loading="loading.savingDevice" @click="saveDevice">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="importDialogVisible" title="导入设备" width="760px">
+      <div class="import-row">
+        <input ref="fileInputRef" type="file" accept=".csv,.xlsx" @change="handleImportFileChange" />
+        <el-button :loading="loading.importPreview" @click="previewImport">导入预检</el-button>
+      </div>
+      <div class="summary-row">
+        <el-tag>新增 {{ importPreview.summary.create }}</el-tag>
+        <el-tag>更新 {{ importPreview.summary.update }}</el-tag>
+        <el-tag :type="importPreview.summary.error ? 'danger' : 'success'">错误 {{ importPreview.summary.error }}</el-tag>
+      </div>
+      <el-table :data="importPreview.errors" border stripe>
+        <el-table-column prop="row" label="行号" width="90" />
+        <el-table-column prop="field" label="字段" width="180" />
+        <el-table-column prop="message" label="错误" />
+      </el-table>
+      <template #footer>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :disabled="importPreview.rows.length === 0 || importPreview.summary.error > 0"
+          :loading="loading.importCommit"
+          @click="commitImport"
+        >
+          提交导入
+        </el-button>
       </template>
     </el-dialog>
 
@@ -298,6 +300,7 @@ const devices = ref<OpsDevice[]>([]);
 const selectedDevices = ref<OpsDevice[]>([]);
 const importFile = ref<File | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const importDialogVisible = ref(false);
 const operationResults = ref<Array<{ time: string; type: string; message: string }>>([]);
 
 const loading = reactive({
@@ -554,6 +557,14 @@ const confirmReconnect = async (rows: OpsDevice[]) => {
 
 const confirmBulkReconnect = () => confirmReconnect(selectedDevices.value);
 
+const getDeviceExportFilename = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `bt-devices-${year}${month}${day}.csv`;
+};
+
 const exportDevices = async () => {
   const blob = await userStore.requestWithAuth<Blob>('bt', {
     method: 'get',
@@ -563,7 +574,7 @@ const exportDevices = async () => {
   });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = 'bt-devices.csv';
+  link.download = getDeviceExportFilename();
   link.click();
   URL.revokeObjectURL(link.href);
 };
@@ -609,6 +620,21 @@ const saveDictionary = async () => {
   }
 };
 
+const resetImportPreview = () => {
+  importFile.value = null;
+  if (fileInputRef.value) {
+    fileInputRef.value.value = '';
+  }
+  Object.assign(importPreview.summary, { create: 0, update: 0, error: 0 });
+  importPreview.rows = [];
+  importPreview.errors = [];
+};
+
+const openImportDialog = () => {
+  resetImportPreview();
+  importDialogVisible.value = true;
+};
+
 const handleImportFileChange = () => {
   importFile.value = fileInputRef.value?.files?.[0] ?? null;
 };
@@ -652,6 +678,8 @@ const commitImport = async () => {
     addResult('导入提交', `新增 ${response.created}，更新 ${response.updated}`);
     ElMessage.success('导入完成');
     await fetchDevices();
+    importDialogVisible.value = false;
+    resetImportPreview();
   } finally {
     loading.importCommit = false;
   }

@@ -8,7 +8,7 @@
       <el-tab-pane label="记录查询" name="records"></el-tab-pane>
       <el-tab-pane v-if="canAccessOps" label="运维管理" name="ops"></el-tab-pane>
       <el-tab-pane v-if="isSuperuser" label="系统设置" name="systemSettings"></el-tab-pane>
-      <el-tab-pane label="帮助与支持" name="fourth"></el-tab-pane>
+      <el-tab-pane label="帮助" name="fourth"></el-tab-pane>
     </el-tabs>
 
     <div class="action-buttons">
