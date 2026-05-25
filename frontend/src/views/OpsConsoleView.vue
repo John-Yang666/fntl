@@ -684,6 +684,7 @@ const previewImport = async () => {
     importPreview.rows = response.rows;
     importPreview.errors = response.errors;
     addResult('导入预检', `新增 ${response.summary.create}，更新 ${response.summary.update}，错误 ${response.summary.error}`);
+    ElMessage.success(`预检完成：新增 ${response.summary.create}，更新 ${response.summary.update}，错误 ${response.summary.error}`);
   } catch (error) {
     console.error(error);
     ElMessage.error('导入预检失败');
