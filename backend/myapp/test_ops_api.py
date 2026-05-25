@@ -38,9 +38,11 @@ class OpsPermissionTests(TestCase):
         )
         self.superuser = user_model.objects.create_superuser("root", "root@example.com", "pw")
         self.ops_user = user_model.objects.create_user("ops", "ops@example.com", "pw")
+        self.staff_user = user_model.objects.create_user("staff", "staff@example.com", "pw", is_staff=True)
         self.regular_user = user_model.objects.create_user("regular", "regular@example.com", "pw")
         self.ops_user.groups.add(Group.objects.get(name=SYSTEM_ADMIN_GROUP_NAME))
         self.ops_user.depots.add(self.depot_a)
+        self.staff_user.depots.add(self.depot_a)
 
     def test_superuser_can_access_all_ops_data(self):
         ensure_ops_access(self.superuser)
@@ -51,6 +53,11 @@ class OpsPermissionTests(TestCase):
         ensure_ops_access(self.ops_user)
         self.assertEqual(list(scoped_depots_for_user(self.ops_user)), [self.depot_a])
         self.assertEqual(list(scoped_devices_for_user(self.ops_user)), [self.device_a])
+
+    def test_staff_admin_is_scoped_to_assigned_depots(self):
+        ensure_ops_access(self.staff_user)
+        self.assertEqual(list(scoped_depots_for_user(self.staff_user)), [self.depot_a])
+        self.assertEqual(list(scoped_devices_for_user(self.staff_user)), [self.device_a])
 
     def test_regular_user_cannot_access_ops(self):
         with self.assertRaises(PermissionDenied):
@@ -98,9 +105,11 @@ class OpsApiBase(APITestCase):
         )
         self.superuser = user_model.objects.create_superuser("root-api", "root-api@example.com", "pw")
         self.ops_user = user_model.objects.create_user("ops-api", "ops-api@example.com", "pw")
+        self.staff_user = user_model.objects.create_user("staff-api", "staff-api@example.com", "pw", is_staff=True)
         self.regular_user = user_model.objects.create_user("regular-api", "regular-api@example.com", "pw")
         self.ops_user.groups.add(Group.objects.get(name=SYSTEM_ADMIN_GROUP_NAME))
         self.ops_user.depots.add(self.depot_a)
+        self.staff_user.depots.add(self.depot_a)
 
 
 class OpsDepotLineApiTests(OpsApiBase):
@@ -111,6 +120,12 @@ class OpsDepotLineApiTests(OpsApiBase):
 
     def test_system_admin_lists_only_assigned_depots(self):
         self.client.force_authenticate(self.ops_user)
+        response = self.client.get(reverse("ops-depot-list"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["name"] for item in response.data["results"]], ["A车间"])
+
+    def test_staff_admin_lists_only_assigned_depots(self):
+        self.client.force_authenticate(self.staff_user)
         response = self.client.get(reverse("ops-depot-list"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item["name"] for item in response.data["results"]], ["A车间"])

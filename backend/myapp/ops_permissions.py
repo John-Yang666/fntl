@@ -8,6 +8,8 @@ def user_has_ops_access(user) -> bool:
         return False
     if user.is_superuser:
         return True
+    if user.is_staff:
+        return True
     return user.groups.filter(name=SYSTEM_ADMIN_GROUP_NAME).exists()
 
 
