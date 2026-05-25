@@ -31,6 +31,7 @@ from .models import (
     Depot, Line, Device, SwitchData, AlarmActive, AnalogData, AlarmData,
     RelayAction, UserOperation, UploadedFile, HelpFaqEntry
 )
+from .device_commands import send_reconnect_packet_to_device
 from .udp_sender import create_packet
 
 logger = logging.getLogger(__name__)
@@ -979,8 +980,6 @@ def send_reconnect_command(modeladmin, request, queryset):
     ok, fail = 0, 0
     missing_ip = []
 
-    pkt = _build_reconnect_packet_fixed_addr()
-
     for dev in queryset:
         target_ip = getattr(dev, "ip_address", None)
         if not target_ip:
@@ -988,7 +987,7 @@ def send_reconnect_command(modeladmin, request, queryset):
             continue
 
         try:
-            _send_cmd_via_redis_stream(target_ip=target_ip, packet=pkt)
+            send_reconnect_packet_to_device(dev)
             ok += 1
 
             UserOperation.objects.create(

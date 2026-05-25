@@ -227,6 +227,11 @@ export const useUserStore = defineStore('user', {
       (system: SystemType): boolean => !!state.auth[system].token,
     isSystemSuperuser: (state: UserState): (system: SystemType) => boolean =>
       (system: SystemType): boolean => !!state.auth[system].user?.is_superuser,
+    canAccessOps: (state: UserState): boolean =>
+      SYSTEMS.some((system) => {
+        const user = state.auth[system].user;
+        return !!user?.is_superuser || !!user?.groups.includes('System Admin');
+      }),
     getUser: (state: UserState): (system: SystemType) => User | null =>
       (system: SystemType): User | null => state.auth[system].user,
     hasPermission: (state: UserState): (permission: string) => boolean =>

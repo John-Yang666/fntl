@@ -6,6 +6,7 @@
       <el-tab-pane label="设备监控" name="main"></el-tab-pane>
       <el-tab-pane :label="activeAlertsTabLabel" name="activeAlerts"></el-tab-pane>
       <el-tab-pane label="记录查询" name="records"></el-tab-pane>
+      <el-tab-pane v-if="canAccessOps" label="运维管理" name="ops"></el-tab-pane>
       <el-tab-pane v-if="isSuperuser" label="系统设置" name="systemSettings"></el-tab-pane>
       <el-tab-pane label="帮助与支持" name="fourth"></el-tab-pane>
     </el-tabs>
@@ -62,6 +63,7 @@ const activeName = ref(props.selectedTab);
 
 const username = computed(() => userStore.user?.username ?? null);
 const isSuperuser = computed(() => userStore.isSuperuser);
+const canAccessOps = computed(() => userStore.canAccessOps);
 const selectedDevices = ref<string[]>([]);
 const hasAlerts = ref(false);
 const hasUnconfirmedAlerts = ref(false);
@@ -93,6 +95,7 @@ const handleClick = (tab: TabsPaneContext) => {
   switch (tab.paneName) {
     case 'main': router.push('/main'); break;
     case 'records': router.push('/records'); break;
+    case 'ops': router.push('/ops'); break;
     case 'activeAlerts': router.push('/alerts'); break;
     case 'systemSettings': router.push('/runtime-config'); break;
     case 'fourth': router.push('/help'); break;
@@ -103,6 +106,11 @@ const handleClick = (tab: TabsPaneContext) => {
 const syncActiveTabWithRoute = () => {
   if (route.path.startsWith('/runtime-config') && isSuperuser.value) {
     activeName.value = 'systemSettings';
+    return;
+  }
+
+  if (route.path.startsWith('/ops') && canAccessOps.value) {
+    activeName.value = 'ops';
     return;
   }
 

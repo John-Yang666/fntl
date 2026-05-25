@@ -3,6 +3,7 @@ from django.urls import path, include # type: ignore
 from django.views.generic import RedirectView  # 导入 RedirectView
 from rest_framework.routers import DefaultRouter # type: ignore
 from myapp import views
+from myapp import ops_views
 from myapp.auth_views import RuntimeConfigTokenObtainPairView, RuntimeConfigTokenRefreshView
 
 # 标准资源操作：用于标准的 ViewSet，适合处理标准的模型操作。
@@ -15,11 +16,19 @@ router.register(r'user-operations', views.UserOperationViewSet)
 router.register(r'alerts', views.AlarmDataViewSet)
 router.register(r'uploaded-files', views.UploadedFileViewSet, basename='uploadedfile')
 
+ops_router = DefaultRouter()
+ops_router.register(r'depots', ops_views.OpsDepotViewSet, basename='ops-depot')
+ops_router.register(r'lines', ops_views.OpsLineViewSet, basename='ops-line')
+ops_router.register(r'devices', ops_views.OpsDeviceViewSet, basename='ops-device')
+
 # 自定义操作：用于自定义的视图（View 或 APIView），适合处理特定的业务逻辑或自定义的 URL 格式。
 urlpatterns = [
     path('', RedirectView.as_view(url='/admin/', permanent=True)),  # 将根路径重定向到 /admin/
     path('admin/', admin.site.urls),  # 启用 admin 界面
     path('api/', include(router.urls)),
+    path('api/ops/', include(ops_router.urls)),
+    path('api/ops/devices/import/preview/', ops_views.OpsDeviceImportPreviewView.as_view(), name='ops-device-import-preview'),
+    path('api/ops/devices/import/commit/', ops_views.OpsDeviceImportCommitView.as_view(), name='ops-device-import-commit'),
     path('api/switch-status/<int:device_id>/', views.SwitchStatusView.as_view(), name='switch-status'),
     path('api/analog-status/<int:device_id>/', views.AnalogStatusView.as_view(), name='analog-status'),
     path('api/devices-list/', views.DeviceListView.as_view(), name='device-list'),

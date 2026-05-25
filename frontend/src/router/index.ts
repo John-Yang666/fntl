@@ -61,6 +61,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresSuperuser: true }
   },
   {
+    path: '/ops',
+    name: 'opsConsole',
+    component: () => import('../views/OpsConsoleView.vue'),
+    meta: { requiresAuth: true, requiresOpsAccess: true }
+  },
+  {
     path: '/topology',
     name: 'TopologyGraph',
     component: () => import('../views/TopologyGraph.vue'),
@@ -104,6 +110,10 @@ router.beforeEach(async (to, from, next) => {
       try {
         await userStore.ensureUsersLoaded();
         if (to.matched.some((record) => record.meta.requiresSuperuser) && !userStore.isSuperuser) {
+          next({ path: '/main' });
+          return;
+        }
+        if (to.matched.some((record) => record.meta.requiresOpsAccess) && !userStore.canAccessOps) {
           next({ path: '/main' });
           return;
         }
