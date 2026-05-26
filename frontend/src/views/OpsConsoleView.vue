@@ -184,7 +184,14 @@
         </el-form-item>
         <el-form-item label="一方向启用"><el-switch v-model="deviceDialog.form.direction1_enabled" /></el-form-item>
         <el-form-item label="二方向启用"><el-switch v-model="deviceDialog.form.direction2_enabled" /></el-form-item>
-        <el-form-item label="过滤告警码"><el-input v-model="deviceDialog.alarmFilterText" placeholder="例如 40;41" /></el-form-item>
+        <el-form-item label="过滤告警码">
+          <el-input
+            v-model="deviceDialog.alarmFilterText"
+            placeholder="例如 40;41"
+            @blur="formatAlarmFilterText"
+            @change="formatAlarmFilterText"
+          />
+        </el-form-item>
         <el-form-item label="备注"><el-input v-model="deviceDialog.form.remark" /></el-form-item>
       </el-form>
       <template #footer>
@@ -482,17 +489,29 @@ const copyDevice = (device: OpsDevice) => {
   openDeviceDialog(copied);
 };
 
-const parseAlarmFilters = () =>
-  deviceDialog.alarmFilterText
-    .split(/[;,，]/)
+const normalizeAlarmFilterText = (value: string) =>
+  value
+    .split(/[;；,，、\s]+/)
     .map((item) => item.trim())
     .filter(Boolean)
     .map((item) => Number.parseInt(item, 10))
-    .filter((item) => !Number.isNaN(item));
+    .filter((item) => !Number.isNaN(item))
+    .join(';');
+
+const formatAlarmFilterText = () => {
+  deviceDialog.alarmFilterText = normalizeAlarmFilterText(deviceDialog.alarmFilterText);
+};
+
+const parseAlarmFilters = () =>
+  normalizeAlarmFilterText(deviceDialog.alarmFilterText)
+    .split(';')
+    .filter(Boolean)
+    .map((item) => Number.parseInt(item, 10));
 
 const saveDevice = async () => {
   loading.savingDevice = true;
   try {
+    formatAlarmFilterText();
     const payload = {
       ...deviceDialog.form,
       line_id: deviceDialog.form.line_id ?? null,
