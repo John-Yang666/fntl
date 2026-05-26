@@ -151,16 +151,6 @@
           </el-table>
         </section>
       </el-tab-pane>
-
-      <el-tab-pane label="操作结果" name="results">
-        <section class="ops-section compact">
-          <el-table :data="operationResults" border stripe>
-            <el-table-column prop="time" label="时间" width="180" />
-            <el-table-column prop="type" label="操作" width="140" />
-            <el-table-column prop="message" label="结果" />
-          </el-table>
-        </section>
-      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="deviceDialog.visible" :title="deviceDialog.form.id ? '编辑设备' : '新增设备'" width="760px">
@@ -309,7 +299,6 @@ const selectedDevices = ref<OpsDevice[]>([]);
 const importFile = ref<File | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const importDialogVisible = ref(false);
-const operationResults = ref<Array<{ time: string; type: string; message: string }>>([]);
 
 const loading = reactive({
   bootstrap: false,
@@ -377,14 +366,6 @@ const dictionaryDialog = reactive({
     remark: '',
   },
 });
-
-const addResult = (type: string, message: string) => {
-  operationResults.value.unshift({
-    time: new Date().toLocaleString('zh-CN', { hour12: false }),
-    type,
-    message,
-  });
-};
 
 const fetchDepots = async () => {
   const response = await userStore.requestWithAuth<Paginated<DepotLine>>('bt', {
@@ -523,14 +504,12 @@ const saveDevice = async () => {
         url: `/ops/devices/${payload.id}/`,
         data: payload,
       });
-      addResult('设备', `已更新 ${payload.name}`);
     } else {
       await userStore.requestWithAuth('bt', {
         method: 'post',
         url: '/ops/devices/',
         data: payload,
       });
-      addResult('设备', `已新增 ${payload.name}`);
     }
     deviceDialog.visible = false;
     await fetchDevices();
@@ -551,14 +530,14 @@ const confirmDelete = async (rows: OpsDevice[]) => {
   );
   if (rows.length === 1) {
     await userStore.requestWithAuth('bt', { method: 'delete', url: `/ops/devices/${rows[0].id}/` });
-    addResult('删除', `已删除 ${rows[0].name}`);
+    ElMessage.success(`已删除 ${rows[0].name}`);
   } else {
     await userStore.requestWithAuth('bt', {
       method: 'post',
       url: '/ops/devices/bulk-delete/',
       data: { device_ids: rows.map((row) => row.device_id) },
     });
-    addResult('删除', `已提交批量删除 ${rows.length} 台`);
+    ElMessage.success(`已提交批量删除 ${rows.length} 台`);
   }
   await fetchDevices();
 };
@@ -577,14 +556,12 @@ const confirmReconnect = async (rows: OpsDevice[]) => {
     url: '/ops/devices/reconnect/',
     data: { device_ids: rows.map((row) => row.device_id) },
   });
-  addResult('重连', `成功 ${response.success}，失败 ${response.failed}，跳过 ${response.skipped}`);
-  operationResults.value.unshift(
-    ...response.results.map((item) => ({
-      time: new Date().toLocaleString('zh-CN', { hour12: false }),
-      type: `设备 ${item.device_id}`,
-      message: `${item.status}: ${item.message}`,
-    })),
-  );
+  const reconnectMessage = `重连命令已发送：成功 ${response.success}，失败 ${response.failed}，跳过 ${response.skipped}`;
+  if (response.failed > 0 || response.skipped > 0) {
+    ElMessage.warning(reconnectMessage);
+  } else {
+    ElMessage.success(reconnectMessage);
+  }
 };
 
 const confirmBulkReconnect = () => confirmReconnect(selectedDevices.value);
@@ -642,7 +619,6 @@ const saveDictionary = async () => {
     }
     dictionaryDialog.visible = false;
     await Promise.all([fetchDepots(), fetchLines()]);
-    addResult(dictionaryDialog.type === 'depot' ? '车间' : '线路', `已保存 ${dictionaryDialog.form.name}`);
     ElMessage.success('保存成功');
   } catch (error) {
     console.error(error);
@@ -697,7 +673,6 @@ const previewImport = async () => {
     Object.assign(importPreview.summary, response.summary);
     importPreview.rows = response.rows;
     importPreview.errors = response.errors;
-    addResult('导入预检', `新增 ${response.summary.create}，更新 ${response.summary.update}，错误 ${response.summary.error}`);
     importPreview.resultText = `预检完成：新增 ${response.summary.create}，更新 ${response.summary.update}，错误 ${response.summary.error}`;
   } catch (error) {
     console.error(error);
@@ -715,7 +690,6 @@ const commitImport = async () => {
       url: '/ops/devices/import/commit/',
       data: { rows: importPreview.rows },
     });
-    addResult('导入提交', `新增 ${response.created}，更新 ${response.updated}`);
     ElMessage.success('导入完成');
     await fetchDevices();
     importDialogVisible.value = false;
