@@ -228,6 +228,19 @@ class OpsDeviceApiTests(OpsApiBase):
         self.assertEqual(response.data["skipped"], 1)
         self.assertFalse(Device.objects.filter(device_id=101).exists())
         self.assertTrue(Device.objects.filter(device_id=102).exists())
+        operation = UserOperation.objects.get(function_code="ops_device_bulk_delete")
+        self.assertIsNone(operation.device)
+        self.assertEqual(operation.operation, "批量删除设备：成功 1，跳过 1")
+
+    def test_device_delete_keeps_audit_after_device_is_removed(self):
+        self.client.force_authenticate(self.ops_user)
+        response = self.client.delete(reverse("ops-device-detail", args=[self.device_a.pk]))
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Device.objects.filter(device_id=101).exists())
+        operation = UserOperation.objects.get(function_code="ops_device_delete")
+        self.assertIsNone(operation.device)
+        self.assertEqual(operation.operation, "删除设备：A设备（101）")
 
     @patch("myapp.device_commands.send_reconnect_packet_to_device")
     def test_reconnect_returns_per_device_results(self, mock_send):
@@ -243,6 +256,9 @@ class OpsDeviceApiTests(OpsApiBase):
         self.assertEqual(response.data["skipped"], 2)
         self.assertEqual(mock_send.call_count, 1)
         self.assertTrue(UserOperation.objects.filter(function_code="ops_device_reconnect").exists())
+        summary = UserOperation.objects.get(function_code="ops_device_reconnect_batch")
+        self.assertIsNone(summary.device)
+        self.assertEqual(summary.operation, "批量重连设备：成功 1，失败 0，跳过 2")
 
 
 class OpsDeviceImportExportTests(OpsApiBase):
@@ -258,6 +274,9 @@ class OpsDeviceImportExportTests(OpsApiBase):
         self.assertIn("设备ID", content)
         self.assertIn("A设备", content)
         self.assertNotIn("B设备", content)
+        operation = UserOperation.objects.get(function_code="ops_device_export")
+        self.assertIsNone(operation.device)
+        self.assertEqual(operation.operation, "导出设备：1 台")
 
     def test_export_normalizes_legacy_alarm_filter_string(self):
         self.device_a.alarm_filters = "[]"
@@ -289,6 +308,9 @@ class OpsDeviceImportExportTests(OpsApiBase):
         self.assertEqual(response.data["summary"]["update"], 1)
         self.assertEqual(response.data["summary"]["error"], 1)
         self.assertEqual(Device.objects.filter(device_id=105).count(), 0)
+        operation = UserOperation.objects.get(function_code="ops_device_import_preview")
+        self.assertIsNone(operation.device)
+        self.assertEqual(operation.operation, "导入预检：新增 1，更新 1，错误 1")
 
     def test_import_preview_accepts_legacy_exported_empty_alarm_filter_marker(self):
         self.client.force_authenticate(self.ops_user)
@@ -333,3 +355,6 @@ class OpsDeviceImportExportTests(OpsApiBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["created"], 1)
         self.assertTrue(Device.objects.filter(device_id=105, depot=self.depot_a).exists())
+        operation = UserOperation.objects.get(function_code="ops_device_import_commit")
+        self.assertIsNone(operation.device)
+        self.assertEqual(operation.operation, "导入提交：新增 1，更新 0")

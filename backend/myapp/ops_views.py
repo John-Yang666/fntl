@@ -88,7 +88,11 @@ class OpsDeviceViewSet(OpsAccessMixin, viewsets.ModelViewSet):
         log_device_operation(user=self.request.user, device=device, function_code="ops_device_update", operation=f"修改设备：{device.name}")
 
     def perform_destroy(self, instance):
-        log_device_operation(user=self.request.user, device=instance, function_code="ops_device_delete", operation=f"删除设备：{instance.name}")
+        log_system_operation(
+            user=self.request.user,
+            function_code="ops_device_delete",
+            operation=f"删除设备：{instance.name}（{instance.device_id}）",
+        )
         instance.delete()
 
     @action(detail=False, methods=["post"], url_path="bulk-delete")
@@ -98,9 +102,15 @@ class OpsDeviceViewSet(OpsAccessMixin, viewsets.ModelViewSet):
         scoped_ids = set(scoped.values_list("device_id", flat=True))
         deleted = 0
         for device in list(scoped):
-            self.perform_destroy(device)
+            device.delete()
             deleted += 1
-        return Response({"deleted": deleted, "skipped": len(set(requested_ids) - scoped_ids)})
+        skipped = len(set(requested_ids) - scoped_ids)
+        log_system_operation(
+            user=request.user,
+            function_code="ops_device_bulk_delete",
+            operation=f"批量删除设备：成功 {deleted}，跳过 {skipped}",
+        )
+        return Response({"deleted": deleted, "skipped": skipped})
 
     @action(detail=False, methods=["post"], url_path="reconnect")
     def reconnect(self, request):
@@ -129,11 +139,23 @@ class OpsDeviceViewSet(OpsAccessMixin, viewsets.ModelViewSet):
             except Exception as exc:
                 failed += 1
                 results.append({"device_id": device_id, "status": "failed", "message": str(exc)})
+        log_system_operation(
+            user=request.user,
+            function_code="ops_device_reconnect_batch",
+            operation=f"批量重连设备：成功 {success}，失败 {failed}，跳过 {skipped}",
+        )
         return Response({"total": len(requested_ids), "success": success, "failed": failed, "skipped": skipped, "results": results})
 
     @action(detail=False, methods=["get"], url_path="export")
     def export(self, request):
-        content = export_devices_csv(self.get_queryset())
+        queryset = self.get_queryset()
+        exported_count = queryset.count()
+        content = export_devices_csv(queryset)
+        log_system_operation(
+            user=request.user,
+            function_code="ops_device_export",
+            operation=f"导出设备：{exported_count} 台",
+        )
         response = HttpResponse(content, content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="{dated_device_export_filename()}"'
         return response
@@ -144,10 +166,22 @@ class OpsDeviceImportPreviewView(OpsAccessMixin, APIView):
         uploaded_file = request.FILES.get("file")
         if uploaded_file is None:
             return Response({"detail": "缺少导入文件。"}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(preview_device_import(request.user, uploaded_file))
+        result = preview_device_import(request.user, uploaded_file)
+        summary = result["summary"]
+        log_system_operation(
+            user=request.user,
+            function_code="ops_device_import_preview",
+            operation=f"导入预检：新增 {summary['create']}，更新 {summary['update']}，错误 {summary['error']}",
+        )
+        return Response(result)
 
 
 class OpsDeviceImportCommitView(OpsAccessMixin, APIView):
     def post(self, request):
         result = commit_device_import(request.user, request.data.get("rows", []))
+        log_system_operation(
+            user=request.user,
+            function_code="ops_device_import_commit",
+            operation=f"导入提交：新增 {result['created']}，更新 {result['updated']}",
+        )
         return Response(result)
