@@ -29,5 +29,32 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) {
+              return;
+            }
+            if (id.includes('/vue/') || id.includes('/vue-router/') || id.includes('/pinia/')) {
+              return 'vendor-vue';
+            }
+            if (id.includes('/@element-plus/icons-vue/')) {
+              return 'vendor-element-icons';
+            }
+            if (id.includes('/element-plus/') || id.includes('/@element-plus/')) {
+              return 'vendor-element-plus';
+            }
+            if (id.includes('/chart.js/') || id.includes('/vue-chartjs/') || id.includes('/chartjs-')) {
+              return 'vendor-charts';
+            }
+            if (id.includes('/axios/') || id.includes('/dayjs/') || id.includes('/date-fns/')) {
+              return 'vendor-utils';
+            }
+            return 'vendor';
+          },
+        },
+      },
+    },
   };
 });
