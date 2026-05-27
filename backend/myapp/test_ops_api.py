@@ -187,6 +187,15 @@ class OpsDeviceApiTests(OpsApiBase):
         self.assertEqual(response.data["count"], 2)
         self.assertEqual([item["device_id"] for item in response.data["results"]], [101])
 
+    def test_device_list_with_non_numeric_device_id_returns_empty_page(self):
+        self.client.force_authenticate(self.ops_user)
+
+        response = self.client.get(reverse("ops-device-list"), {"device_id": "设备1"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 0)
+        self.assertEqual(response.data["results"], [])
+
     def test_device_list_normalizes_legacy_alarm_filter_string(self):
         self.device_a.alarm_filters = "[40, 41]"
         self.device_a.save(update_fields=["alarm_filters"])

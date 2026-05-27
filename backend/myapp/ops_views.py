@@ -75,7 +75,11 @@ class OpsDeviceViewSet(OpsAccessMixin, viewsets.ModelViewSet):
         if params.get("line"):
             queryset = queryset.filter(line_id=params["line"])
         if params.get("device_id"):
-            queryset = queryset.filter(device_id=params["device_id"])
+            try:
+                device_id = int(params["device_id"])
+            except (TypeError, ValueError):
+                return queryset.none()
+            queryset = queryset.filter(device_id=device_id)
         if params.get("name"):
             queryset = queryset.filter(name__icontains=params["name"])
         if params.get("ip_address"):

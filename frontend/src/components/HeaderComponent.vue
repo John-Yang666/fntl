@@ -165,7 +165,7 @@ const primeAudioPlayback = async () => {
     isAudioPrimed.value = true;
     return true;
   } catch (error) {
-    console.error('告警音频预热失败:', error);
+    console.warn('告警音频预热失败:', error);
     isAudioPrimed.value = false;
     return false;
   } finally {
@@ -291,7 +291,7 @@ const playAlertSound = async () => {
     ssSet('alertPlaying', 'true');
   } catch (err) {
     pendingAlertPlayback.value = true;
-    console.error('自动播放失败，等待用户交互后重试:', err);
+    console.warn('自动播放失败，等待用户交互后重试:', err);
     if (!hasShownAutoplayWarning.value) {
       hasShownAutoplayWarning.value = true;
       openAutoplayWarning();
@@ -460,7 +460,7 @@ const toggleTestSound = async () => {
       isTestingSound.value = true;
       closeAutoplayWarning();
     } catch (err) {
-      console.error('测试播放失败:', err);
+      console.warn('测试播放失败:', err);
       ElMessage.warning('浏览器限制了播放，请先在页面内点击一次后再试音');
     }
   }
