@@ -48,7 +48,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import type { MessageHandler, TabsPaneContext } from 'element-plus';
 import { useUserStore } from '@/stores/userStore';
-import { ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index.mjs';
 import { loadSelectedDeviceKeys } from '@/utils/selectedDevices';
 import { SYSTEMS, SYSTEM_LABELS, makeDeviceKey, type SystemType } from '@/utils/systems';
 

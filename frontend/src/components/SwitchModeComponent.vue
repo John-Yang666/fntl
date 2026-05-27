@@ -94,7 +94,7 @@
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useRoute } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index.mjs';
 import DeviceNameComponent from '@/components/DeviceNameComponent.vue';
 import { useUserStore } from '@/stores/userStore';
 import { getApiBase, getSystemFromRoute } from '@/utils/systems';

@@ -1,49 +1,10 @@
 import { createApp } from 'vue';
-import {
-  ElAlert,
-  ElAside,
-  ElButton,
-  ElCard,
-  ElCheckbox,
-  ElCol,
-  ElCollapse,
-  ElCollapseItem,
-  ElContainer,
-  ElDatePicker,
-  ElDialog,
-  ElDivider,
-  ElEmpty,
-  ElForm,
-  ElFormItem,
-  ElHeader,
-  ElInput,
-  ElInputNumber,
-  ElLoading,
-  ElMain,
-  ElMenu,
-  ElMenuItem,
-  ElOption,
-  ElPagination,
-  ElPopconfirm,
-  ElRow,
-  ElSelect,
-  ElSkeleton,
-  ElSkeletonItem,
-  ElSubMenu,
-  ElSwitch,
-  ElTabPane,
-  ElTable,
-  ElTableColumn,
-  ElTabs,
-  ElTag,
-  ElTimePicker,
-  ElTransfer,
-  ElUpload,
-  provideGlobalConfig,
-} from 'element-plus';
+import { provideGlobalConfig } from 'element-plus/es/components/config-provider/index.mjs';
+import { ElLoading } from 'element-plus/es/components/loading/index.mjs';
+import 'element-plus/es/components/loading/style/css';
+import 'element-plus/es/components/message/style/css';
+import 'element-plus/es/components/message-box/style/css';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
-import * as ElIcons from '@element-plus/icons-vue';
-import 'element-plus/dist/index.css';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import App from './App.vue';
@@ -53,55 +14,6 @@ import { useUserStore } from '@/stores/userStore';
 
 const pinia = createPinia();
 const app = createApp(App);
-const elementComponents = [
-  ElAlert,
-  ElAside,
-  ElButton,
-  ElCard,
-  ElCheckbox,
-  ElCol,
-  ElCollapse,
-  ElCollapseItem,
-  ElContainer,
-  ElDatePicker,
-  ElDialog,
-  ElDivider,
-  ElEmpty,
-  ElForm,
-  ElFormItem,
-  ElHeader,
-  ElInput,
-  ElInputNumber,
-  ElMain,
-  ElMenu,
-  ElMenuItem,
-  ElOption,
-  ElPagination,
-  ElPopconfirm,
-  ElRow,
-  ElSelect,
-  ElSkeleton,
-  ElSkeletonItem,
-  ElSubMenu,
-  ElSwitch,
-  ElTabPane,
-  ElTable,
-  ElTableColumn,
-  ElTabs,
-  ElTag,
-  ElTimePicker,
-  ElTransfer,
-  ElUpload,
-];
-
-// Register all icons
-for (const [key, component] of Object.entries(ElIcons)) {
-  app.component(key, component);
-}
-
-for (const component of elementComponents) {
-  app.use(component);
-}
 
 app.use(pinia);
 app.use(router);

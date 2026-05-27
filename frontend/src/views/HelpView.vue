@@ -104,7 +104,7 @@
 
 <script lang="ts" setup>
   import { computed, onMounted, ref } from 'vue';
-  import { ElButton, ElCard, ElCollapse, ElCollapseItem, ElContainer, ElDialog, ElEmpty, ElHeader, ElInput, ElMain, ElMessage, ElSkeleton, ElSkeletonItem } from 'element-plus';
+  import { ElMessage } from 'element-plus/es/components/message/index.mjs';
   import FooterComponent from '@/components/FooterComponent.vue';
   import FileManageComponent from '@/components/FileManageComponent.vue';
   import { useUserStore } from '@/stores/userStore';
