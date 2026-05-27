@@ -51,6 +51,7 @@ import {
 } from '@/utils/selectedDevices';
 import {
   SYSTEMS,
+  buildAuthWebSocketProtocols,
   getWsBase,
   makeDeviceKey,
   type SystemType,
@@ -359,8 +360,10 @@ const connectTopologyWebSocket = (system: SystemType) => {
 
   clearReconnectTimer(system);
   const token = userStore.auth[system].token;
-  const query = token ? `?token=${encodeURIComponent(token)}` : '';
-  const socket = new WebSocket(`${getWsBase(system)}/ws/topology/${query}`);
+  const socket = new WebSocket(
+    `${getWsBase(system)}/ws/topology/`,
+    buildAuthWebSocketProtocols(token),
+  );
   topologySockets[system] = socket;
   topologySocketConnected[system] = false;
 

@@ -30,7 +30,7 @@
       <el-table-column prop="upload_time" label="上传时间" />
       <el-table-column label="操作" width="180">
         <template #default="{ row }">
-          <el-button type="success" size="small" @click="downloadFile(row.id)">下载</el-button>
+          <el-button type="success" size="small" @click="downloadFile(row)">下载</el-button>
           <el-popconfirm
             v-if="isAdmin"
             title="确认删除该文件？"
@@ -48,10 +48,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import axios from 'axios';
 import { ElMessage } from 'element-plus';
 import { useUserStore } from '@/stores/userStore';
-import { SYSTEMS, type SystemType, getSystemOrigin } from '@/utils/systems';
+import { SYSTEMS, type SystemType } from '@/utils/systems';
 
 interface UploadedFile {
   id: number;
@@ -76,8 +75,11 @@ const currentFiles = computed(() => files.value[activeSystem.value]);
 
 const fetchFiles = async (system: SystemType, options?: { silent?: boolean }) => {
   try {
-    const res = await axios.get(`${getSystemOrigin(system)}/api/uploaded-files/`);
-    files.value[system] = res.data.results;
+    const res = await userStore.requestWithAuth<{ results: UploadedFile[] }>(system, {
+      method: 'get',
+      url: '/uploaded-files/',
+    });
+    files.value[system] = res.results;
   } catch (error) {
     if (!options?.silent) {
       ElMessage.error(`${system.toUpperCase()} 文件列表加载失败`);
@@ -116,8 +118,21 @@ const beforeUpload = (file: File) => {
   return true;
 };
 
-const downloadFile = (id: number) => {
-  window.open(`${getSystemOrigin(activeSystem.value)}/api/download/${id}/`, '_blank');
+const downloadFile = async (row: UploadedFile) => {
+  try {
+    const blob = await userStore.requestWithAuth<Blob>(activeSystem.value, {
+      method: 'get',
+      url: `/download/${row.id}/`,
+      responseType: 'blob',
+    });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = row.name;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  } catch (error) {
+    ElMessage.error('下载失败');
+  }
 };
 
 const deleteFile = async (id: number) => {

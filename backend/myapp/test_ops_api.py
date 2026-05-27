@@ -171,6 +171,22 @@ class OpsDeviceApiTests(OpsApiBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item["device_id"] for item in response.data["results"]], [101])
 
+    def test_device_list_honors_page_size_query_param(self):
+        Device.objects.create(
+            device_id=103,
+            name="C设备",
+            depot=self.depot_a,
+            line=self.line,
+            ip_address="10.0.0.103",
+        )
+        self.client.force_authenticate(self.ops_user)
+
+        response = self.client.get(reverse("ops-device-list"), {"page": 1, "page_size": 1})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual([item["device_id"] for item in response.data["results"]], [101])
+
     def test_device_list_normalizes_legacy_alarm_filter_string(self):
         self.device_a.alarm_filters = "[40, 41]"
         self.device_a.save(update_fields=["alarm_filters"])

@@ -1,5 +1,6 @@
 from django.http import HttpResponse
 from django.utils import timezone
+from rest_framework.pagination import PageNumberPagination
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -12,6 +13,11 @@ from .models import Depot, Device, Line
 from .ops_audit import log_device_operation, log_system_operation
 from .ops_permissions import ensure_ops_access, scoped_depots_for_user, scoped_devices_for_user
 from .ops_serializers import OpsDepotSerializer, OpsDeviceSerializer, OpsLineSerializer
+
+
+class OpsPageNumberPagination(PageNumberPagination):
+    page_size_query_param = "page_size"
+    max_page_size = 10000
 
 
 def dated_device_export_filename() -> str:
@@ -58,6 +64,7 @@ class OpsLineViewSet(OpsAccessMixin, viewsets.ModelViewSet):
 
 class OpsDeviceViewSet(OpsAccessMixin, viewsets.ModelViewSet):
     serializer_class = OpsDeviceSerializer
+    pagination_class = OpsPageNumberPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):

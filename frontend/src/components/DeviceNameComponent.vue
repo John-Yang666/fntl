@@ -3,7 +3,7 @@
 
   <!-- 显示备注信息 -->
   <div v-if="remark !== null">
-    <p v-html="remark.replace(/\n/g, '<br />')"></p>
+    <p class="device-remark">{{ remark }}</p>
   </div>
   <div v-else>
     <p>
@@ -103,5 +103,7 @@ watch(() => [route.params.system, route.params.index], handleDeviceUpdate);
 </script>
 
 <style scoped>
-/* 必要的样式 */
+.device-remark {
+  white-space: pre-line;
+}
 </style>

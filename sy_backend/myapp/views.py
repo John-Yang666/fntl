@@ -36,7 +36,7 @@ from django.shortcuts import render, get_object_or_404  # type: ignore
 from django.http import HttpResponse  # type: ignore
 from django_celery_beat.models import PeriodicTask  # type: ignore
 from django_filters.rest_framework import DjangoFilterBackend  # type: ignore
-from rest_framework.permissions import IsAuthenticated, AllowAny  # type: ignore
+from rest_framework.permissions import IsAuthenticated  # type: ignore
 from rest_framework import status
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -737,8 +737,9 @@ class DeviceListView(View):  # 返回按线路分组的设备列表
         return JsonResponse(grouped_devices)
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class SySendCommandView(View):
+class SySendCommandView(APIView):
+    permission_classes = [IsAuthenticated]
+
     """
     sy 串口命令发送入口：
     - URL: /api/sy/send-command/<int:device_id>/
@@ -767,18 +768,14 @@ class SySendCommandView(View):
 
     def post(self, request, device_id):
         try:
-            data = json.loads(request.body)
+            data = request.data
 
-            username = data.get("username")
             cmd_type = data.get("cmd_type")
 
-            if not User.objects.filter(username=username).exists():
-                return JsonResponse(
-                    {"status": "error", "message": "用户不存在，发送失败，请重新登录"},
-                    status=400,
-                )
-
-            device = Device.objects.get(device_id=device_id)
+            device = get_object_or_404(
+                _filter_device_queryset_for_request(Device.objects.all(), request),
+                device_id=device_id,
+            )
             # 对 sy 来说，addr 就是 sy 协议地址；串口信息在 sy_agent 那边配置。
             addr = device.device_id  # 或者 device.sy_addr，看你 models
 
@@ -885,7 +882,7 @@ class SySendCommandView(View):
                 device=device,
                 function_code=cmd_type,
                 operation=op_name,
-                username=username,
+                username=request.user.username,
             )
 
             # 3）通过 Redis Streams 丢给 sy_agent，sy_agent 写串口
@@ -899,11 +896,8 @@ class SySendCommandView(View):
 
             return JsonResponse({"status": "命令已发送"})
 
-        except Device.DoesNotExist:
-            return JsonResponse(
-                {"status": "error", "message": "Device not found"},
-                status=404,
-            )
+        except Http404:
+            raise
         except Exception as e:
             return JsonResponse(
                 {"status": "error", "message": str(e)},
@@ -915,6 +909,7 @@ class UploadedFileViewSet(viewsets.ModelViewSet):
     queryset = UploadedFile.objects.all().order_by("-upload_time")
     serializer_class = UploadedFileSerializer
     parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
         permission_error = _ensure_superuser(request)
@@ -942,6 +937,9 @@ class UploadedFileViewSet(viewsets.ModelViewSet):
 
 
 def download_file(request, pk):
+    _user, error_response = _require_authenticated_request_user(request)
+    if error_response is not None:
+        return error_response
     try:
         file_obj = UploadedFile.objects.get(pk=pk)
         return FileResponse(

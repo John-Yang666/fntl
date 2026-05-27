@@ -7,6 +7,8 @@ from django.contrib.auth.models import AnonymousUser
 from django.db import close_old_connections
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+AUTH_WEBSOCKET_PROTOCOL = "bt-nms"
+
 
 @database_sync_to_async
 def _get_user_for_token(raw_token: str):
@@ -20,6 +22,8 @@ class QueryStringJWTAuthMiddleware(BaseMiddleware):
         close_old_connections()
         query_string = scope.get("query_string", b"").decode()
         token = parse_qs(query_string).get("token", [None])[0]
+        if not token:
+            token = _token_from_subprotocols(scope.get("headers", []))
 
         if token:
             try:
@@ -32,3 +36,15 @@ class QueryStringJWTAuthMiddleware(BaseMiddleware):
 
 def TokenAuthMiddlewareStack(inner):
     return QueryStringJWTAuthMiddleware(AuthMiddlewareStack(inner))
+
+
+def _token_from_subprotocols(headers) -> str | None:
+    for name, value in headers:
+        if name.lower() != b"sec-websocket-protocol":
+            continue
+        protocols = value.decode("ascii", errors="ignore").split(",")
+        for protocol in protocols:
+            protocol = protocol.strip()
+            if protocol.startswith("jwt."):
+                return protocol.removeprefix("jwt.")
+    return None

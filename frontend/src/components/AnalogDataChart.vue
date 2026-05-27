@@ -184,7 +184,7 @@ import {
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import zoomPlugin from 'chartjs-plugin-zoom';
-import { getSystemFromRoute, getWsBase } from '@/utils/systems';
+import { buildAuthWebSocketProtocols, getSystemFromRoute, getWsBase } from '@/utils/systems';
 
 type QuickRangeKey = '5m' | '30m' | '2h' | '24h' | 'custom';
 type SeriesKey = 'voltage_1' | 'voltage_2' | 'current_1' | 'current_2';
@@ -983,18 +983,13 @@ const relayAxisBounds = computed(() => ({
 }));
 
 const realtimeEnabled = computed(() => !endTime.value);
-const monitorWsQuery = computed(() => {
-  const system = getSystemFromRoute(route.params.system);
-  const token = userStore.auth[system].token;
-  return token ? `?token=${encodeURIComponent(token)}` : '';
-});
 const directMonitorWsUrl = computed(() => {
   const system = getSystemFromRoute(route.params.system);
-  return `${getWsBase(system)}/ws/device-monitor/${deviceId.value}/${monitorWsQuery.value}`;
+  return `${getWsBase(system)}/ws/device-monitor/${deviceId.value}/`;
 });
 const sameOriginMonitorWsUrl = computed(() => {
   const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${wsScheme}://${window.location.host}/ws/device-monitor/${deviceId.value}/${monitorWsQuery.value}`;
+  return `${wsScheme}://${window.location.host}/ws/device-monitor/${deviceId.value}/`;
 });
 const monitorWsUrls = computed(() => {
   const urls = [sameOriginMonitorWsUrl.value, directMonitorWsUrl.value];
@@ -1168,7 +1163,8 @@ function connectMonitorSocket() {
   }
 
   monitorConnectionState.value = monitorWsCandidateIndex.value === 0 ? 'connecting' : 'reconnecting';
-  const socket = new WebSocket(wsUrl);
+  const system = getSystemFromRoute(route.params.system);
+  const socket = new WebSocket(wsUrl, buildAuthWebSocketProtocols(userStore.auth[system].token));
   monitorSocket.value = socket;
   startRealtimeGuard();
 

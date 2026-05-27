@@ -22,16 +22,32 @@ python manage.py migrate
 echo "==== [ENTRYPOINT] 收集静态文件 ===="
 python manage.py collectstatic --noinput
 
-echo "==== [ENTRYPOINT] 自动创建超级用户（如果不存在） ===="
-echo "
+if [ -n "${DJANGO_SUPERUSER_USERNAME:-}" ] || [ -n "${DJANGO_SUPERUSER_PASSWORD:-}" ]; then
+  if [ -z "${DJANGO_SUPERUSER_USERNAME:-}" ] || [ -z "${DJANGO_SUPERUSER_PASSWORD:-}" ]; then
+    echo "[错误] DJANGO_SUPERUSER_USERNAME 和 DJANGO_SUPERUSER_PASSWORD 必须同时设置。" >&2
+    exit 1
+  fi
+  case "${DJANGO_SUPERUSER_PASSWORD}" in
+    admin|password|123456|12345678)
+      echo "[错误] 拒绝使用默认/弱超级用户密码。" >&2
+      exit 1
+      ;;
+  esac
+  echo "==== [ENTRYPOINT] 自动创建超级用户（如果不存在） ===="
+  python manage.py shell <<'PY'
+import os
 from django.contrib.auth import get_user_model
+
 User = get_user_model()
-username = '${DJANGO_SUPERUSER_USERNAME}'
-email = '${DJANGO_SUPERUSER_EMAIL}'
-password = '${DJANGO_SUPERUSER_PASSWORD}'
+username = os.environ["DJANGO_SUPERUSER_USERNAME"]
+email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "")
+password = os.environ["DJANGO_SUPERUSER_PASSWORD"]
 if not User.objects.filter(username=username).exists():
     User.objects.create_superuser(username, email, password)
-" | python manage.py shell
+PY
+else
+  echo "==== [ENTRYPOINT] 未设置 DJANGO_SUPERUSER_USERNAME/PASSWORD，跳过自动创建超级用户 ===="
+fi
 
 echo "==== [ENTRYPOINT] 启动 Uvicorn ASGI 服务器 ===="
 exec uvicorn myproject.asgi:application --host 0.0.0.0 --port 8000

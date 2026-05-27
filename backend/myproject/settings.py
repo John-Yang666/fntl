@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
+import sys
+from django.core.exceptions import ImproperlyConfigured
 from consts import *
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -54,6 +56,17 @@ def _get_env_bool(name: str, default: bool = False) -> bool:
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _get_env_int(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value == "":
+        return default
+    return int(raw_value)
+
+
+def _running_tests() -> bool:
+    return "test" in sys.argv
+
+
 def _get_data_dir():
     raw_value = os.getenv("DATA_DIR", "").strip() or "/srv/bt_nms_data"
 
@@ -85,13 +98,19 @@ def _build_csrf_trusted_origins(*ports: int):
     origins = {
         "http://localhost:8000",
         "http://127.0.0.1:8000",
+        "https://localhost:8443",
+        "https://127.0.0.1:8443",
         "http://localhost:38173",
         "http://127.0.0.1:38173",
+        "https://localhost:38443",
+        "https://127.0.0.1:38443",
     }
     for host in _get_deploy_host_list():
         if host.startswith("http://") or host.startswith("https://"):
             origins.add(host.rstrip("/"))
             continue
+        for port in ports:
+            origins.add(f"https://{host}:{port}")
         for port in ports:
             origins.add(f"http://{host}:{port}")
     return sorted(origins)
@@ -103,22 +122,25 @@ _load_project_root_env()
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-7*q-54ac9t=+c)2cs6w9#c^sm%!f$=r+y+r7z+si8%8)1y!-h7'
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = _get_env_bool("DEBUG", False)
 #DEBUG = False #20241218 改成false之后后端admin界面显示不出css样式
 
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    if DEBUG or _running_tests() or _get_env_bool("DJANGO_ALLOW_INSECURE_DEFAULTS", False):
+        SECRET_KEY = "django-insecure-dev-only-change-me"
+    else:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set when DEBUG is false.")
+
 AUTH_USER_MODEL = 'myapp.CustomUser' 
 
-ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '192.168.31.243',  # 你的局域网IP地址
-    'bt_nms_django_app', # docker-compose中的服务名
-    '*',  # 如果你想允许所有主机名访问（仅用于开发环境）
-]
+ALLOWED_HOSTS = _get_env_list("DJANGO_ALLOWED_HOSTS", "ALLOWED_HOSTS")
+if not ALLOWED_HOSTS:
+    ALLOWED_HOSTS = ["localhost", "127.0.0.1", "bt_nms_django_app"]
+    if DEBUG or _running_tests():
+        ALLOWED_HOSTS.append("testserver")
 
 # Application definition
 
@@ -183,16 +205,16 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'mydatabase',
-        'USER': 'myuser',
-        'PASSWORD': 'mypassword',
-        'HOST': 'db',
-        'PORT': '5432',
+        'NAME': os.getenv('DATABASE_NAME', 'mydatabase'),
+        'USER': os.getenv('DATABASE_USER', 'myuser'),
+        'PASSWORD': os.getenv('DATABASE_PASSWORD', ''),
+        'HOST': os.getenv('DATABASE_HOST', 'db'),
+        'PORT': os.getenv('DATABASE_PORT', '5432'),
     }
 }
 
 # Django发送GET/POST请求的数量限制。一个单独的请求上传数据时，这个设置限制了该请求中允许的最大字段数量。超出这个数量的请求将被拒绝，并抛出 TooManyFieldsSent 异常。
-DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000  # 默认值是1000，根据你的需要调整这个值。通常，设置为 10000 到 50000 是一个相对合理的范围，但具体数值需要根据你的实际情况进行调整。如果你确实需要更高的值，请确保经过充分测试。
+DATA_UPLOAD_MAX_NUMBER_FIELDS = _get_env_int("DATA_UPLOAD_MAX_NUMBER_FIELDS", 5000)
 
 
 # Password validation
@@ -202,9 +224,11 @@ AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
         'OPTIONS': {
-            'min_length': 4,
+            'min_length': 8,
         }
     },
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
 
@@ -238,8 +262,8 @@ LOCALE_PATHS = [
 # 媒体文件配置
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760000  # 10000MB 上传文件的大小限制
-FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600 # 100MB 上传文件的最大内存限制，超过大小的文件将被存储在磁盘上而不是内存中
+DATA_UPLOAD_MAX_MEMORY_SIZE = _get_env_int("DATA_UPLOAD_MAX_MEMORY_SIZE", 50 * 1024 * 1024)
+FILE_UPLOAD_MAX_MEMORY_SIZE = _get_env_int("FILE_UPLOAD_MAX_MEMORY_SIZE", 10 * 1024 * 1024)
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
@@ -252,11 +276,11 @@ CLEANUP_EXPORT_DIR = str(Path(DATA_DIR) / "cleanup_exports")
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'#所有新建模型的主键默认使用BigAutoField以防止记录数达到上限导致不能写入新记录
 
 # Redis configuration
-REDIS_HOST = 'redis'  # 或者你的Redis服务器地址
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis')  # 或者你的Redis服务器地址
 #REDIS_HOST = 'localhost'
-REDIS_PORT = 6379  # Redis默认端
-REDIS_DB = 1
-REDIS_BROKER_DB = 0
+REDIS_PORT = _get_env_int('REDIS_PORT', 6379)  # Redis默认端
+REDIS_DB = _get_env_int('REDIS_DB', 1)
+REDIS_BROKER_DB = _get_env_int('REDIS_BROKER_DB', 0)
 
 # 配置 Channels
 ASGI_APPLICATION = 'myproject.asgi.application'
@@ -297,7 +321,7 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',  
+        'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -316,8 +340,8 @@ from datetime import timedelta
 
 # JWT 设置
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=99999),#minutes=60
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=99999),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=_get_env_int("JWT_ACCESS_TOKEN_LIFETIME_DAYS", 1)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=_get_env_int("JWT_REFRESH_TOKEN_LIFETIME_DAYS", 7)),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
@@ -345,8 +369,26 @@ CORS_ALLOWED_ORIGINS = [ # 确保只有授权的前端应用能够访问你的�
     "http://127.0.0.1:5173",
     'http://192.168.31.243:5173' #本机局域网IP地址
 ]'''
-CORS_ALLOW_ALL_ORIGINS = True #跨域 AJAX 请求（浏览器 JS 去调接口）
+CORS_ALLOWED_ORIGINS = _get_env_list("CORS_ALLOWED_ORIGINS")
+if not CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:38173",
+        "http://127.0.0.1:38173",
+        "https://localhost:38443",
+        "https://127.0.0.1:38443",
+    ]
+CORS_ALLOW_ALL_ORIGINS = _get_env_bool("CORS_ALLOW_ALL_ORIGINS", DEBUG) #跨域 AJAX 请求（浏览器 JS 去调接口）
 
-CSRF_TRUSTED_ORIGINS = _build_csrf_trusted_origins(8000, 38173)
+CSRF_TRUSTED_ORIGINS = _build_csrf_trusted_origins(8000, 8443, 38173, 38443)
 
-#CSRF_COOKIE_SECURE = False  # 如果使用 HTTPS，则设置为 True
+SESSION_COOKIE_SECURE = _get_env_bool("SESSION_COOKIE_SECURE", not DEBUG)
+CSRF_COOKIE_SECURE = _get_env_bool("CSRF_COOKIE_SECURE", not DEBUG)
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = False
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SAMESITE = os.getenv("CSRF_COOKIE_SAMESITE", "Lax")
+SECURE_SSL_REDIRECT = _get_env_bool("SECURE_SSL_REDIRECT", False)
+SECURE_HSTS_SECONDS = _get_env_int("SECURE_HSTS_SECONDS", 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _get_env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
+SECURE_HSTS_PRELOAD = _get_env_bool("SECURE_HSTS_PRELOAD", False)
+SECURE_CONTENT_TYPE_NOSNIFF = True

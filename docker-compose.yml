@@ -302,6 +302,8 @@ services:
     environment:
       - VITE_BT_BACKEND_PORT=8000
       - VITE_SY_BACKEND_PORT=8001
+      - VITE_BT_BACKEND_HTTPS_PORT=8443
+      - VITE_SY_BACKEND_HTTPS_PORT=8444
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -309,6 +311,34 @@ services:
       - "38173:5173"
     command: >
       sh -c "npm ci && npm run dev"
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  vue_https:
+    image: nginx:1.27-alpine
+    container_name: bt_nms_vue_https_dev
+    ports:
+      - "38443:443"
+    volumes:
+      - ./nginx/dev-frontend-https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - vue
+    networks:
+      - bt_nms_network
+    restart: unless-stopped
+
+  nginx_https:
+    image: nginx:1.27-alpine
+    container_name: bt_nms_nginx_https_dev
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - web
     networks:
       - bt_nms_network
     restart: unless-stopped

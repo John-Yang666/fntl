@@ -25,7 +25,7 @@ from django.http import HttpResponse # type: ignore
 from django.utils import timezone
 from django_celery_beat.models import PeriodicTask # type: ignore
 from django_filters.rest_framework import DjangoFilterBackend # type: ignore
-from rest_framework.permissions import IsAuthenticated, AllowAny # type: ignore
+from rest_framework.permissions import IsAuthenticated # type: ignore
 from rest_framework import status
 from django.contrib.auth import get_user_model
 from django.db import connection, transaction
@@ -849,23 +849,22 @@ class DeviceListView(View):  # 返回按线路分组的设备列表
 
         return JsonResponse(grouped_devices)
      
-@method_decorator(csrf_exempt, name='dispatch')
-class SendCommandView(View):
+class SendCommandView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def post(self, request, device_id):
         try:
-            data = json.loads(request.body)
-            username = data.get('username')  # 从前端获取用户名
+            data = request.data
             function_code = data.get('function_code')
             unix_time = data.get('time')
             operation = data.get('operation')
             is_custom_command = bool(data.get('is_custom_command'))
 
-            # 验证用户名是否存在
-            if not User.objects.filter(username=username).exists():
-                return JsonResponse({'status': 'error', 'message': '用户不存在，发送失败，请重新登录'}, status=400)
-
             # 根据设备ID获取设备信息
-            device = Device.objects.get(device_id=device_id)
+            device = get_object_or_404(
+                _filter_device_queryset_for_request(Device.objects.all(), request),
+                device_id=device_id,
+            )
             udp_target_ip = device.ip_address
             packet = create_packet(device.device_id, function_code, unix_time, operation)
 
@@ -907,7 +906,7 @@ class SendCommandView(View):
                 device=device,
                 function_code=function_code,
                 operation=operation_name,
-                username=username
+                username=request.user.username
             )
 
             # 使用 Redis 发送数据包
@@ -924,8 +923,8 @@ class SendCommandView(View):
             #mqtt_client.publish(MQTT_TOPIC_COMMAND, json.dumps(payload), qos = 1)# 设置QoS为1, 至少一次，可能重复，适用于允许消息重复但不允许消息丢失的场景。
 
             return JsonResponse({'status': '命令已发送'})
-        except Device.DoesNotExist:
-            return JsonResponse({'status': 'error', 'message': 'Device not found'}, status=404)
+        except Http404:
+            raise
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
         
@@ -933,6 +932,7 @@ class UploadedFileViewSet(viewsets.ModelViewSet):
     queryset = UploadedFile.objects.all().order_by('-upload_time')
     serializer_class = UploadedFileSerializer
     parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
         permission_error = _ensure_superuser(request)
@@ -959,6 +959,9 @@ class UploadedFileViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 def download_file(request, pk):
+    _user, error_response = _require_authenticated_request_user(request)
+    if error_response is not None:
+        return error_response
     try:
         file_obj = UploadedFile.objects.get(pk=pk)
         return FileResponse(file_obj.file.open(), as_attachment=True, filename=file_obj.name)

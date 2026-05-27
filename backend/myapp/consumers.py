@@ -6,7 +6,12 @@ import redis.asyncio as redis_async
 from django.conf import settings
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
+from myapp.jwt_auth_middleware import AUTH_WEBSOCKET_PROTOCOL
 from myapp.models import Device
+
+
+def _accepted_subprotocol(scope) -> str | None:
+    return AUTH_WEBSOCKET_PROTOCOL if AUTH_WEBSOCKET_PROTOCOL in scope.get("subprotocols", []) else None
 
 
 @database_sync_to_async
@@ -42,7 +47,7 @@ class TopologyConsumer(AsyncWebsocketConsumer):
             return
         self.allowed_device_ids = await _load_allowed_device_ids(user)
         await self.channel_layer.group_add("topology_updates", self.channel_name)
-        await self.accept()
+        await self.accept(subprotocol=_accepted_subprotocol(self.scope))
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard("topology_updates", self.channel_name)
@@ -67,13 +72,13 @@ class DeviceMonitorConsumer(AsyncWebsocketConsumer):
         self.pubsub = self.redis.pubsub()
         self.reader_task = None
         await self.pubsub.subscribe(self.channel_name_key)
-        await self.accept()
+        await self.accept(subprotocol=_accepted_subprotocol(self.scope))
         self.reader_task = asyncio.create_task(self._forward_pubsub_messages())
 
     async def disconnect(self, close_code):
         if self.reader_task is not None:
             self.reader_task.cancel()
-            with suppress(Exception):
+            with suppress(asyncio.CancelledError, Exception):
                 await self.reader_task
         if getattr(self, "pubsub", None) is not None:
             with suppress(Exception):

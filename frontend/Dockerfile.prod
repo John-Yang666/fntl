@@ -26,12 +26,15 @@ RUN if [ "$NPM_INSTALL_MODE" = "offline" ]; then \
       npm ci --no-audit --no-fund; \
     fi
 
-# 透传 Vite 的构建期环境变量（BT / SY 双后端端口）
-# docker build/compose 用 --build-arg VITE_BT_BACKEND_PORT=8000 --build-arg VITE_SY_BACKEND_PORT=8001 传入
-ARG VITE_BT_BACKEND_PORT
-ARG VITE_SY_BACKEND_PORT
+# 透传 Vite 的构建期环境变量（BT / SY 双后端 HTTP 与 HTTPS 端口）
+ARG VITE_BT_BACKEND_PORT=8000
+ARG VITE_SY_BACKEND_PORT=8001
+ARG VITE_BT_BACKEND_HTTPS_PORT=8443
+ARG VITE_SY_BACKEND_HTTPS_PORT=8444
 ENV VITE_BT_BACKEND_PORT=${VITE_BT_BACKEND_PORT}
 ENV VITE_SY_BACKEND_PORT=${VITE_SY_BACKEND_PORT}
+ENV VITE_BT_BACKEND_HTTPS_PORT=${VITE_BT_BACKEND_HTTPS_PORT}
+ENV VITE_SY_BACKEND_HTTPS_PORT=${VITE_SY_BACKEND_HTTPS_PORT}
 
 # 复制源码（放在依赖安装之后，避免改源码导致重装依赖）
 COPY . .
@@ -55,5 +58,5 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # 拷贝静态产物
 COPY --from=build /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 80 443
 CMD ["nginx", "-g", "daemon off;"]

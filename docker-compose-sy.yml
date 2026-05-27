@@ -202,6 +202,11 @@ services:
       - DJANGO_SETTINGS_MODULE=myproject.settings
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DATABASE_NAME=mydatabase
+      - DATABASE_USER=myuser
+      - DATABASE_PASSWORD=mypassword
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
     depends_on:
       - web
     networks:
@@ -225,6 +230,11 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - CELERY_BROKER_URL=redis://redis:6379/0
+      - DATABASE_NAME=mydatabase
+      - DATABASE_USER=myuser
+      - DATABASE_PASSWORD=mypassword
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
     depends_on:
       - redis
       - db
@@ -247,6 +257,11 @@ services:
       - DJANGO_SETTINGS_MODULE=myproject.settings
       - DATA_DIR=/data
       - CELERY_BROKER_URL=redis://redis:6379/0
+      - DATABASE_NAME=mydatabase
+      - DATABASE_USER=myuser
+      - DATABASE_PASSWORD=mypassword
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
     depends_on:
       - redis
       - db
@@ -267,6 +282,8 @@ services:
     environment:
       - VITE_BT_BACKEND_PORT=8000
       - VITE_SY_BACKEND_PORT=8001
+      - VITE_BT_BACKEND_HTTPS_PORT=8443
+      - VITE_SY_BACKEND_HTTPS_PORT=8444
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -274,6 +291,20 @@ services:
       - "38174:5173"
     command: >
       sh -c "npm ci && npm run dev"
+    networks:
+      - sy_nms_network
+    restart: unless-stopped
+
+  nginx_https:
+    image: nginx:1.27-alpine
+    container_name: bt_nms_sy_nginx_https_dev
+    ports:
+      - "8444:8443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - web
     networks:
       - sy_nms_network
     restart: unless-stopped

@@ -29,15 +29,29 @@ export function getSystemFromRoute(value: unknown): SystemType {
   return isSystemType(value) ? value : 'bt';
 }
 
+function isHttpsPage(): boolean {
+  return window.location.protocol === 'https:';
+}
+
 function getBackendPort(system: SystemType): string {
-  return system === 'bt'
-    ? import.meta.env.VITE_BT_BACKEND_PORT || '8000'
+  if (system === 'bt') {
+    return isHttpsPage()
+      ? import.meta.env.VITE_BT_BACKEND_HTTPS_PORT || import.meta.env.VITE_BT_BACKEND_PORT || '8443'
+      : import.meta.env.VITE_BT_BACKEND_PORT || '8000';
+  }
+  return isHttpsPage()
+    ? import.meta.env.VITE_SY_BACKEND_HTTPS_PORT || import.meta.env.VITE_SY_BACKEND_PORT || '8444'
     : import.meta.env.VITE_SY_BACKEND_PORT || '8001';
 }
 
 function getWsPort(system: SystemType): string {
-  return system === 'bt'
-    ? import.meta.env.VITE_BT_WS_PORT || getBackendPort(system)
+  if (system === 'bt') {
+    return isHttpsPage()
+      ? import.meta.env.VITE_BT_WS_HTTPS_PORT || import.meta.env.VITE_BT_WS_PORT || getBackendPort(system)
+      : import.meta.env.VITE_BT_WS_PORT || getBackendPort(system);
+  }
+  return isHttpsPage()
+    ? import.meta.env.VITE_SY_WS_HTTPS_PORT || import.meta.env.VITE_SY_WS_PORT || getBackendPort(system)
     : import.meta.env.VITE_SY_WS_PORT || getBackendPort(system);
 }
 
@@ -57,6 +71,10 @@ export function getWsBase(system: SystemType): string {
     return `${wsScheme}://${window.location.host}`;
   }
   return `${wsScheme}://${window.location.hostname}:${configuredPort}`;
+}
+
+export function buildAuthWebSocketProtocols(token: string | null | undefined): string[] {
+  return token ? ['bt-nms', `jwt.${token}`] : ['bt-nms'];
 }
 
 export function makeDeviceKey(system: SystemType, deviceId: number | string): string {
