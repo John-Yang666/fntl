@@ -12,7 +12,7 @@
         <label for="password">密码</label>
         <input v-model="password" id="password" type="password" required />
       </div>
-      <button type="submit" class="login-button">登陆</button>
+      <button type="submit" class="login-button">登录</button>
     </form>
     <p v-if="error" class="error-message">{{ error }}</p>
   </div>
