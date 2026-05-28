@@ -1,0 +1,112 @@
+import {
+  getDesktopApiBase,
+  getDesktopSystemOrigin,
+  getDesktopWsBase,
+  isDesktopClient,
+} from '@/utils/clientRuntime';
+
+export type SystemType = 'bt' | 'sy';
+
+export const SYSTEMS: SystemType[] = ['bt', 'sy'];
+
+export const SYSTEM_LABELS: Record<SystemType, string> = {
+  bt: 'BT',
+  sy: 'SY',
+};
+
+export const TOKEN_STORAGE_KEYS: Record<SystemType, string> = {
+  bt: 'token_bt',
+  sy: 'token_sy',
+};
+
+export const USER_STORAGE_KEYS: Record<SystemType, string> = {
+  bt: 'user_bt',
+  sy: 'user_sy',
+};
+
+export const SELECTED_DEVICES_KEY = 'selectedDevicesV2';
+export const PINNED_DEVICES_KEY = 'pinnedDevicesV1';
+export const LEGACY_SELECTED_DEVICES_KEY = 'selectedDevices';
+
+export function isSystemType(value: unknown): value is SystemType {
+  return value === 'bt' || value === 'sy';
+}
+
+export function getSystemFromRoute(value: unknown): SystemType {
+  return isSystemType(value) ? value : 'bt';
+}
+
+function isHttpsPage(): boolean {
+  return window.location.protocol === 'https:';
+}
+
+function getBackendPort(system: SystemType): string {
+  if (system === 'bt') {
+    return isHttpsPage()
+      ? import.meta.env.VITE_BT_BACKEND_HTTPS_PORT || import.meta.env.VITE_BT_BACKEND_PORT || '8443'
+      : import.meta.env.VITE_BT_BACKEND_PORT || '8000';
+  }
+  return isHttpsPage()
+    ? import.meta.env.VITE_SY_BACKEND_HTTPS_PORT || import.meta.env.VITE_SY_BACKEND_PORT || '8444'
+    : import.meta.env.VITE_SY_BACKEND_PORT || '8001';
+}
+
+function getWsPort(system: SystemType): string {
+  if (system === 'bt') {
+    return isHttpsPage()
+      ? import.meta.env.VITE_BT_WS_HTTPS_PORT || import.meta.env.VITE_BT_WS_PORT || getBackendPort(system)
+      : import.meta.env.VITE_BT_WS_PORT || getBackendPort(system);
+  }
+  return isHttpsPage()
+    ? import.meta.env.VITE_SY_WS_HTTPS_PORT || import.meta.env.VITE_SY_WS_PORT || getBackendPort(system)
+    : import.meta.env.VITE_SY_WS_PORT || getBackendPort(system);
+}
+
+export function getSystemOrigin(system: SystemType): string {
+  if (isDesktopClient()) {
+    return getDesktopSystemOrigin(system);
+  }
+  return `${window.location.protocol}//${window.location.hostname}:${getBackendPort(system)}`;
+}
+
+export function getApiBase(system: SystemType): string {
+  if (isDesktopClient()) {
+    return getDesktopApiBase(system);
+  }
+  return `${getSystemOrigin(system)}/api`;
+}
+
+export function getWsBase(system: SystemType): string {
+  if (isDesktopClient()) {
+    return getDesktopWsBase(system);
+  }
+  const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const configuredPort = getWsPort(system);
+  const currentPort = window.location.port;
+  if (!configuredPort || configuredPort === currentPort) {
+    return `${wsScheme}://${window.location.host}`;
+  }
+  return `${wsScheme}://${window.location.hostname}:${configuredPort}`;
+}
+
+export function buildAuthWebSocketProtocols(token: string | null | undefined): string[] {
+  return token ? ['bt-nms', `jwt.${token}`] : ['bt-nms'];
+}
+
+export function makeDeviceKey(system: SystemType, deviceId: number | string): string {
+  return `${system}:${deviceId}`;
+}
+
+export function parseDeviceKey(key: string): { system: SystemType; deviceId: number } | null {
+  const [system, rawId] = key.split(':');
+  if (!isSystemType(system)) {
+    return null;
+  }
+
+  const deviceId = Number.parseInt(rawId, 10);
+  if (Number.isNaN(deviceId)) {
+    return null;
+  }
+
+  return { system, deviceId };
+}

@@ -18,7 +18,16 @@ except Exception:  # pragma: no cover - exercised only on machines without PySid
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_ALERT_AUDIO = REPO_ROOT / "frontend" / "public" / "audio" / "alert.mp3"
+
+
+def resolve_resource_path(relative_path: str) -> Path:
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        return Path(bundle_root) / relative_path
+    return REPO_ROOT / relative_path
+
+
+DEFAULT_ALERT_AUDIO = resolve_resource_path("frontend/public/audio/alert.mp3")
 
 
 class AlarmSoundPlayer:

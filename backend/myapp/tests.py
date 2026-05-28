@@ -1,7 +1,7 @@
 import struct
 import unittest
 
-from backend.myapp.udp_sender import create_packet
+from .udp_sender import create_packet
 
 
 class CreatePacketTests(unittest.TestCase):

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import logging
 import os
+import signal
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -43,6 +45,14 @@ def configure_logging(log_path: Path = LOG_PATH) -> None:
     root.setLevel(logging.INFO)
 
 
+def install_sigint_handler(app: QApplication) -> QTimer:
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    timer = QTimer(app)
+    timer.timeout.connect(lambda: None)
+    timer.start(250)
+    return timer
+
+
 def acquire_single_instance_lock(lock_path: Path = LOCK_PATH) -> QLockFile | None:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock = QLockFile(str(lock_path))
@@ -58,6 +68,19 @@ def should_show_current_alerts_for_tray_reason(reason: QSystemTrayIcon.Activatio
 
 def should_open_tray_menu_for_reason(reason: QSystemTrayIcon.ActivationReason) -> bool:
     return False
+
+
+def is_backend_unready_error(error: ApiError) -> bool:
+    return error.status is None or error.status not in {400, 401, 403}
+
+
+def all_login_failures_are_backend_unready(failures: list[tuple[str, ApiError]]) -> bool:
+    return bool(failures) and all(is_backend_unready_error(error) for _, error in failures)
+
+
+def format_login_status(logged_in_systems: Iterable[str]) -> str:
+    logged_in = set(logged_in_systems)
+    return " ".join(f"{SYSTEM_LABELS[system]}已登录" for system in SYSTEMS if system in logged_in)
 
 
 class PollWorker(QThread):
@@ -89,18 +112,20 @@ class AlarmClientApp(QObject):
         self.current_alerts: list[dict[str, Any]] = []
         self.poll_worker: PollWorker | None = None
         self._shutdown_done = False
+        self.waiting_for_backend = False
+        self._backend_wait_notice_shown = False
         self.audio_player = AlarmSoundPlayer()
         self.popup = AlarmPopup(self.pause_alerts)
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.poll_alerts)
+        self.timer.timeout.connect(self.on_timer)
         self.tray = self._build_tray()
 
     def start(self) -> None:
         self.tray.show()
         if self.config.credentials.username and self.config.credentials.password:
-            self.login_with_config(show_dialog_on_failure=True)
+            self.login_with_config(show_dialog_on_failure=True, wait_for_backend=True)
         else:
-            self.show_login()
+            self.start_without_credentials()
         self.timer.start(self.config.poll_interval_seconds * 1000)
 
     def _build_tray(self) -> QSystemTrayIcon:
@@ -108,6 +133,11 @@ class AlarmClientApp(QObject):
         tray = QSystemTrayIcon(icon, self.app)
         tray.setToolTip("BT/SY 告警声音客户端")
         menu = QMenu()
+        self.login_status_action = menu.addAction("")
+        self.login_status_action.setEnabled(False)
+        self.login_status_action.setVisible(False)
+        self.login_status_separator = menu.addSeparator()
+        self.login_status_separator.setVisible(False)
         menu.addAction("显示当前告警", self.show_current_alerts)
         menu.addAction("暂停告警声", self.pause_alerts)
         menu.addAction("恢复告警声", self.resume_alerts)
@@ -125,6 +155,41 @@ class AlarmClientApp(QObject):
         if should_show_current_alerts_for_tray_reason(reason):
             self.show_current_alerts()
 
+    def on_timer(self) -> None:
+        if self.waiting_for_backend and self.config.credentials.username and self.config.credentials.password:
+            self.login_with_config(show_dialog_on_failure=False, wait_for_backend=True)
+            return
+        if self.waiting_for_backend:
+            self.start_without_credentials()
+            return
+        self.poll_alerts()
+
+    def start_without_credentials(self) -> None:
+        failures = self.probe_backend_readiness()
+        if all_login_failures_are_backend_unready(failures):
+            self.waiting_for_backend = True
+            self._update_login_status_display()
+            self.tray.setToolTip("BT/SY 告警声音客户端 - 后端未就绪，等待重试")
+            self.show_backend_waiting_notice(failures)
+            return
+        self.waiting_for_backend = False
+        self._backend_wait_notice_shown = False
+        self.show_login()
+
+    def probe_backend_readiness(self) -> list[tuple[str, ApiError]]:
+        failures: list[tuple[str, ApiError]] = []
+        for system in SYSTEMS:
+            system_config = self.config.systems[system]
+            if not system_config.enabled:
+                continue
+            client = ApiClient(system, system_config.api_base)
+            try:
+                client.login("__alarm_client_probe__", "__alarm_client_probe__")
+            except ApiError as exc:
+                LOGGER.warning("%s readiness probe failed: %s", system, exc)
+                failures.append((system, exc))
+        return failures
+
     def show_login(self) -> None:
         dialog = LoginDialog(self.config)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -132,14 +197,15 @@ class AlarmClientApp(QObject):
         next_config = dialog.build_config(self.config)
         credentials = dialog.login_credentials()
         self.config = next_config
-        self.login(username=credentials.username, password=credentials.password, save_credentials=True)
+        self.login(username=credentials.username, password=credentials.password, save_credentials=True, wait_for_backend=True)
 
-    def login_with_config(self, *, show_dialog_on_failure: bool = False) -> None:
+    def login_with_config(self, *, show_dialog_on_failure: bool = False, wait_for_backend: bool = False) -> None:
         self.login(
             username=self.config.credentials.username,
             password=self.config.credentials.password,
             save_credentials=False,
             show_dialog_on_failure=show_dialog_on_failure,
+            wait_for_backend=wait_for_backend,
         )
 
     def login(
@@ -149,6 +215,7 @@ class AlarmClientApp(QObject):
         password: str,
         save_credentials: bool,
         show_dialog_on_failure: bool = False,
+        wait_for_backend: bool = False,
     ) -> None:
         if not username or not password:
             if show_dialog_on_failure:
@@ -156,7 +223,7 @@ class AlarmClientApp(QObject):
             return
 
         clients: dict[str, ApiClient] = {}
-        failures: list[str] = []
+        failures: list[tuple[str, ApiError]] = []
         for system in SYSTEMS:
             system_config = self.config.systems[system]
             if not system_config.enabled:
@@ -166,17 +233,26 @@ class AlarmClientApp(QObject):
                 client.login(username, password)
             except ApiError as exc:
                 LOGGER.warning("%s login failed: %s", system, exc)
-                failures.append(f"{SYSTEM_LABELS[system]}: {exc}")
+                failures.append((system, exc))
                 continue
             clients[system] = client
 
         if not clients:
-            QMessageBox.warning(None, "登录失败", "\n".join(failures) or "BT/SY 均未登录成功")
+            if wait_for_backend and all_login_failures_are_backend_unready(failures):
+                self.waiting_for_backend = True
+                self._update_login_status_display()
+                self.tray.setToolTip("BT/SY 告警声音客户端 - 后端未就绪，等待重试")
+                self.show_backend_waiting_notice(failures)
+                return
+            failure_text = self._format_login_failures(failures) or "BT/SY 均未登录成功"
+            QMessageBox.warning(None, "登录失败", failure_text)
             if show_dialog_on_failure:
                 self.show_login()
             return
 
         self.clients = clients
+        self.waiting_for_backend = False
+        self._backend_wait_notice_shown = False
         if save_credentials:
             self.config.credentials.username = username
             self.config.credentials.password = password
@@ -184,9 +260,29 @@ class AlarmClientApp(QObject):
         LOGGER.info("logged in systems: %s", ",".join(sorted(self.clients)))
         self.runtime_state.reset()
         self.runtime_state.set_selected_devices(self.config.selected_devices)
+        self._update_tray_tooltip(len(self.current_alerts), any(not bool(alert.get("confirmed")) for alert in self.current_alerts))
         if failures:
-            self.tray.showMessage("部分系统登录失败", "\n".join(failures), QSystemTrayIcon.MessageIcon.Warning, 6000)
+            self.tray.showMessage(
+                "部分系统登录失败",
+                self._format_login_failures(failures),
+                QSystemTrayIcon.MessageIcon.Warning,
+                6000,
+            )
         self.poll_alerts()
+
+    def show_backend_waiting_notice(self, failures: list[tuple[str, ApiError]]) -> None:
+        if self._backend_wait_notice_shown:
+            return
+        self._backend_wait_notice_shown = True
+        detail = self._format_login_failures(failures)
+        message = "后端没有就绪，程序会自动等待并重试。"
+        if detail:
+            message = f"{message}\n\n{detail}"
+        QMessageBox.information(None, "后端没有就绪", message)
+
+    @staticmethod
+    def _format_login_failures(failures: list[tuple[str, ApiError]]) -> str:
+        return "\n".join(f"{SYSTEM_LABELS[system]}: {error}" for system, error in failures)
 
     def poll_alerts(self) -> None:
         if not self.clients or (self.poll_worker and self.poll_worker.isRunning()):
@@ -223,8 +319,21 @@ class AlarmClientApp(QObject):
             self.audio_player.stop()
 
     def _update_tray_tooltip(self, count: int, has_unconfirmed: bool) -> None:
+        login_status = self._update_login_status_display()
         status = "未确认告警" if has_unconfirmed else "当前告警"
-        self.tray.setToolTip(f"BT/SY 告警声音客户端 - {status} {count} 条")
+        status_parts = [part for part in (login_status, f"{status} {count} 条") if part]
+        self.tray.setToolTip(f"BT/SY 告警声音客户端 - {' - '.join(status_parts)}")
+
+    def _update_login_status_display(self) -> str:
+        login_status = format_login_status(self.clients.keys())
+        action = getattr(self, "login_status_action", None)
+        if action is not None:
+            action.setText(login_status)
+            action.setVisible(bool(login_status))
+        separator = getattr(self, "login_status_separator", None)
+        if separator is not None:
+            separator.setVisible(bool(login_status))
+        return login_status
 
     def show_current_alerts(self) -> None:
         self.popup.show_alerts(self.current_alerts)
@@ -300,10 +409,12 @@ def main() -> int:
         return 0
     controller = AlarmClientApp(app)
     app.aboutToQuit.connect(controller.shutdown)
-    controller.start()
+    sigint_timer = install_sigint_handler(app)
+    QTimer.singleShot(0, controller.start)
     try:
         return app.exec()
     finally:
+        sigint_timer.stop()
         controller.shutdown()
         instance_lock.unlock()
 

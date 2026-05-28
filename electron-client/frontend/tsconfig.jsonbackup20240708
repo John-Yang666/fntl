@@ -1,0 +1,17 @@
+{
+  "files": [],
+  
+  "references": [
+    {
+      "path": "./tsconfig.node.json"
+    },
+    {
+      "path": "./tsconfig.app.json"
+    }
+  ],
+
+  "compilerOptions": {
+    // 其他配置项
+    "typeRoots": ["./node_modules/@types", "./src"]
+  }
+}
