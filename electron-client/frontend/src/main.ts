@@ -31,6 +31,7 @@ const bootstrap = async () => {
     // 已经从 IndexedDB 恢复 token、user 等数据
   });
 
+  await router.isReady();
   app.mount('#app');
 };
 

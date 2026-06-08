@@ -1,0 +1,10 @@
+Slide 1: cover, split editorial composition, large claim with angled UI screenshot.
+Slide 2: customer pain matrix with three horizontal problem-to-outcome rows.
+Slide 3: platform architecture map with concrete BT/SY lanes and data/control connectors.
+Slide 4: monitoring workflow, large topology screenshot plus detail screenshot strip and callouts.
+Slide 5: alarm closed-loop flow with current alarm screenshot and four-step process.
+Slide 6: records/audit page, large screenshot plus record taxonomy rail.
+Slide 7: controlled command flow, remote-control screenshot with authorization gates.
+Slide 8: operations enablement, three screenshot tiles with admin/use-case labels.
+Slide 9: deployment model, service/agent diagram with production components.
+Slide 10: recommendation close, buyer-fit checklist and phased next-step path.

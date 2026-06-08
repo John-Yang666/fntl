@@ -1,0 +1,8 @@
+task mode: create
+primary deck-profile: product-platform
+secondary profile gates: gtm-growth for sales recommendation flow; engineering-platform for architecture accuracy
+required proof objects: platform map, monitoring workflow, alarm closed loop, records/audit proof, deployment architecture, customer recommendation path
+source/asset requirements: use user manual UI screenshots extracted from docs/FNTL-MS100贝通云网管系统用户手册V1.3.0.docx; use project overview and operations manual for architecture and deployment statements
+brand authenticity constraints: no invented logo or mascot; use textual product name FNTL-MS100 / 贝通云网管系统 only
+profile-specific QA gates: show the product system rather than generic feature cards; tie each capability to customer operation value; label BT/SY, Redis Streams, Agent, WebSocket/API concretely
+known missing inputs: customer-specific logo, site photos, device count, commercial pricing and SLA metrics are not available, so this first draft avoids invented quantitative claims

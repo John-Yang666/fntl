@@ -1,6 +1,6 @@
 # BT_NMS 运维手册
 
-版本日期：2026-05-26
+版本日期：2026-06-08
 适用工程目录：`/Users/yangzijiang/BT_NMS`
 适用对象：BT/SY 云网管系统的部署、巡检、备份、恢复和故障处理。
 
@@ -108,6 +108,71 @@ Windows 受保护部署的 agent 运行态数据：
 ```
 
 这些目录包含 `config.json`、`runtime_config.json`、本地 UI sqlite 状态等，现场配置变更后应纳入备份。
+
+### Windows Docker Desktop 用户与国内镜像源
+
+Windows Docker Desktop 的 Linux engine、镜像、容器和 Desktop 设置跟 Windows 登录用户相关。`admin` 和 `贝通` 登录后看到的 Docker Desktop 可能是两套环境，切换运维用户前先确认：
+
+```powershell
+$env:USERNAME
+docker context ls
+docker ps
+docker images
+```
+
+更新 Windows 现场源码时必须保留现场 `.env`，尤其是 `DATA_DIR=D:/bt_nms_data`、数据库密码和密钥；不要用 Mac 或源码包里的 `.env` 覆盖 Windows 现场配置。
+
+国内网络环境建议给 `admin` 或实际运维用户配置以下镜像源。Docker Desktop 读取的 `daemon.json` 必须是 UTF-8 无 BOM；旧版 Windows PowerShell 的 `Set-Content` 可能写出 Docker 无法解析的 BOM，表现为 `invalid character 'ï' looking for beginning of value`。
+
+```powershell
+$daemon = [ordered]@{
+  builder = [ordered]@{
+    gc = [ordered]@{
+      enabled = $true
+      defaultKeepStorage = "20GB"
+    }
+  }
+  experimental = $false
+  "registry-mirrors" = @(
+    "https://docker.m.daocloud.io",
+    "https://docker.1ms.run",
+    "https://hub-mirror.c.163.com"
+  )
+}
+
+$json = $daemon | ConvertTo-Json -Depth 10
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText("$env:USERPROFILE\.docker\daemon.json", $json + [Environment]::NewLine, $utf8NoBom)
+
+docker desktop restart
+docker info --format "{{json .RegistryConfig.Mirrors}}"
+```
+
+npm 和 Python 构建源：
+
+```powershell
+npm config set registry https://registry.npmmirror.com/
+
+New-Item -ItemType Directory -Force "$env:APPDATA\pip" | Out-Null
+@"
+[global]
+index-url = https://pypi.tuna.tsinghua.edu.cn/simple
+trusted-host = pypi.tuna.tsinghua.edu.cn
+timeout = 120
+retries = 5
+
+[install]
+trusted-host = pypi.tuna.tsinghua.edu.cn
+"@ | Set-Content -Encoding ASCII "$env:APPDATA\pip\pip.ini"
+```
+
+Electron 客户端打包下载源建议写入用户环境变量，重开 PowerShell 后生效：
+
+```powershell
+[Environment]::SetEnvironmentVariable("ELECTRON_MIRROR", "https://npmmirror.com/mirrors/electron/", "User")
+[Environment]::SetEnvironmentVariable("ELECTRON_BUILDER_BINARIES_MIRROR", "https://npmmirror.com/mirrors/electron-builder-binaries/", "User")
+[Environment]::SetEnvironmentVariable("PLAYWRIGHT_DOWNLOAD_HOST", "https://npmmirror.com/mirrors/playwright/", "User")
+```
 
 ## 5. 首次部署
 
@@ -239,10 +304,28 @@ cd deploy/windows_host
 .\build_protected_agents.ps1
 ```
 
+如果构建机没有 `py -3.12`，但安装了兼容 Python，可以显式指定解释器。这台 Windows 维护机使用的是 Python 3.13：
+
+```powershell
+cd D:\BT_NMS
+& .\deploy\windows_host\build_protected_agents.ps1 `
+  -PythonLauncher "C:\Python313\python.exe" `
+  -PythonLauncherArgs @()
+```
+
 产物目录：
 
 ```text
 deploy/windows_host/artifacts/windows_agents/
+```
+
+Nuitka standalone 产物依赖同目录 DLL 和资源文件，现场转移时压缩整个 `windows_agents` 目录，不要只拷单个 exe：
+
+```powershell
+Compress-Archive `
+  -Path D:\BT_NMS\deploy\windows_host\artifacts\windows_agents\* `
+  -DestinationPath D:\BT_NMS\deploy\windows_host\artifacts\windows_agents_YYYYMMDD.zip `
+  -Force
 ```
 
 现场启动入口：

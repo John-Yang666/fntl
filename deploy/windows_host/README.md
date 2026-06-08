@@ -9,6 +9,15 @@ cd deploy/windows_host
 .\build_protected_agents.ps1
 ```
 
+If the build machine does not have `py -3.12` but has another compatible Python, pass the launcher explicitly. The current Windows build machine uses Python 3.13:
+
+```powershell
+cd D:\BT_NMS
+& .\deploy\windows_host\build_protected_agents.ps1 `
+  -PythonLauncher "C:\Python313\python.exe" `
+  -PythonLauncherArgs @()
+```
+
 Bundle output:
 
 ```text
@@ -16,6 +25,15 @@ deploy/windows_host/artifacts/windows_agents/
   apps/
   scripts/
   templates/
+```
+
+For transfer, zip the whole bundle directory. Do not copy only a single `exe`; Nuitka standalone apps need the adjacent DLLs and asset files in their app folders.
+
+```powershell
+Compress-Archive `
+  -Path D:\BT_NMS\deploy\windows_host\artifacts\windows_agents\* `
+  -DestinationPath D:\BT_NMS\deploy\windows_host\artifacts\windows_agents_YYYYMMDD.zip `
+  -Force
 ```
 
 Copy only that bundle to the Windows deployment machine. Start from:

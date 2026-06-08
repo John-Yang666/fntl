@@ -83,6 +83,7 @@ const endedAlertMessages: Record<SystemType, MessageHandler | null> = {
   bt: null,
   sy: null,
 };
+let isHeaderMounted = false;
 
 const isTestingSound = ref(false);
 
@@ -92,6 +93,8 @@ const ssSet = (k: string, v: string) => sessionStorage.setItem(k, v);
 const ssDel = (k: string) => sessionStorage.removeItem(k);
 const soundPrefGet = () => localStorage.getItem('soundEnabled');
 const soundPrefSet = (value: boolean) => localStorage.setItem('soundEnabled', JSON.stringify(value));
+const canHandleAlertAudio = () =>
+  isHeaderMounted && !route.matched.some((record) => record.meta.hideHeader);
 
 // -------- 标签切换 --------
 const handleClick = (tab: TabsPaneContext) => {
@@ -154,6 +157,10 @@ const isAlertAudioPlaying = () => {
 };
 
 const primeAudioPlayback = async () => {
+  if (!canHandleAlertAudio()) {
+    return false;
+  }
+
   const audio = ensureAlertAudio();
   if (isAlertAudioPlaying()) {
     isAudioPrimed.value = true;
@@ -178,7 +185,7 @@ const primeAudioPlayback = async () => {
 };
 
 const ensureAutoplayPrepared = async () => {
-  if (!soundEnabled.value) {
+  if (!soundEnabled.value || !canHandleAlertAudio()) {
     closeAutoplayWarning();
     return false;
   }
@@ -197,6 +204,10 @@ const ensureAutoplayPrepared = async () => {
 };
 
 const handleAudioInteraction = async () => {
+  if (!canHandleAlertAudio()) {
+    return;
+  }
+
   if (!pendingAlertPlayback.value && isAudioPrimed.value) {
     return;
   }
@@ -213,7 +224,7 @@ const handleAudioInteraction = async () => {
 };
 
 const openAutoplayWarning = () => {
-  if (autoplayWarningMessage) {
+  if (!canHandleAlertAudio() || autoplayWarningMessage) {
     return;
   }
 
@@ -238,7 +249,7 @@ const closeAutoplayWarning = () => {
 };
 
 const openEndedAlertNotice = (system: SystemType) => {
-  if (endedAlertMessages[system]) {
+  if (!isHeaderMounted || endedAlertMessages[system]) {
     return;
   }
 
@@ -276,6 +287,11 @@ const pauseAlerts = async () => {
 };
 
 const playAlertSound = async () => {
+  if (!canHandleAlertAudio()) {
+    pendingAlertPlayback.value = false;
+    return;
+  }
+
   const paused = ssGet('alertSoundPaused');
   if (paused === 'true') {
     return;
@@ -290,10 +306,21 @@ const playAlertSound = async () => {
   }
   try {
     await audio.play();
+    if (!canHandleAlertAudio()) {
+      audio.pause();
+      audio.currentTime = 0;
+      pendingAlertPlayback.value = false;
+      ssSet('alertPlaying', 'false');
+      return;
+    }
     pendingAlertPlayback.value = false;
     closeAutoplayWarning();
     ssSet('alertPlaying', 'true');
   } catch (err) {
+    if (!canHandleAlertAudio()) {
+      pendingAlertPlayback.value = false;
+      return;
+    }
     pendingAlertPlayback.value = true;
     console.warn('自动播放失败，等待用户交互后重试:', err);
     if (!hasShownAutoplayWarning.value) {
@@ -320,7 +347,7 @@ const toggleSound = () => {
     ssDel('alertSoundPaused');
   } else {
     void ensureAutoplayPrepared().then((primed) => {
-      if (primed && hasUnconfirmedAlerts.value) {
+      if (primed && canHandleAlertAudio() && hasUnconfirmedAlerts.value) {
         void playAlertSound();
       }
     });
@@ -343,6 +370,10 @@ const buildAlertKey = (system: SystemType, deviceId: number, alarmCode: number) 
   `${system}:${deviceId}-${alarmCode}`;
 
 const checkAlerts = async () => {
+  if (!isHeaderMounted) {
+    return;
+  }
+
   if (!userStore.isAuthenticated) {
     activeAlertsTabLabel.value = '当前告警';
     hasAlerts.value = false;
@@ -369,6 +400,10 @@ const checkAlerts = async () => {
       }),
     })),
   );
+
+  if (!canHandleAlertAudio()) {
+    return;
+  }
 
   const responses = settledResponses.flatMap((result) => {
     if (result.status === 'fulfilled') {
@@ -453,6 +488,10 @@ const checkAlerts = async () => {
 
 // -------- 试音 --------
 const toggleTestSound = async () => {
+  if (!canHandleAlertAudio()) {
+    return;
+  }
+
   if (!soundEnabled.value) {
     ElMessage.warning('请先打开声音开关再测试告警声');
     return;
@@ -483,8 +522,12 @@ const cancelLogout = () => console.log('Logout canceled');
 
 // -------- 生命周期 --------
 onMounted(async () => {
+  isHeaderMounted = true;
   syncActiveTabWithRoute();
   selectedDevices.value = await loadSelectedDeviceKeys();
+  if (!canHandleAlertAudio()) {
+    return;
+  }
 
   const storedSoundEnabled = soundPrefGet();
   soundEnabled.value = storedSoundEnabled ? JSON.parse(storedSoundEnabled) : true;
@@ -499,6 +542,9 @@ onMounted(async () => {
   }
 
   await checkAlerts();
+  if (!canHandleAlertAudio()) {
+    return;
+  }
   if (soundEnabled.value && (hasUnconfirmedAlerts.value || pendingAlertPlayback.value)) {
     void playAlertSound();
   }
@@ -510,6 +556,7 @@ watch(() => route.path, () => {
 }, { immediate: true });
 
 onBeforeUnmount(() => {
+  isHeaderMounted = false;
   clearInterval(intervalId);
   stopAlertSound();
   closeAutoplayWarning();

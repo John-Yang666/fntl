@@ -1,0 +1,14 @@
+Sources used:
+- /Users/yangzijiang/BT_NMS/docs/FNTL-MS100贝通云网管系统用户手册V1.3.0.docx
+  - Product name, daily monitoring, topology status, device detail, current alarms, records, remote control, system settings, help/file management and admin workflow.
+  - UI images extracted to assets/manual_media/image1.png through image23.png.
+- /Users/yangzijiang/BT_NMS/docs/项目概述.docx
+  - System positioning, BT/SY unified front end, Django/DRF/Channels backends, Redis Streams, edge Agent, PostgreSQL, Docker Compose, Windows protected Agent deployment.
+- /Users/yangzijiang/BT_NMS/docs/BT_NMS运维手册.md
+  - Production ports, service composition, Docker production deployment, Windows Agent runtime data paths, operations and backup framing.
+- /Users/yangzijiang/BT_NMS/docs/BT_NMS验收测试报告_2026-05-27.md
+  - Acceptance test status and covered pages. Used only as confidence wording; no unqualified production SLA or performance claim is invented.
+
+Identity asset policy:
+- No logo was available in the source materials. The deck uses product text and UI screenshots, not a generated or traced mark.
+- Icons are generic Lucide line icons used as semantic presentation symbols, not brand marks.

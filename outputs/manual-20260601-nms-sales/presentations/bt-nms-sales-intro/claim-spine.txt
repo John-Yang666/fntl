@@ -1,0 +1,23 @@
+Thesis:
+FNTL-MS100 贝通云网管系统把 BT 与 SY 现场设备接入同一套值守控制台，用拓扑、告警、记录和授权控制形成可视、可追溯、可运维的客户现场管理闭环。
+
+Audience:
+铁路/工业现场客户的设备管理、值班调度、信息化运维负责人，以及需要做方案推荐的销售人员。
+
+One-line arc:
+先讲客户现场为什么需要集中网管，再展示产品如何把监控、告警、记录、控制和运维连成闭环，最后给出适合推进试点/交付的推荐口径。
+
+Slides:
+1. 客户需要的不是更多页面，而是一套现场状态闭环。 Proof: product UI screenshot and value rail. Source: user manual.
+2. 分散巡检、告警滞后和记录断点，会放大现场运维风险。 Proof: pain-to-value matrix. Source: user manual workflow.
+3. 系统把 BT/SY 两类设备纳入统一控制台。 Proof: platform map. Source: project overview.
+4. 拓扑总览让值守人员先看全局，再下钻单站。 Proof: topology/device detail screenshots. Source: user manual figures.
+5. 告警从声音提醒到确认记录，形成处理闭环。 Proof: alarm flow and current alarm screenshot. Source: user manual figures.
+6. 历史记录把复盘、归档和责任追溯放在同一入口。 Proof: records screenshot and record taxonomy. Source: user manual.
+7. 远程控制被放进授权、验证和审计边界里。 Proof: command window screenshot and safety gates. Source: user manual/project overview.
+8. 管理员可维护参数、资料和后台台账，降低交付后依赖。 Proof: settings/help/admin screenshots. Source: user manual.
+9. 服务端与边缘 Agent 解耦，适配现场网络和设备协议。 Proof: deployment architecture. Source: project overview/ops manual.
+10. 推荐路径是从可视化监控切入，再扩展到告警闭环和运维数据资产。 Proof: adoption path. Source: synthesized from product docs.
+
+Omissions:
+- No customer-specific device count, historical incident count, SLA improvement, pricing, or implementation timeline is asserted without source input.

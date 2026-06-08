@@ -1,0 +1,35 @@
+Slide size:
+- 1280x720 landscape.
+
+Background system:
+- Warm off-white canvas (#F7F4EE) with deep ink header text (#172033).
+- Dark cover/section panels use #0D2232 and #123B4E with teal/cyan accents.
+
+Typography:
+- Chinese-first sans: PingFang SC for titles, body, labels.
+- Title range: 34-54 px; cover: 58-66 px; body: 17-24 px; labels: 12-15 px.
+
+Palette:
+- Ink: #172033
+- Deep teal: #0D3B4A
+- Signal cyan: #11A6B3
+- Safety amber: #F2A33A
+- Alarm red: #D9493F
+- Paper: #F7F4EE
+- Muted gray: #667085
+- Hairline: #D7D3C8
+
+Chart and diagram grammar:
+- Product/data flow diagrams use concrete lanes: 前端控制台, BT 后端, SY 后端, Redis Streams, Windows Agent, 现场设备.
+- Connectors encode data/control movement only. Cyan means status/data path; amber/red means alert/control risk boundary.
+- Cards are used for repeated recommendation items only; page sections remain open layouts.
+
+Image grammar:
+- UI screenshots are cropped inside clean device-like frames with thin hairline borders.
+- Screenshots are paired with short callouts, not long captions.
+
+Footer grammar:
+- Bottom-left source note in 10 px muted gray; bottom-right page marker.
+
+Banned motifs:
+- No fake logo, no decorative gradient blobs, no stock imagery, no invented performance metric.

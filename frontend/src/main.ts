@@ -27,4 +27,6 @@ userStore.loadAuthData().then(() => {
   // 已经从 IndexedDB 恢复 token、user 等数据
 });
 
-app.mount('#app');
+void router.isReady().then(() => {
+  app.mount('#app');
+});

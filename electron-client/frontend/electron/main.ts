@@ -1,11 +1,22 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  nativeImage,
+  shell,
+  Tray,
+  type BrowserWindowConstructorOptions,
+} from 'electron';
 import path from 'node:path';
 import { DEFAULT_CLIENT_CONFIG, loadClientConfig, saveClientConfig, type ClientConfig } from './config.js';
 import { startDesktopServer, type DesktopServer } from './proxy.js';
+import { buildDesktopWebPreferences, buildDesktopWindowOpenResponse } from './windowOptions.js';
 
 type SystemType = 'bt' | 'sy';
 
-let mainWindow: BrowserWindow | null = null;
+const windows = new Set<BrowserWindow>();
+let focusedWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let desktopServer: DesktopServer | null = null;
 let clientConfig: ClientConfig | null = null;
@@ -34,19 +45,26 @@ async function refreshClientConfig(): Promise<ClientConfig | null> {
 }
 
 function showMainWindow(): void {
-  if (!mainWindow) {
+  const targetWindow = focusedWindow && !focusedWindow.isDestroyed()
+    ? focusedWindow
+    : Array.from(windows).find((window) => !window.isDestroyed());
+  if (!targetWindow) {
     return;
   }
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore();
+  if (targetWindow.isMinimized()) {
+    targetWindow.restore();
   }
-  mainWindow.show();
-  mainWindow.focus();
+  targetWindow.show();
+  targetWindow.focus();
+  focusedWindow = targetWindow;
 }
 
 function requestSettingsDialog(): void {
   showMainWindow();
-  mainWindow?.webContents.send('client:open-settings');
+  const targetWindow = focusedWindow && !focusedWindow.isDestroyed()
+    ? focusedWindow
+    : Array.from(windows).find((window) => !window.isDestroyed());
+  targetWindow?.webContents.send('client:open-settings');
 }
 
 function buildAdminUrl(system: SystemType, adminPath: string): string {
@@ -70,37 +88,69 @@ function createTray(): void {
   tray.on('click', showMainWindow);
 }
 
-function createMainWindow(startUrl: string): void {
-  mainWindow = new BrowserWindow({
-    title: APP_NAME,
+function createMainWindow(
+  startUrl: string,
+  openOptions?: BrowserWindowConstructorOptions,
+): BrowserWindow {
+  const baseOptions: BrowserWindowConstructorOptions = openOptions ?? {
     width: 1360,
     height: 860,
     minWidth: 1100,
     minHeight: 720,
+  };
+  const window = new BrowserWindow({
+    title: APP_NAME,
     show: false,
+    ...baseOptions,
     webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      preload: getPreloadPath(),
-      sandbox: false,
+      ...baseOptions.webPreferences,
+      ...buildDesktopWebPreferences(getPreloadPath()),
     },
   });
 
-  mainWindow.once('ready-to-show', () => {
-    showMainWindow();
-  });
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (desktopServer && url.startsWith(desktopServer.origin)) {
-      return { action: 'allow' };
+  windows.add(window);
+  focusedWindow = window;
+
+  window.once('ready-to-show', () => {
+    if (window.isMinimized()) {
+      window.restore();
     }
+    window.show();
+    window.focus();
+  });
+  window.on('focus', () => {
+    focusedWindow = window;
+  });
+  window.on('closed', () => {
+    windows.delete(window);
+    if (focusedWindow === window) {
+      focusedWindow = Array.from(windows).find((item) => !item.isDestroyed()) ?? null;
+    }
+  });
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const response = buildDesktopWindowOpenResponse(url, desktopServer?.origin, getPreloadPath());
+    if (response.action === 'allow') {
+      return {
+        ...response,
+        outlivesOpener: true,
+        createWindow: (options) => createMainWindow(url, options).webContents,
+      };
+    }
+
     void shell.openExternal(url);
-    return { action: 'deny' };
+    return response;
   });
 
-  void mainWindow.loadURL(startUrl);
+  void window.loadURL(startUrl);
+  return window;
+}
+
+function createClientWindow(): void {
+  if (!desktopServer) {
+    showMainWindow();
+    return;
+  }
+  createMainWindow(desktopServer.origin);
 }
 
 function registerIpcHandlers(): void {
@@ -134,31 +184,40 @@ async function bootstrap(): Promise<void> {
     distDir: getDistDir(),
     getConfig: async () => clientConfig,
   });
-  createMainWindow(desktopServer.origin);
+  createClientWindow();
   createTray();
   Menu.setApplicationMenu(null);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0 && desktopServer) {
-      createMainWindow(desktopServer.origin);
+      createClientWindow();
     } else {
       showMainWindow();
     }
   });
 }
 
-app.on('before-quit', () => {
-  tray?.destroy();
-  tray = null;
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-void bootstrap().catch((error) => {
-  console.error(error);
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
   app.quit();
-});
+} else {
+  app.on('second-instance', () => {
+    createClientWindow();
+  });
+
+  app.on('before-quit', () => {
+    tray?.destroy();
+    tray = null;
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  void bootstrap().catch((error) => {
+    console.error(error);
+    app.quit();
+  });
+}
