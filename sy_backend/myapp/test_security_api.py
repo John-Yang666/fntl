@@ -83,6 +83,46 @@ class SySecurityApiTests(APITestCase):
         operation = UserOperation.objects.get()
         self.assertEqual(operation.username, self.ops_user.username)
 
+    @patch("myapp.views.send_sy_frame_via_redis")
+    def test_sy_send_command_rejects_unknown_bb_name(self, mock_send_frame):
+        self.client.force_authenticate(self.ops_user)
+
+        response = self.client.post(
+            reverse("sy-send-command", args=[self.device_a.device_id]),
+            {
+                "cmd_type": "BB",
+                "bb_name": "NOT_A_COMMAND",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("未知 bb_name", response.json()["message"])
+        mock_send_frame.assert_not_called()
+        self.assertFalse(UserOperation.objects.exists())
+
+    @patch("myapp.views.send_sy_frame_via_redis")
+    def test_sy_send_command_accepts_custom_bb_code_and_audits(self, mock_send_frame):
+        self.client.force_authenticate(self.ops_user)
+
+        response = self.client.post(
+            reverse("sy-send-command", args=[self.device_a.device_id]),
+            {
+                "cmd_type": "BB",
+                "bb_code": "05",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_frame.assert_called_once()
+        self.assertEqual(mock_send_frame.call_args.kwargs["command"], "BB_0x05")
+        self.assertEqual(mock_send_frame.call_args.kwargs["extra_meta"], {"bb_code": 5})
+        operation = UserOperation.objects.get()
+        self.assertEqual(operation.function_code, "BB")
+        self.assertEqual(operation.operation, "远程控制（自定义:0x05）")
+        self.assertEqual(operation.username, self.ops_user.username)
+
     def test_uploaded_file_list_requires_authentication(self):
         response = self.client.get(reverse("uploadedfile-list"))
 

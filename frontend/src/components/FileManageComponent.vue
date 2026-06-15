@@ -1,10 +1,10 @@
 <template>
-  <el-card>
+  <el-card data-testid="file-manage">
     <template #header>文件管理</template>
 
-    <el-tabs v-model="activeSystem">
-      <el-tab-pane label="BT 文件" name="bt" />
-      <el-tab-pane label="SY 文件" name="sy" />
+    <el-tabs v-model="activeSystem" data-testid="file-system-tabs">
+      <el-tab-pane label="BT 文件" name="bt" data-testid="file-system-bt" />
+      <el-tab-pane label="SY 文件" name="sy" data-testid="file-system-sy" />
     </el-tabs>
 
     <el-form v-if="isAdmin" :inline="true" style="margin-bottom: 20px">

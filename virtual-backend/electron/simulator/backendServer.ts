@@ -22,6 +22,21 @@ const RECORD_ENDPOINTS: Record<RecordEndpoint, keyof ReturnType<SimulatorStore['
   'analog-data': 'analogData',
 };
 
+type RuntimeConfigGroup = 'runtime' | 'auth' | 'cleanup';
+type RuntimeConfigFieldType = 'integer' | 'alarm_delay_map' | 'time' | 'boolean';
+
+interface RuntimeConfigField {
+  key: string;
+  label: string;
+  type: RuntimeConfigFieldType;
+  group: RuntimeConfigGroup;
+  min?: number;
+  max?: number;
+  default: unknown;
+  codes?: number[];
+  alarm_meanings?: Record<string, string>;
+}
+
 const DEMO_USER = {
   username: 'admin',
   email: 'admin@beitong.demo',
@@ -62,6 +77,14 @@ const sendHtml = (response: ServerResponse, html: string) => {
     'content-type': 'text/html; charset=utf-8',
   });
   response.end(html);
+};
+
+const sendText = (response: ServerResponse, status: number, body: string, contentType = 'text/plain; charset=utf-8') => {
+  response.writeHead(status, {
+    'access-control-allow-origin': '*',
+    'content-type': contentType,
+  });
+  response.end(body);
 };
 
 const sendNotFound = (response: ServerResponse) => sendJson(response, 404, { detail: 'Not found' });
@@ -126,6 +149,257 @@ const paginate = (rows: readonly unknown[], query: URLSearchParams) => {
   const start = (page - 1) * pageSize;
   return rows.slice(start, start + pageSize);
 };
+
+const paginated = <T>(rows: readonly T[], query: URLSearchParams) => ({
+  count: rows.length,
+  results: paginate(rows, query),
+});
+
+const OPS_DEPOTS = [
+  {
+    id: 1,
+    name: '演示车站',
+    is_active: true,
+    ordering: 1,
+    remark: '虚拟后端默认车间',
+  },
+];
+
+const OPS_LINES = [
+  {
+    id: 1,
+    name: '演示线路',
+    is_active: true,
+    ordering: 1,
+    remark: '虚拟后端默认线路',
+  },
+];
+
+const opsDevice = (device: DemoDevice) => ({
+  ...publicDevice(device),
+  id: device.device_id,
+  depot_id: 1,
+  depot_name: device.depot,
+  line_id: 1,
+  line_name: device.line,
+  direction1_enabled: true,
+  direction2_enabled: true,
+  alarm_filters: [],
+  remark: device.remark,
+});
+
+const filterOpsDevices = (devices: DemoDevice[], query: URLSearchParams) => {
+  const deviceId = query.get('device_id')?.trim();
+  const name = query.get('name')?.trim().toLowerCase();
+  const ipAddress = query.get('ip_address')?.trim();
+  const depot = query.get('depot')?.trim();
+  const line = query.get('line')?.trim();
+
+  return devices
+    .map(opsDevice)
+    .filter((device) => !deviceId || String(device.device_id).includes(deviceId))
+    .filter((device) => !name || device.name.toLowerCase().includes(name))
+    .filter((device) => !ipAddress || device.ip_address.includes(ipAddress))
+    .filter((device) => !depot || String(device.depot_id) === depot)
+    .filter((device) => !line || String(device.line_id) === line);
+};
+
+const runtimeConfigSchema = (system: SystemType): RuntimeConfigField[] => {
+  const alarmMeanings = {
+    '2001': '一方向线路故障',
+    '2002': '二方向线路故障',
+    '9001': '通信中断',
+  };
+  return [
+    {
+      key: 'TOPOLOGY_POLL_INTERVAL_SECONDS',
+      label: '拓扑轮询间隔',
+      type: 'integer',
+      group: 'runtime',
+      min: 1,
+      max: 300,
+      default: 5,
+    },
+    {
+      key: 'DEVICE_STATUS_CACHE_SECONDS',
+      label: '设备状态缓存秒数',
+      type: 'integer',
+      group: 'runtime',
+      min: 0,
+      max: 3600,
+      default: system === 'bt' ? 10 : 15,
+    },
+    {
+      key: 'ALARM_DELAY_SECONDS',
+      label: '告警延时',
+      type: 'alarm_delay_map',
+      group: 'runtime',
+      min: 0,
+      max: 3600,
+      codes: [2001, 2002, 9001],
+      alarm_meanings: alarmMeanings,
+      default: { '2001': 0, '2002': 0, '9001': 5 },
+    },
+    {
+      key: 'CLEANUP_SCHEDULE_TIME',
+      label: '自动清理时间',
+      type: 'time',
+      group: 'cleanup',
+      default: '02:30',
+    },
+    {
+      key: 'ALARM_RECORD_RETENTION_DAYS',
+      label: '历史告警 保留天数',
+      type: 'integer',
+      group: 'cleanup',
+      min: 1,
+      max: 3650,
+      default: 180,
+    },
+    {
+      key: 'ALARM_RECORD_AUTO_EXPORT',
+      label: '历史告警 自动导出',
+      type: 'boolean',
+      group: 'cleanup',
+      default: true,
+    },
+    {
+      key: 'RELAY_ACTION_RETENTION_DAYS',
+      label: '继电器动作 保留天数',
+      type: 'integer',
+      group: 'cleanup',
+      min: 1,
+      max: 3650,
+      default: 180,
+    },
+    {
+      key: 'RELAY_ACTION_AUTO_EXPORT',
+      label: '继电器动作 自动导出',
+      type: 'boolean',
+      group: 'cleanup',
+      default: true,
+    },
+    {
+      key: 'USER_OPERATION_RETENTION_DAYS',
+      label: '用户操作 保留天数',
+      type: 'integer',
+      group: 'cleanup',
+      min: 1,
+      max: 3650,
+      default: 365,
+    },
+    {
+      key: 'USER_OPERATION_AUTO_EXPORT',
+      label: '用户操作 自动导出',
+      type: 'boolean',
+      group: 'cleanup',
+      default: true,
+    },
+    {
+      key: 'SWITCH_DATA_RETENTION_DAYS',
+      label: '开关量 保留天数',
+      type: 'integer',
+      group: 'cleanup',
+      min: 1,
+      max: 3650,
+      default: 90,
+    },
+    {
+      key: 'SWITCH_DATA_AUTO_EXPORT',
+      label: '开关量 自动导出',
+      type: 'boolean',
+      group: 'cleanup',
+      default: false,
+    },
+    {
+      key: 'ACCESS_TOKEN_LIFETIME_MINUTES',
+      label: 'Access Token 有效分钟数',
+      type: 'integer',
+      group: 'auth',
+      min: 1,
+      max: 1440,
+      default: 60,
+    },
+    {
+      key: 'REFRESH_TOKEN_LIFETIME_HOURS',
+      label: 'Refresh Token 有效小时数',
+      type: 'integer',
+      group: 'auth',
+      min: 1,
+      max: 720,
+      default: 24,
+    },
+  ];
+};
+
+const runtimeConfigPayload = (system: SystemType, values?: Record<string, unknown>) => {
+  const schema = runtimeConfigSchema(system);
+  const defaults = Object.fromEntries(schema.map((field) => [field.key, field.default]));
+  return {
+    schema,
+    defaults,
+    values: {
+      ...defaults,
+      ...(values || {}),
+    },
+    updated_at: new Date().toISOString(),
+    updated_by: 'admin',
+    storage_ready: true,
+    cleanup_ready: true,
+    cleanup_error: null,
+  };
+};
+
+const cleanupExportTestPayload = () => ({
+  results: {
+    alerts: {
+      status: 'success',
+      model: 'AlarmData',
+      candidate_count: 0,
+      export_path: 'DATA_DIR/cleanup_exports/alerts.csv',
+      error: '',
+    },
+    relay_actions: {
+      status: 'success',
+      model: 'RelayAction',
+      candidate_count: 0,
+      export_path: 'DATA_DIR/cleanup_exports/relay_actions.csv',
+      error: '',
+    },
+    user_operations: {
+      status: 'success',
+      model: 'UserOperation',
+      candidate_count: 0,
+      export_path: 'DATA_DIR/cleanup_exports/user_operations.csv',
+      error: '',
+    },
+  },
+});
+
+const helpFaqItems = () => [
+  {
+    id: 1,
+    title: '如何确认当前告警？',
+    content: '进入当前告警页面，定位告警后点击确认。',
+    display_order: 1,
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: 2,
+    title: '如何切换 BT / SY 文件？',
+    content: '在帮助页面的文件管理区域选择 BT 文件或 SY 文件页签。',
+    display_order: 2,
+    updated_at: new Date().toISOString(),
+  },
+];
+
+const uploadedFiles = (system: SystemType) => [
+  {
+    id: 1,
+    name: `${system.toUpperCase()} 操作手册.pdf`,
+    upload_time: new Date().toISOString(),
+  },
+];
 
 const switchStatusBytes = (device: DemoDevice) => {
   const bytes = new Uint8Array(16);
@@ -295,6 +569,170 @@ export const createBackendServer = ({ system, store }: BackendServerOptions) => 
           count: filtered.length,
           results: filtered.map(publicDevice),
         });
+        return;
+      }
+
+      if (path === '/api/ops/depots') {
+        if (request.method === 'GET') {
+          sendJson(response, 200, paginated(OPS_DEPOTS, url.searchParams));
+          return;
+        }
+        if (request.method === 'POST') {
+          sendJson(response, 201, { id: 2, ...(await readJsonBody(request)) });
+          return;
+        }
+      }
+
+      if (path === '/api/ops/lines') {
+        if (request.method === 'GET') {
+          sendJson(response, 200, paginated(OPS_LINES, url.searchParams));
+          return;
+        }
+        if (request.method === 'POST') {
+          sendJson(response, 201, { id: 2, ...(await readJsonBody(request)) });
+          return;
+        }
+      }
+
+      const opsDictionaryMatch = path.match(/^\/api\/ops\/(depots|lines)\/(\d+)$/);
+      if (opsDictionaryMatch && ['PUT', 'PATCH'].includes(request.method || '')) {
+        const source = opsDictionaryMatch[1] === 'depots' ? OPS_DEPOTS[0] : OPS_LINES[0];
+        sendJson(response, 200, {
+          ...source,
+          id: Number(opsDictionaryMatch[2]),
+          ...(await readJsonBody(request)),
+        });
+        return;
+      }
+
+      if (path === '/api/ops/devices/reconnect' && request.method === 'POST') {
+        sendJson(response, 200, { status: 'reconnect scheduled' });
+        return;
+      }
+
+      if (path === '/api/ops/devices/bulk-delete' && request.method === 'POST') {
+        sendJson(response, 200, { deleted: 0 });
+        return;
+      }
+
+      if (path === '/api/ops/devices/import/preview' && request.method === 'POST') {
+        sendJson(response, 200, {
+          summary: { create: 0, update: 0, error: 0 },
+          rows: [],
+          errors: [],
+        });
+        return;
+      }
+
+      if (path === '/api/ops/devices/import/commit' && request.method === 'POST') {
+        sendJson(response, 200, { created: 0, updated: 0, errors: [] });
+        return;
+      }
+
+      if (path === '/api/ops/devices/export') {
+        sendText(response, 200, 'device_id,name,ip_address\n', 'text/csv; charset=utf-8');
+        return;
+      }
+
+      if (path === '/api/ops/devices') {
+        if (request.method === 'GET') {
+          const filtered = filterOpsDevices(devices, url.searchParams);
+          sendJson(response, 200, paginated(filtered, url.searchParams));
+          return;
+        }
+        if (request.method === 'POST') {
+          const body = await readJsonBody(request);
+          sendJson(response, 201, {
+            ...opsDevice(devices[0]),
+            ...body,
+            id: Number(body.device_id ?? devices[0].device_id),
+          });
+          return;
+        }
+      }
+
+      const opsDeviceMatch = path.match(/^\/api\/ops\/devices\/([^/]+)$/);
+      if (opsDeviceMatch) {
+        if (request.method === 'DELETE') {
+          sendJson(response, 200, { deleted: true });
+          return;
+        }
+        if (['PUT', 'PATCH'].includes(request.method || '')) {
+          const body = await readJsonBody(request);
+          const existing = devices.find((device) => String(device.device_id) === opsDeviceMatch[1]) ?? devices[0];
+          sendJson(response, 200, {
+            ...opsDevice(existing),
+            ...body,
+            id: Number(opsDeviceMatch[1]),
+          });
+          return;
+        }
+      }
+
+      if (path === '/api/runtime-config/cleanup-export-test' && request.method === 'POST') {
+        sendJson(response, 200, cleanupExportTestPayload());
+        return;
+      }
+
+      if (path === '/api/runtime-config') {
+        if (request.method === 'GET') {
+          sendJson(response, 200, runtimeConfigPayload(system));
+          return;
+        }
+        if (request.method === 'PUT') {
+          const body = await readJsonBody(request);
+          sendJson(response, 200, runtimeConfigPayload(system, body.values));
+          return;
+        }
+      }
+
+      if (path === '/api/help-faq') {
+        if (request.method === 'GET') {
+          sendJson(response, 200, helpFaqItems());
+          return;
+        }
+        if (request.method === 'PUT') {
+          const body = await readJsonBody(request);
+          sendJson(
+            response,
+            200,
+            Array.isArray(body)
+              ? body.map((item, index) => ({
+                  id: item.id ?? index + 1,
+                  title: item.title,
+                  content: item.content,
+                  display_order: index + 1,
+                  updated_at: new Date().toISOString(),
+                }))
+              : helpFaqItems(),
+          );
+          return;
+        }
+      }
+
+      if (path === '/api/uploaded-files') {
+        if (request.method === 'GET') {
+          sendJson(response, 200, {
+            count: uploadedFiles(system).length,
+            results: uploadedFiles(system),
+          });
+          return;
+        }
+        if (request.method === 'POST') {
+          sendJson(response, 201, uploadedFiles(system)[0]);
+          return;
+        }
+      }
+
+      const uploadedFileMatch = path.match(/^\/api\/uploaded-files\/(\d+)$/);
+      if (uploadedFileMatch && request.method === 'DELETE') {
+        sendJson(response, 200, { deleted: true });
+        return;
+      }
+
+      const downloadMatch = path.match(/^\/api\/download\/(\d+)$/);
+      if (downloadMatch) {
+        sendText(response, 200, `${system.toUpperCase()} demo file ${downloadMatch[1]}`, 'application/octet-stream');
         return;
       }
 

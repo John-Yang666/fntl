@@ -1,9 +1,9 @@
 <template>
-  <div ref="topologyContainer" class="topology-graph">
+  <div ref="topologyContainer" class="topology-graph" data-testid="topology-graph">
     <div class="topology-toolbar">
-      <button @click="zoomIn">放大</button>
-      <button @click="zoomOut">缩小</button>
-      <button @click="fitToScreen">铺满</button>
+      <button data-testid="topology-zoom-in" @click="zoomIn">放大</button>
+      <button data-testid="topology-zoom-out" @click="zoomOut">缩小</button>
+      <button data-testid="topology-fit" @click="fitToScreen">铺满</button>
       <div class="canvas-size-controls">
         <span class="size-label">宽</span>
         <el-input-number
@@ -25,11 +25,12 @@
         <el-checkbox v-model="autoFitCanvasWidth" @change="onAutoFitWidthChange">
           宽度自适应
         </el-checkbox>
-        <button @click="applyCanvasSize">应用尺寸</button>
+        <button data-testid="topology-apply-size" @click="applyCanvasSize">应用尺寸</button>
       </div>
     </div>
     <canvas
       ref="topologyCanvas"
+      data-testid="topology-canvas"
       :width="canvasWidth"
       :height="canvasHeight"
       @mousedown="startDragging"

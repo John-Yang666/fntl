@@ -1,5 +1,5 @@
 <template>
-  <div class="help-page">
+  <div class="help-page" data-testid="help-view">
     <el-container>
       <el-header>
         <h1>感谢您的使用！</h1>

@@ -1,5 +1,5 @@
 <template>
-  <div class="runtime-config-page">
+  <div class="runtime-config-page" data-testid="runtime-config-page">
     <section class="hero-card">
       <div>
         <h1>系统设置</h1>
@@ -27,6 +27,7 @@
         :key="system"
         :name="system"
         :label="`${SYSTEM_LABELS[system]} 参数`"
+        :data-testid="`runtime-tab-${system}`"
       >
         <div class="system-panel">
           <div class="system-toolbar">
@@ -35,7 +36,11 @@
               <span>更新人：{{ systemStates[system].payload?.updated_by || '未记录' }}</span>
             </div>
             <div class="system-actions">
-              <el-button @click="reloadSystem(system)" :disabled="systemStates[system].loading">
+              <el-button
+                :data-testid="`runtime-reload-${system}`"
+                @click="reloadSystem(system)"
+                :disabled="systemStates[system].loading"
+              >
                 重新加载
               </el-button>
               <el-button @click="resetToDefaults(system)" :disabled="!systemStates[system].payload">
@@ -95,6 +100,7 @@
                   type="button"
                   class="group-tag"
                   :class="{ 'group-tag-active': activeGroups[system] === group }"
+                  :data-testid="`runtime-${group}-group-${system}`"
                   @click="activeGroups[system] = group"
                 >
                   {{ GROUP_LABELS[group] }}
@@ -119,6 +125,7 @@
                     <el-button
                       type="success"
                       :loading="systemStates[system].testingExport"
+                      :data-testid="`runtime-cleanup-export-${system}`"
                       @click="testCleanupExport(system)"
                     >
                       导出测试

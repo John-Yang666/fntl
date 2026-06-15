@@ -4,7 +4,7 @@
       <AsideComponent></AsideComponent>
     </el-aside>
     <el-main>
-      <div>
+      <div data-testid="main-view">
         <h1>设备总览</h1>
         <!-- 在拓扑图上方添加设备筛选组件 -->
         <TopologyGraph />

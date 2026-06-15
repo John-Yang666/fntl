@@ -1,5 +1,5 @@
 <template>
-  <div class="ops-page">
+  <div class="ops-page" data-testid="ops-page">
     <section class="ops-header">
       <div>
         <h1>BT 运维管理</h1>
@@ -19,8 +19,8 @@
       :title="pageError"
     />
 
-    <el-tabs v-model="activeTab" class="ops-tabs">
-      <el-tab-pane label="设备信息" name="devices">
+    <el-tabs v-model="activeTab" class="ops-tabs" data-testid="ops-tabs">
+      <el-tab-pane label="设备信息" name="devices" data-testid="ops-tab-devices">
         <section class="ops-section">
           <div class="toolbar">
             <el-form inline class="filter-form">
@@ -35,7 +35,9 @@
                 </el-select>
               </el-form-item>
               <el-form-item label="设备ID">
-                <el-input v-model="deviceFilters.device_id" clearable style="width: 120px" />
+                <span data-testid="ops-device-id-filter">
+                  <el-input v-model="deviceFilters.device_id" clearable style="width: 120px" />
+                </span>
               </el-form-item>
               <el-form-item label="名称">
                 <el-input v-model="deviceFilters.name" clearable style="width: 160px" />
@@ -44,7 +46,7 @@
                 <el-input v-model="deviceFilters.ip_address" clearable style="width: 160px" />
               </el-form-item>
               <el-form-item>
-                <el-button type="primary" @click="fetchDevices">查询</el-button>
+                <el-button type="primary" data-testid="ops-device-query" @click="fetchDevices">查询</el-button>
                 <el-button @click="resetDeviceFilters">重置</el-button>
               </el-form-item>
             </el-form>
@@ -104,7 +106,7 @@
         </section>
       </el-tab-pane>
 
-      <el-tab-pane label="车间管理" name="depots">
+      <el-tab-pane label="车间管理" name="depots" data-testid="ops-tab-depots">
         <section class="ops-section compact">
           <div class="toolbar">
             <h2>车间管理</h2>
@@ -128,7 +130,7 @@
         </section>
       </el-tab-pane>
 
-      <el-tab-pane label="线路管理" name="lines">
+      <el-tab-pane label="线路管理" name="lines" data-testid="ops-tab-lines">
         <section class="ops-section compact">
           <div class="toolbar">
             <h2>线路管理</h2>

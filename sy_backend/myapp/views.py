@@ -360,7 +360,7 @@ class SwitchStatusView(View):  # 从缓存读取开关量信息
             return JsonResponse({"error": "No data found"}, status=404)
 
 
-class DeviceViewSet(viewsets.ModelViewSet):
+class DeviceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Device.objects.all()
     serializer_class = DeviceSerializer
     filter_backends = [DjangoFilterBackend]  # 启用过滤器
@@ -443,7 +443,7 @@ class CustomPageNumberPagination(PageNumberPagination):
     max_page_size = 10000
 
 
-class SwitchDataViewSet(viewsets.ModelViewSet):  # 从数据库读取开关量信息
+class SwitchDataViewSet(viewsets.ReadOnlyModelViewSet):  # 从数据库读取开关量信息
     queryset = SwitchData.objects.all()
     serializer_class = SwitchDataSerializer
     pagination_class = CustomPageNumberPagination
@@ -491,7 +491,7 @@ class SwitchDataViewSet(viewsets.ModelViewSet):  # 从数据库读取开关量�
         return _csv_export_response("switch-data", ["时间", "设备ID", "设备名称", "HEX", "状态字", "版本"], rows)
 
 
-class RelayActionViewSet(viewsets.ModelViewSet):
+class RelayActionViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = RelayAction.objects.all()
     serializer_class = RelayActionSerializer
     pagination_class = CustomPageNumberPagination

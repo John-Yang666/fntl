@@ -2,13 +2,13 @@
   <div class="tabs-container" :class="{ 'has-alerts': hasAlerts }">
     <div class="tabs-text">FNTL-MS100 贝通云网管系统</div>
 
-    <el-tabs type="card" @tab-click="handleClick" v-model="activeName">
-      <el-tab-pane label="设备监控" name="main"></el-tab-pane>
-      <el-tab-pane :label="activeAlertsTabLabel" name="activeAlerts"></el-tab-pane>
-      <el-tab-pane label="记录查询" name="records"></el-tab-pane>
-      <el-tab-pane v-if="canAccessOps" label="运维管理" name="ops"></el-tab-pane>
-      <el-tab-pane v-if="isSuperuser" label="系统设置" name="systemSettings"></el-tab-pane>
-      <el-tab-pane label="帮助" name="fourth"></el-tab-pane>
+    <el-tabs type="card" @tab-click="handleClick" v-model="activeName" data-testid="main-navigation">
+      <el-tab-pane label="设备监控" name="main" data-testid="nav-main"></el-tab-pane>
+      <el-tab-pane :label="activeAlertsTabLabel" name="activeAlerts" data-testid="nav-alerts"></el-tab-pane>
+      <el-tab-pane label="记录查询" name="records" data-testid="nav-records"></el-tab-pane>
+      <el-tab-pane v-if="canAccessOps" label="运维管理" name="ops" data-testid="nav-ops"></el-tab-pane>
+      <el-tab-pane v-if="isSuperuser" label="系统设置" name="systemSettings" data-testid="nav-runtime"></el-tab-pane>
+      <el-tab-pane label="帮助" name="fourth" data-testid="nav-help"></el-tab-pane>
     </el-tabs>
 
     <div class="action-buttons">

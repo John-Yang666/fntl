@@ -1,0 +1,35 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildAuthWebSocketProtocols,
+  getApiBase,
+  getSystemFromRoute,
+  getWsBase,
+  makeDeviceKey,
+  parseDeviceKey,
+} from '../systems';
+
+describe('systems helpers', () => {
+  it('builds BT/SY API and WebSocket origins from the browser location', () => {
+    window.history.pushState({}, '', 'http://fntl.local:5173/main');
+
+    expect(getApiBase('bt')).toBe('http://fntl.local:8000/api');
+    expect(getApiBase('sy')).toBe('http://fntl.local:8001/api');
+    expect(getWsBase('bt')).toBe('ws://fntl.local:8000');
+    expect(getWsBase('sy')).toBe('ws://fntl.local:8001');
+  });
+
+  it('uses BT as the fallback route system and validates device keys', () => {
+    expect(getSystemFromRoute('sy')).toBe('sy');
+    expect(getSystemFromRoute('unknown')).toBe('bt');
+    expect(makeDeviceKey('sy', 101)).toBe('sy:101');
+    expect(parseDeviceKey('bt:12')).toEqual({ system: 'bt', deviceId: 12 });
+    expect(parseDeviceKey('xx:12')).toBeNull();
+    expect(parseDeviceKey('bt:not-a-number')).toBeNull();
+  });
+
+  it('builds authenticated WebSocket subprotocols without leaking empty tokens', () => {
+    expect(buildAuthWebSocketProtocols('abc.def')).toEqual(['bt-nms', 'jwt.abc.def']);
+    expect(buildAuthWebSocketProtocols('')).toEqual(['bt-nms']);
+    expect(buildAuthWebSocketProtocols(null)).toEqual(['bt-nms']);
+  });
+});

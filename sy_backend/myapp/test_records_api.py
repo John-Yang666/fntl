@@ -152,3 +152,46 @@ class SyRecordsApiTests(APITestCase):
         self.assertIn("告警码", content)
         self.assertIn("40", content)
         self.assertNotIn("41", content)
+
+    def test_general_device_and_record_endpoints_are_read_only(self):
+        self.client.force_authenticate(self.ops_user)
+
+        cases = [
+            (
+                "/api/devices/",
+                {
+                    "device_id": 999,
+                    "name": "通用接口新增设备",
+                    "ip_address": "10.0.1.250",
+                },
+                Device,
+            ),
+            (
+                "/api/switch-data/",
+                {
+                    "device": self.device_a.device_id,
+                    "switch_status": "0102",
+                    "version": "v4",
+                },
+                SwitchData,
+            ),
+            (
+                "/api/relay-actions/",
+                {
+                    "device": self.device_a.device_id,
+                    "relay": "一方向",
+                    "action": "吸起",
+                    "source": "A1",
+                },
+                RelayAction,
+            ),
+        ]
+
+        for endpoint, payload, model in cases:
+            with self.subTest(endpoint=endpoint):
+                before_count = model.objects.count()
+
+                response = self.client.post(endpoint, payload, format="json")
+
+                self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+                self.assertEqual(model.objects.count(), before_count)

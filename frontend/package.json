@@ -8,7 +8,8 @@
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "build-only": "vite build",
-    "type-check": "vue-tsc --build --force"
+    "type-check": "vue-tsc --build --force",
+    "test:unit": "node scripts/run-vitest.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
