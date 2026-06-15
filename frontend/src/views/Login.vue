@@ -1,18 +1,18 @@
 <template>
-  <div class="login-container">
+  <div class="login-container" data-testid="login-view">
     <div class="login-header">
       <h2>武汉贝通 / SY 统一网管登录</h2>
     </div>
     <form @submit.prevent="handleLogin">
       <div class="input-group">
         <label for="username">用户名</label>
-        <input v-model="username" id="username" type="text" required />
+        <input v-model="username" id="username" data-testid="login-username" type="text" required />
       </div>
       <div class="input-group">
         <label for="password">密码</label>
-        <input v-model="password" id="password" type="password" required />
+        <input v-model="password" id="password" data-testid="login-password" type="password" required />
       </div>
-      <button type="submit" class="login-button">登录</button>
+      <button type="submit" class="login-button" data-testid="login-submit">登录</button>
     </form>
     <p v-if="error" class="error-message">{{ error }}</p>
   </div>

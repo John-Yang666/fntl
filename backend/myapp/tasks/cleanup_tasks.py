@@ -64,9 +64,11 @@ def _create_snapshot_table(model, threshold_date, date_field):
     quoted_temp_table = _quote_name(temp_table)
 
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"CREATE TEMP TABLE {quoted_temp_table} (id uuid PRIMARY KEY) ON COMMIT PRESERVE ROWS"
-        )
+        id_type = "TEXT" if connection.vendor == "sqlite" else "uuid"
+        create_sql = f"CREATE TEMP TABLE {quoted_temp_table} (id {id_type} PRIMARY KEY)"
+        if connection.vendor != "sqlite":
+            create_sql += " ON COMMIT PRESERVE ROWS"
+        cursor.execute(create_sql)
         cursor.execute(
             f"""
             INSERT INTO {quoted_temp_table} (id)
@@ -131,11 +133,13 @@ def _model_has_field(model, field_name):
 
 
 def _ordered_snapshot_objects(model, ids):
-    queryset = model.objects.filter(pk__in=ids)
+    pk_field = model._meta.pk
+    normalized_ids = [pk_field.to_python(pk) for pk in ids]
+    queryset = model.objects.filter(pk__in=normalized_ids)
     if _model_has_field(model, "device"):
         queryset = queryset.select_related("device")
-    objects_by_id = {obj.pk: obj for obj in queryset}
-    return [objects_by_id[pk] for pk in ids if pk in objects_by_id]
+    objects_by_id = {pk_field.to_python(obj.pk): obj for obj in queryset}
+    return [objects_by_id[pk] for pk in normalized_ids if pk in objects_by_id]
 
 
 def export_cleanup_queryset_to_csv(*, queryset, resource_class, export_file):

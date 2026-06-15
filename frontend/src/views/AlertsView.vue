@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div data-testid="alerts-view">
     <div class="filter-container">
       <select v-model="selectedSystem">
         <option value="">所有系统</option>

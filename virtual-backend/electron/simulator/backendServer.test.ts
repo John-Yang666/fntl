@@ -97,4 +97,44 @@ describe('backend HTTP API', () => {
     const count = await requestJson(`${baseUrl}/api/user-operations/count/`);
     expect(count.body).toEqual({ count: 1, approximate: false });
   });
+
+  it('serves ops, runtime, help, and file-management compatibility endpoints', async () => {
+    const { baseUrl } = await startDemoServer('bt');
+
+    const opsDevices = await requestJson(`${baseUrl}/api/ops/devices/?device_id=2`);
+    expect(opsDevices.response.status).toBe(200);
+    expect(opsDevices.body).toMatchObject({
+      count: 1,
+      results: [
+        {
+          device_id: 2,
+          name: 'BT-02',
+          depot_name: '演示车站',
+          line_name: '演示线路',
+        },
+      ],
+    });
+
+    const depots = await requestJson(`${baseUrl}/api/ops/depots/`);
+    expect(depots.body.results[0]).toMatchObject({ name: '演示车站', is_active: true });
+
+    const runtime = await requestJson(`${baseUrl}/api/runtime-config/`);
+    expect(runtime.body.schema.some((field: { key: string }) => field.key === 'CLEANUP_SCHEDULE_TIME')).toBe(true);
+    expect(runtime.body.values.CLEANUP_SCHEDULE_TIME).toBe('02:30');
+
+    const cleanupExport = await requestJson(`${baseUrl}/api/runtime-config/cleanup-export-test/`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    expect(cleanupExport.body.results.alerts).toMatchObject({
+      status: 'success',
+      model: 'AlarmData',
+    });
+
+    const faq = await requestJson(`${baseUrl}/api/help-faq/`);
+    expect(faq.body[0]).toMatchObject({ title: '如何确认当前告警？' });
+
+    const files = await requestJson(`${baseUrl}/api/uploaded-files/`);
+    expect(files.body.results[0]).toMatchObject({ name: 'BT 操作手册.pdf' });
+  });
 });

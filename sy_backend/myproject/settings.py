@@ -216,16 +216,26 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DATABASE_NAME', 'mydatabase'),
-        'USER': os.getenv('DATABASE_USER', 'myuser'),
-        'PASSWORD': os.getenv('DATABASE_PASSWORD', ''),
-        'HOST': os.getenv('DATABASE_HOST', 'db'),
-        'PORT': os.getenv('DATABASE_PORT', '5432'),
+USE_LOCAL_TEST_SERVICES = _running_tests() and not _get_env_bool("FNTL_TEST_REAL_SERVICES", False)
+
+if USE_LOCAL_TEST_SERVICES:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DATABASE_NAME', 'mydatabase'),
+            'USER': os.getenv('DATABASE_USER', 'myuser'),
+            'PASSWORD': os.getenv('DATABASE_PASSWORD', ''),
+            'HOST': os.getenv('DATABASE_HOST', 'db'),
+            'PORT': os.getenv('DATABASE_PORT', '5432'),
+        }
+    }
 
 # Django发送GET/POST请求的数量限制。一个单独的请求上传数据时，这个设置限制了该请求中允许的最大字段数量。超出这个数量的请求将被拒绝，并抛出 TooManyFieldsSent 异常。
 DATA_UPLOAD_MAX_NUMBER_FIELDS = _get_env_int("DATA_UPLOAD_MAX_NUMBER_FIELDS", 5000)
@@ -298,31 +308,46 @@ REDIS_BROKER_DB = _get_env_int('REDIS_BROKER_DB', 0)
 
 # 配置 Channels
 ASGI_APPLICATION = 'myproject.asgi.application'
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            "hosts": [(REDIS_HOST, REDIS_PORT)],
+if USE_LOCAL_TEST_SERVICES:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
         },
-    },
-}
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                "hosts": [(REDIS_HOST, REDIS_PORT)],
+            },
+        },
+    }
 
 # 配置缓存
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}', # 根据你的 Redis 服务器地址和端口进行调整
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+if USE_LOCAL_TEST_SERVICES:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'sy-nms-local-test-cache',
         }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}', # 根据你的 Redis 服务器地址和端口进行调整
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            }
+        }
+    }
 
 
 # 配置 Celery
-CELERY_BROKER_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_BROKER_DB}'
+CELERY_BROKER_URL = 'memory://' if USE_LOCAL_TEST_SERVICES else f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_BROKER_DB}'
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-CELERY_RESULT_BACKEND = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_BROKER_DB}' #CELERY_RESULT_BACKEND = 'django-db'#使用 Django 作为 Celery 结果后端
+CELERY_RESULT_BACKEND = 'cache+memory://' if USE_LOCAL_TEST_SERVICES else f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_BROKER_DB}' #CELERY_RESULT_BACKEND = 'django-db'#使用 Django 作为 Celery 结果后端
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'

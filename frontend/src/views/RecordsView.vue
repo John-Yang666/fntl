@@ -1,5 +1,5 @@
 <template>
-  <div class="records-view">
+  <div class="records-view" data-testid="records-view">
     <section class="system-selector-card">
       <div class="system-selector-row">
         <h2 class="system-selector-title">设备选择</h2>
@@ -103,6 +103,7 @@
           :key="tab.type"
           :name="tab.type"
           :label="tab.label"
+          :data-testid="`records-tab-${tab.type}`"
         />
       </el-tabs>
 

@@ -182,3 +182,55 @@ class RecordsApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn("A设备", response.content.decode("utf-8-sig"))
+
+    def test_general_device_and_record_endpoints_are_read_only(self):
+        self.client.force_authenticate(self.ops_user)
+
+        cases = [
+            (
+                "/api/devices/",
+                {
+                    "device_id": 999,
+                    "name": "通用接口新增设备",
+                    "ip_address": "10.0.0.250",
+                },
+                Device,
+            ),
+            (
+                "/api/switch-data/",
+                {
+                    "device": self.device_a.device_id,
+                    "switch_status": "0102",
+                },
+                SwitchData,
+            ),
+            (
+                "/api/analog-data/",
+                {
+                    "device": self.device_a.device_id,
+                    "voltage_1": 1.1,
+                    "current_1": 2.2,
+                    "voltage_2": 3.3,
+                    "current_2": 4.4,
+                },
+                AnalogData,
+            ),
+            (
+                "/api/relay-actions/",
+                {
+                    "device": self.device_a.device_id,
+                    "relay": "一方向",
+                    "action": "吸起",
+                },
+                RelayAction,
+            ),
+        ]
+
+        for endpoint, payload, model in cases:
+            with self.subTest(endpoint=endpoint):
+                before_count = model.objects.count()
+
+                response = self.client.post(endpoint, payload, format="json")
+
+                self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+                self.assertEqual(model.objects.count(), before_count)
