@@ -107,6 +107,16 @@ STATUS_LABEL_STYLES = {
 }
 
 
+def _child_process_popen_kwargs() -> dict[str, Any]:
+    if os.name != "nt":
+        return {"start_new_session": True}
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return {"creationflags": creationflags, "startupinfo": startupinfo}
+
+
 def _default_mono_font() -> QFont:
     if sys.platform.startswith("win"):
         font = QFont("Consolas")
@@ -3590,8 +3600,7 @@ class SyUIAgentWindow(QMainWindow):
                 errors="replace",
                 bufsize=1,
                 env=env,
-                start_new_session=(os.name != "nt"),
-                creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0),
+                **_child_process_popen_kwargs(),
             )
         except Exception as exc:
             self._proc = None
@@ -3705,6 +3714,16 @@ class SyUIAgentWindow(QMainWindow):
         if self._settings_locked:
             event.ignore()
             self._append_log("[ui] close ignored because settings are locked", level="INFO", category="ui")
+            return
+        reply = QMessageBox.question(
+            self,
+            "确认退出",
+            "确认关闭 SY串口通信总控程序？\n\n关闭后本机 sy_agent 子进程会停止。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            event.ignore()
             return
         try:
             self._stash_current_target_draft()

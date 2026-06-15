@@ -100,10 +100,12 @@ Build-NuitkaApp -Name "bt_agent_serial_ui" -ScriptPath "bt_agent_serial\bt_agent
 Build-NuitkaApp -Name "sy_agent" -ScriptPath "sy_agent\sy_agent.py"
 Build-NuitkaApp -Name "sy_agent_ui" -ScriptPath "sy_agent\sy_agent_ui.py" -ExtraArgs @(
     "--enable-plugin=pyside6",
+    "--windows-console-mode=disable",
     "--include-data-dir=$SyAssetsDir=assets"
 )
 Build-NuitkaApp -Name "sy_agent_sub_ui" -ScriptPath "sy_agent\sy_agent_sub_ui.py" -ExtraArgs @(
     "--enable-plugin=pyside6",
+    "--windows-console-mode=disable",
     "--include-data-dir=$SyAssetsDir=assets"
 )
 

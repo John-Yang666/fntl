@@ -82,6 +82,7 @@ from sy_agent_ui import (
     STATUS_RE,
     _apply_status_style,
     _age_text,
+    _child_process_popen_kwargs,
     build_template_config,
     _decode_geometry,
     _encode_geometry,
@@ -1432,8 +1433,7 @@ class SyUISubAgentWindow(QMainWindow):
                 errors="replace",
                 bufsize=1,
                 env=env,
-                start_new_session=(os.name != "nt"),
-                creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0),
+                **_child_process_popen_kwargs(),
             )
         except Exception as exc:
             QMessageBox.critical(self, "启动失败", str(exc))
@@ -1744,6 +1744,16 @@ class SyUISubAgentWindow(QMainWindow):
         if self._settings_locked:
             event.ignore()
             self._append_log("[ui] close ignored because settings are locked", level="INFO", category="ui")
+            return
+        reply = QMessageBox.question(
+            self,
+            "确认退出",
+            "确认关闭 SY串口通信分机程序？\n\n关闭后本机 sy_agent 子进程会停止。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            event.ignore()
             return
         try:
             self.save_settings()
