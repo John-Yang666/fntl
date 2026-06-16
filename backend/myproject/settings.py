@@ -15,6 +15,12 @@ import os
 import sys
 from django.core.exceptions import ImproperlyConfigured
 from consts import *
+from .deploy_host_settings import (
+    build_allowed_hosts,
+    build_cors_allowed_origins,
+    build_trusted_origins,
+    read_deploy_host_list,
+)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -77,25 +83,11 @@ def _get_data_dir():
 
 
 def _get_deploy_host_list():
-    deploy_host_file = BASE_DIR / "deploy_host_ip.txt"
-    if deploy_host_file.exists():
-        raw_lines: list[str] = []
-        for raw_line in deploy_host_file.read_text(encoding="utf-8").splitlines():
-            line = raw_line.split("#", 1)[0].strip()
-            if line:
-                raw_lines.append(line)
-        if raw_lines:
-            file_values = ",".join(raw_lines)
-            return [
-                item.strip()
-                for item in file_values.replace(";", ",").split(",")
-                if item.strip()
-            ]
-    return []
+    return read_deploy_host_list(BASE_DIR / "deploy_host_ip.txt")
 
 
 def _build_csrf_trusted_origins(*ports: int):
-    origins = {
+    origins = [
         "http://localhost:8000",
         "http://127.0.0.1:8000",
         "https://localhost:8443",
@@ -104,16 +96,8 @@ def _build_csrf_trusted_origins(*ports: int):
         "http://127.0.0.1:38173",
         "https://localhost:38443",
         "https://127.0.0.1:38443",
-    }
-    for host in _get_deploy_host_list():
-        if host.startswith("http://") or host.startswith("https://"):
-            origins.add(host.rstrip("/"))
-            continue
-        for port in ports:
-            origins.add(f"https://{host}:{port}")
-        for port in ports:
-            origins.add(f"http://{host}:{port}")
-    return sorted(origins)
+    ]
+    return build_trusted_origins(origins, _get_deploy_host_list(), ports=tuple(ports))
 
 
 _load_project_root_env()
@@ -141,6 +125,7 @@ if not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["localhost", "127.0.0.1", "bt_nms_django_app"]
     if DEBUG or _running_tests():
         ALLOWED_HOSTS.append("testserver")
+ALLOWED_HOSTS = build_allowed_hosts(ALLOWED_HOSTS, _get_deploy_host_list())
 
 # Application definition
 
@@ -269,7 +254,7 @@ LOCALE_PATHS = [
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-# 媒体文件配置
+# 媒体���件配置
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DATA_UPLOAD_MAX_MEMORY_SIZE = _get_env_int("DATA_UPLOAD_MAX_MEMORY_SIZE", 50 * 1024 * 1024)
@@ -402,6 +387,12 @@ if not CORS_ALLOWED_ORIGINS:
         "https://localhost:38443",
         "https://127.0.0.1:38443",
     ]
+CORS_ALLOWED_ORIGINS = build_cors_allowed_origins(
+    CORS_ALLOWED_ORIGINS,
+    _get_deploy_host_list(),
+    http_ports=(38173,),
+    https_ports=(38443,),
+)
 CORS_ALLOW_ALL_ORIGINS = _get_env_bool("CORS_ALLOW_ALL_ORIGINS", DEBUG) #跨域 AJAX 请求（浏览器 JS 去调接口）
 
 CSRF_TRUSTED_ORIGINS = _build_csrf_trusted_origins(8000, 8443, 38173, 38443)
@@ -417,3 +408,21 @@ SECURE_HSTS_SECONDS = _get_env_int("SECURE_HSTS_SECONDS", 0)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = _get_env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
 SECURE_HSTS_PRELOAD = _get_env_bool("SECURE_HSTS_PRELOAD", False)
 SECURE_CONTENT_TYPE_NOSNIFF = True
+
+NMS_IP = "192.168.1.11"
+
+ALLOWED_HOSTS = list(dict.fromkeys(list(ALLOWED_HOSTS) + [
+    NMS_IP,
+]))
+
+CORS_ALLOWED_ORIGINS = list(dict.fromkeys(list(CORS_ALLOWED_ORIGINS) + [
+    f"http://{NMS_IP}:38173",
+    f"https://{NMS_IP}:38443",
+]))
+
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(list(CSRF_TRUSTED_ORIGINS) + [
+    f"http://{NMS_IP}:38173",
+    f"https://{NMS_IP}:38443",
+    f"http://{NMS_IP}:8000",
+    f"https://{NMS_IP}:8443",
+]))

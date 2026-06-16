@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.conf import settings
 from django.test import override_settings
 from django.urls import reverse
 from django_celery_beat.models import CrontabSchedule, PeriodicTask
@@ -83,6 +85,144 @@ class RuntimeConfigApiTests(APITestCase):
         self.assertEqual(response.data["values"]["CLEANUP_SWITCH_DATA_DAYS"], 3)
         self.assertIs(response.data["values"]["CLEANUP_SWITCH_DATA_AUTO_EXPORT"], True)
         self.assertIsNone(response.data["updated_by"])
+
+    def test_runtime_config_includes_deploy_host_ips_from_file(self):
+        deploy_host_file = Path(settings.BASE_DIR) / "deploy_host_ip.txt"
+        original_content = deploy_host_file.read_text(encoding="utf-8") if deploy_host_file.exists() else None
+        try:
+            file_content = "# comment\n192.168.1.88\n192.168.1.89; 192.168.1.90\n"
+            deploy_host_file.write_text(
+                file_content,
+                encoding="utf-8",
+            )
+            cache.clear()
+
+            self.client.force_authenticate(user=self.superuser)
+            response = self.client.get(reverse("runtime_config"))
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.data["file_fields"][0],
+                {
+                    "key": "DEPLOY_HOST_IPS",
+                    "label": "网管IP",
+                    "type": "textarea",
+                    "group": "security",
+                    "description": "配置文件：backend/deploy_host_ip.txt，保存后重启容器生效",
+                    "help_text": "支持写一个或多个，多个可用逗号、分号或换行分隔",
+                    "placeholder": "每行填写一个网管电脑 IP，例如 192.168.0.87",
+                },
+            )
+            self.assertEqual(response.data["file_values"]["DEPLOY_HOST_IPS"], file_content)
+        finally:
+            if original_content is None:
+                deploy_host_file.unlink(missing_ok=True)
+            else:
+                deploy_host_file.write_text(original_content, encoding="utf-8")
+            cache.clear()
+
+    def test_runtime_config_put_writes_deploy_host_ip_file_and_creates_it_if_missing(self):
+        deploy_host_file = Path(settings.BASE_DIR) / "deploy_host_ip.txt"
+        original_content = deploy_host_file.read_text(encoding="utf-8") if deploy_host_file.exists() else None
+        new_content = "192。168。1。88，192.168.1.89；\n# 支持写一个或多个，多个可用逗号、分号或换行分隔"
+        expected_content = "192.168.1.88,192.168.1.89;"
+        try:
+            deploy_host_file.unlink(missing_ok=True)
+            cache.clear()
+            payload = build_runtime_config_payload(force_refresh=True)
+
+            self.client.force_authenticate(user=self.superuser)
+            response = self.client.put(
+                reverse("runtime_config"),
+                {
+                    "values": payload["values"],
+                    "file_values": {
+                        "DEPLOY_HOST_IPS": new_content,
+                    },
+                },
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertTrue(deploy_host_file.exists())
+            self.assertEqual(deploy_host_file.read_text(encoding="utf-8"), expected_content)
+            self.assertEqual(response.data["file_values"]["DEPLOY_HOST_IPS"], expected_content)
+        finally:
+            if original_content is None:
+                deploy_host_file.unlink(missing_ok=True)
+            else:
+                deploy_host_file.write_text(original_content, encoding="utf-8")
+            cache.clear()
+
+    def test_runtime_config_put_rejects_invalid_deploy_host_ip_file_content(self):
+        deploy_host_file = Path(settings.BASE_DIR) / "deploy_host_ip.txt"
+        original_content = deploy_host_file.read_text(encoding="utf-8") if deploy_host_file.exists() else None
+        try:
+            deploy_host_file.write_text("192.168.1.88\n", encoding="utf-8")
+            cache.clear()
+            payload = build_runtime_config_payload(force_refresh=True)
+
+            self.client.force_authenticate(user=self.superuser)
+            response = self.client.put(
+                reverse("runtime_config"),
+                {
+                    "values": payload["values"],
+                    "file_values": {
+                        "DEPLOY_HOST_IPS": "192.168.1.999",
+                    },
+                },
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("网管IP格式不正确", response.data["detail"])
+            self.assertEqual(deploy_host_file.read_text(encoding="utf-8"), "192.168.1.88\n")
+        finally:
+            if original_content is None:
+                deploy_host_file.unlink(missing_ok=True)
+            else:
+                deploy_host_file.write_text(original_content, encoding="utf-8")
+            cache.clear()
+
+    def test_runtime_config_includes_security_readonly_settings(self):
+        try:
+            with override_settings(
+                ALLOWED_HOSTS=["testserver", "localhost", "192.168.1.88"],
+                CORS_ALLOWED_ORIGINS=["http://192.168.1.88:38173"],
+                CSRF_TRUSTED_ORIGINS=["http://192.168.1.88:38173", "http://192.168.1.88:8000"],
+            ):
+                cache.clear()
+                self.client.force_authenticate(user=self.superuser)
+                response = self.client.get(reverse("runtime_config"))
+        finally:
+            cache.clear()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        readonly_fields = {
+            field["key"]: field
+            for field in response.data["readonly_fields"]
+        }
+        self.assertEqual(
+            readonly_fields["DJANGO_ALLOWED_HOSTS"],
+            {
+                "key": "DJANGO_ALLOWED_HOSTS",
+                "label": "DJANGO_ALLOWED_HOSTS",
+                "type": "text",
+                "group": "security",
+                "value": ["testserver", "localhost", "192.168.1.88"],
+                "description": "Django settings.ALLOWED_HOSTS 当前生效值",
+            },
+        )
+        self.assertEqual(
+            readonly_fields["CORS_ALLOWED_ORIGINS"]["value"],
+            ["http://192.168.1.88:38173"],
+        )
+        self.assertEqual(
+            readonly_fields["CSRF_TRUSTED_ORIGINS"]["value"],
+            ["http://192.168.1.88:38173", "http://192.168.1.88:8000"],
+        )
+        for key in ("CORS_ALLOWED_ORIGINS", "CSRF_TRUSTED_ORIGINS"):
+            self.assertEqual(readonly_fields[key]["group"], "security")
 
     def test_runtime_config_put_updates_helper_values(self):
         payload = build_runtime_config_payload(force_refresh=True)["values"]

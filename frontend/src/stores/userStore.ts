@@ -1,6 +1,7 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import { defineStore } from 'pinia';
 import { deleteFromDB, getFromDB, saveToDB } from '@/utils/indexedDB';
+import { formatLoginFailureMessage, type LoginSystemFailure } from '@/utils/loginErrorMessage';
 import {
   SYSTEMS,
   TOKEN_STORAGE_KEYS,
@@ -77,15 +78,22 @@ export const useUserStore = defineStore('user', {
       const successfulSystems = settledResults
         .filter(({ result }) => result.status === 'fulfilled')
         .map(({ system }) => system);
-      const failedSystems = settledResults
-        .filter(({ result }) => result.status === 'rejected')
-        .map(({ system }) => system);
+      const failedResults = settledResults
+        .filter((item): item is { result: PromiseRejectedResult; system: SystemType } =>
+          item.result.status === 'rejected',
+        );
+      const failedSystems = failedResults.map(({ system }) => system);
 
       await Promise.all(failedSystems.map((system) => this.logoutSystem(system)));
 
       if (successfulSystems.length === 0) {
+        const failures: LoginSystemFailure[] = failedResults.map(({ result, system }) => ({
+          system,
+          error: result.reason,
+          apiBase: getApiBase(system),
+        }));
         await this.logout();
-        throw new Error(`登录失败: ${failedSystems.map((system) => system.toUpperCase()).join(', ')}`);
+        throw new Error(formatLoginFailureMessage(failures));
       }
     },
 

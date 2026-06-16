@@ -15,6 +15,12 @@ import os
 import sys
 from django.core.exceptions import ImproperlyConfigured
 from consts import *
+from .deploy_host_settings import (
+    build_allowed_hosts,
+    build_cors_allowed_origins,
+    build_trusted_origins,
+    read_deploy_host_list,
+)
 
 # === sy 告警码和含义别名（兼容老代码） ===
 ALARM_CODES = SY_ALARM_CODES
@@ -83,25 +89,11 @@ def _get_data_dir():
 
 
 def _get_deploy_host_list():
-    deploy_host_file = BASE_DIR / "deploy_host_ip.txt"
-    if deploy_host_file.exists():
-        raw_lines: list[str] = []
-        for raw_line in deploy_host_file.read_text(encoding="utf-8").splitlines():
-            line = raw_line.split("#", 1)[0].strip()
-            if line:
-                raw_lines.append(line)
-        if raw_lines:
-            file_values = ",".join(raw_lines)
-            return [
-                item.strip()
-                for item in file_values.replace(";", ",").split(",")
-                if item.strip()
-            ]
-    return []
+    return read_deploy_host_list(BASE_DIR / "deploy_host_ip.txt")
 
 
 def _build_csrf_trusted_origins(*ports: int):
-    origins = {
+    origins = [
         "http://localhost:8001",
         "http://127.0.0.1:8001",
         "https://localhost:8444",
@@ -114,16 +106,8 @@ def _build_csrf_trusted_origins(*ports: int):
         "http://127.0.0.1:38173",
         "https://localhost:38443",
         "https://127.0.0.1:38443",
-    }
-    for host in _get_deploy_host_list():
-        if host.startswith("http://") or host.startswith("https://"):
-            origins.add(host.rstrip("/"))
-            continue
-        for port in ports:
-            origins.add(f"https://{host}:{port}")
-        for port in ports:
-            origins.add(f"http://{host}:{port}")
-    return sorted(origins)
+    ]
+    return build_trusted_origins(origins, _get_deploy_host_list(), ports=tuple(ports))
 
 
 _load_project_root_env()
@@ -151,6 +135,7 @@ if not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["localhost", "127.0.0.1", "bt_nms_sy_django_app"]
     if DEBUG or _running_tests():
         ALLOWED_HOSTS.append("testserver")
+ALLOWED_HOSTS = build_allowed_hosts(ALLOWED_HOSTS, _get_deploy_host_list())
 
 # Application definition
 
@@ -416,6 +401,12 @@ if not CORS_ALLOWED_ORIGINS:
         "https://localhost:38443",
         "https://127.0.0.1:38443",
     ]
+CORS_ALLOWED_ORIGINS = build_cors_allowed_origins(
+    CORS_ALLOWED_ORIGINS,
+    _get_deploy_host_list(),
+    http_ports=(38173,),
+    https_ports=(38443,),
+)
 CORS_ALLOW_ALL_ORIGINS = _get_env_bool("CORS_ALLOW_ALL_ORIGINS", DEBUG)
 
 CSRF_TRUSTED_ORIGINS = _build_csrf_trusted_origins(8001, 8444, 8000, 8443, 38173, 38443)

@@ -95,6 +95,7 @@ services:
       - "8000"
     volumes:
       - static_data:/app/staticfiles
+      - ./sy_backend/deploy_host_ip.txt:/app/deploy_host_ip.txt:ro
       - ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports:/data/cleanup_exports
     tmpfs:
       - /tmp:rw,mode=1777,size=268435456

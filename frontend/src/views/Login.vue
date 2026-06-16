@@ -121,7 +121,10 @@ input {
 
 .error-message {
   color: red;
-  text-align: center;
+  text-align: left;
   margin-top: 1em;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 </style>

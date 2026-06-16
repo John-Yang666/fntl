@@ -64,11 +64,13 @@ from PySide6.QtWidgets import (
 
 from protected_runtime import (
     agent_config_path,
+    child_process_popen_kwargs,
     load_json_file,
     lock_path,
     resolve_launch_command,
     runtime_config_path,
     sqlite_path,
+    terminate_child_process,
     write_json_file,
 )
 
@@ -1704,8 +1706,7 @@ class BtAgentUIWindow(QMainWindow):
                 errors="replace",
                 bufsize=1,
                 env=env,
-                start_new_session=(os.name != "nt"),
-                creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0),
+                **child_process_popen_kwargs(),
             )
         except Exception as exc:
             self._proc = None
@@ -1729,13 +1730,7 @@ class BtAgentUIWindow(QMainWindow):
         self._manual_stop_requested = True
         self.process_state = "停止中"
         self._update_status_labels()
-        try:
-            if os.name == "nt":
-                proc.terminate()
-            else:
-                proc.terminate()
-        except Exception:
-            pass
+        terminate_child_process(proc)
 
     def restart_agent(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
@@ -2051,8 +2046,11 @@ class BtAgentUIWindow(QMainWindow):
             event.ignore()
             self._append_log("[ui] close ignored because settings are locked")
             return
+        self._unexpected_restart_pending = False
         if self._proc is not None and self._proc.poll() is None:
             self.stop_agent()
+        if self._reader_thread is not None and self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=2.0)
         self._alarm_player.stop()
         self.store.save(
             config=self.local_config,

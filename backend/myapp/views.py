@@ -313,6 +313,7 @@ class RuntimeConfigView(APIView):
         try:
             payload = save_runtime_config_values(
                 values=request.data.get("values"),
+                file_values=request.data.get("file_values"),
                 user=request.user,
             )
         except ValueError as exc:

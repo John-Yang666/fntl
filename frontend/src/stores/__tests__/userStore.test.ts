@@ -79,6 +79,43 @@ describe('userStore', () => {
     expect(db.has(TOKEN_STORAGE_KEYS.sy)).toBe(false);
   });
 
+  it('reports invalid credentials separately from connection errors on login', async () => {
+    axiosMock.post.mockRejectedValue({ isAxiosError: true, response: { status: 401 } });
+
+    const store = useUserStore();
+
+    await expect(store.login('admin', 'wrong-password')).rejects.toThrow('用户名或密码错误。');
+  });
+
+  it('reports backend connectivity, CORS, or firewall problems when login has no response', async () => {
+    axiosMock.post.mockRejectedValue({
+      isAxiosError: true,
+      code: 'ERR_NETWORK',
+      message: 'Network Error',
+      request: {},
+    });
+
+    const store = useUserStore();
+
+    await expect(store.login('admin', 'admin')).rejects.toThrow(
+      /无法连接.*8000.*8001.*防火墙.*CORS/s,
+    );
+  });
+
+  it('reports host and CORS configuration problems when backend rejects the login request', async () => {
+    axiosMock.post.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 400,
+        data: 'Invalid HTTP_HOST header',
+      },
+    });
+
+    const store = useUserStore();
+
+    await expect(store.login('admin', 'admin')).rejects.toThrow(/deploy_host_ip\.txt.*DJANGO_ALLOWED_HOSTS.*CORS_ALLOWED_ORIGINS/s);
+  });
+
   it('refreshes an expired access token before retrying authenticated requests', async () => {
     db.set(TOKEN_STORAGE_KEYS.bt, { access: 'old-access', refresh: 'refresh-token' });
     const expired = { isAxiosError: true, response: { status: 401 } };

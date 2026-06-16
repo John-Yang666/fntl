@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import signal
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Iterable
@@ -48,6 +50,77 @@ def sqlite_path(app_name: str, filename: str) -> Path:
 
 def lock_path(app_name: str, filename: str) -> Path:
     return app_data_dir(app_name) / filename
+
+
+def child_process_popen_kwargs() -> dict[str, Any]:
+    if os.name != "nt":
+        return {"start_new_session": True}
+
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return {"creationflags": creationflags, "startupinfo": startupinfo}
+
+
+def terminate_child_process(proc: Any, *, terminate_timeout: float = 2.5, kill_timeout: float = 2.5) -> None:
+    if proc is None:
+        return
+    try:
+        if proc.poll() is not None:
+            return
+    except Exception:
+        pass
+
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+
+    try:
+        proc.wait(timeout=terminate_timeout)
+        return
+    except Exception:
+        pass
+
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    else:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+    try:
+        proc.wait(timeout=kill_timeout)
+        return
+    except Exception:
+        pass
+
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    else:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+    try:
+        proc.wait(timeout=kill_timeout)
+    except Exception:
+        pass
 
 
 def ensure_parent(path: Path) -> None:

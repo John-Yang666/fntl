@@ -565,13 +565,16 @@ onBeforeUnmount(() => {
 .tabs-container {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   position: relative;
   width: 100%;
   max-width: 100%;
+  box-sizing: border-box;
   margin: 0 0 16px;
-  overflow: hidden;
+  overflow: visible;
   background-color: #f5f5f5;
-  padding: 8px 5px 0px 8px;
+  padding: 8px 140px 8px 12px;
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
@@ -598,31 +601,58 @@ onBeforeUnmount(() => {
   25%, 75% { background: transparent; }
 }
 .tabs-text {
-  padding: 10px;
+  flex: 0 0 auto;
+  padding: 0 2px 2px 0;
   font-size: 20px;
   font-weight: bold;
+  line-height: 32px;
   text-align: center;
+  white-space: nowrap;
   color: #1878ff;
   transition: color 0.5s ease-in-out;
-  margin-top: -18px;
+}
+.tabs-container :deep(.el-tabs) {
+  flex: 1 1 560px;
+  min-width: min(520px, 100%);
+}
+.tabs-container :deep(.el-tabs__header) {
+  margin: 0;
 }
 .action-buttons {
-  position: absolute;
-  top: 10px;
-  right: 132px;
+  position: static;
   display: flex;
   align-items: center;
-  gap: 20px;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  min-width: 0;
+  margin-left: auto;
+}
+.action-buttons :deep(.el-button) {
+  margin-left: 0;
 }
 
 .sound-control {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 8px;
 }
 
 .sound-label {
   font-weight: 600;
   color: #1f2937;
+}
+
+.username-display {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 1500px) {
+  .action-buttons {
+    flex-basis: 100%;
+  }
 }
 </style>

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import timedelta
+import ipaddress
 import json
 import re
 from typing import Any
@@ -44,6 +45,29 @@ CLEANUP_AUTO_EXPORT_DEFAULTS = {
     for key in CLEANUP_DAY_FIELD_KEYS
 }
 CLEANUP_AUTO_EXPORT_FIELD_KEYS = tuple(CLEANUP_AUTO_EXPORT_DEFAULTS.keys())
+DEPLOY_HOST_IP_FIELD_KEY = "DEPLOY_HOST_IPS"
+DEPLOY_HOST_IP_HELP_TEXT = "支持写一个或多个，多个可用逗号、分号或换行分隔"
+DEPLOY_HOST_IP_PUNCTUATION_TRANSLATION = str.maketrans(
+    {
+        "，": ",",
+        "、": ",",
+        "；": ";",
+        "。": ".",
+        "．": ".",
+        "｡": ".",
+        "：": ":",
+        "　": " ",
+    }
+)
+DEPLOY_HOST_IP_NORMALIZED_HELP_TEXT = DEPLOY_HOST_IP_HELP_TEXT.translate(
+    DEPLOY_HOST_IP_PUNCTUATION_TRANSLATION
+)
+DEPLOY_HOST_IP_LEGACY_HINT_LINES = {
+    DEPLOY_HOST_IP_HELP_TEXT,
+    f"# {DEPLOY_HOST_IP_HELP_TEXT}",
+    DEPLOY_HOST_IP_NORMALIZED_HELP_TEXT,
+    f"# {DEPLOY_HOST_IP_NORMALIZED_HELP_TEXT}",
+}
 
 
 def _jwt_days(setting_key: str) -> int:
@@ -385,6 +409,157 @@ def _schema() -> list[dict[str, Any]]:
     return schema
 
 
+def _deploy_host_file() -> Any:
+    return settings.BASE_DIR / "deploy_host_ip.txt"
+
+
+def _read_deploy_host_file_content() -> str:
+    deploy_host_file = _deploy_host_file()
+    if not deploy_host_file.exists():
+        return ""
+    return deploy_host_file.read_text(encoding="utf-8")
+
+
+def _normalize_deploy_host_file_content(value: str) -> str:
+    normalized = (
+        value.replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .translate(DEPLOY_HOST_IP_PUNCTUATION_TRANSLATION)
+    )
+    lines = [
+        line.rstrip()
+        for line in normalized.split("\n")
+        if line.strip() not in DEPLOY_HOST_IP_LEGACY_HINT_LINES
+    ]
+    return "\n".join(lines)
+
+
+def _deploy_host_entries(value: str) -> list[str]:
+    entries: list[str] = []
+    for raw_line in value.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        entries.extend(
+            item.strip()
+            for item in re.split(r"[,;\s]+", line)
+            if item.strip()
+        )
+    return entries
+
+
+def _validate_deploy_host_file_content(value: str) -> str:
+    normalized = _normalize_deploy_host_file_content(value)
+    invalid_entries: list[str] = []
+    for entry in _deploy_host_entries(normalized):
+        try:
+            ipaddress.ip_address(entry)
+        except ValueError:
+            invalid_entries.append(entry)
+    if invalid_entries:
+        raise ValueError(
+            "网管IP格式不正确："
+            f"{', '.join(invalid_entries)}。"
+            f"{DEPLOY_HOST_IP_HELP_TEXT}。"
+        )
+    return normalized
+
+
+def _file_fields() -> list[dict[str, Any]]:
+    return [
+        {
+            "key": DEPLOY_HOST_IP_FIELD_KEY,
+            "label": "网管IP",
+            "type": "textarea",
+            "group": "security",
+            "description": "配置文件：sy_backend/deploy_host_ip.txt，保存后重启容器生效",
+            "help_text": DEPLOY_HOST_IP_HELP_TEXT,
+            "placeholder": "每行填写一个网管电脑 IP，例如 192.168.0.87",
+        },
+    ]
+
+
+def _file_values() -> dict[str, str]:
+    return {
+        DEPLOY_HOST_IP_FIELD_KEY: _read_deploy_host_file_content(),
+    }
+
+
+def _normalize_file_values(file_values: Mapping[str, Any] | None) -> dict[str, str]:
+    if file_values is None:
+        return {}
+    if not isinstance(file_values, Mapping):
+        raise ValueError("file_values 必须是对象。")
+
+    allowed_keys = {DEPLOY_HOST_IP_FIELD_KEY}
+    unknown_keys = sorted(set(file_values.keys()) - allowed_keys)
+    if unknown_keys:
+        raise ValueError(f"包含未知配置文件项：{', '.join(unknown_keys)}")
+
+    normalized: dict[str, str] = {}
+    for key, value in file_values.items():
+        if not isinstance(value, str):
+            raise ValueError("网管IP配置文件内容必须是文本。")
+        if "\x00" in value:
+            raise ValueError("网管IP配置文件内容不能包含空字符。")
+        normalized[str(key)] = _validate_deploy_host_file_content(value)
+    return normalized
+
+
+def _save_file_values(file_values: Mapping[str, str]) -> None:
+    if DEPLOY_HOST_IP_FIELD_KEY not in file_values:
+        return
+    deploy_host_file = _deploy_host_file()
+    deploy_host_file.parent.mkdir(parents=True, exist_ok=True)
+    deploy_host_file.write_text(file_values[DEPLOY_HOST_IP_FIELD_KEY], encoding="utf-8")
+
+
+def _settings_list(setting_name: str) -> list[str]:
+    value = getattr(settings, setting_name, [])
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(item) for item in value]
+
+
+def _readonly_fields() -> list[dict[str, Any]]:
+    return [
+        {
+            "key": "DJANGO_ALLOWED_HOSTS",
+            "label": "DJANGO_ALLOWED_HOSTS",
+            "type": "text",
+            "group": "security",
+            "value": _settings_list("ALLOWED_HOSTS"),
+            "description": "Django settings.ALLOWED_HOSTS 当前生效值",
+        },
+        {
+            "key": "CORS_ALLOWED_ORIGINS",
+            "label": "CORS_ALLOWED_ORIGINS",
+            "type": "text",
+            "group": "security",
+            "value": _settings_list("CORS_ALLOWED_ORIGINS"),
+            "description": "Django settings.CORS_ALLOWED_ORIGINS 当前生效值",
+        },
+        {
+            "key": "CSRF_TRUSTED_ORIGINS",
+            "label": "CSRF_TRUSTED_ORIGINS",
+            "type": "text",
+            "group": "security",
+            "value": _settings_list("CSRF_TRUSTED_ORIGINS"),
+            "description": "Django settings.CSRF_TRUSTED_ORIGINS 当前生效值",
+        },
+    ]
+
+
+def _with_fresh_readonly_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
+    result = deepcopy(payload)
+    result["file_fields"] = _file_fields()
+    result["file_values"] = _file_values()
+    result["readonly_fields"] = _readonly_fields()
+    return result
+
+
 def _load_periodic_models():
     try:
         from django_celery_beat.models import CrontabSchedule, PeriodicTask
@@ -569,7 +744,7 @@ def build_runtime_config_payload(*, force_refresh: bool = False) -> dict[str, An
     if not force_refresh:
         cached = cache.get(RUNTIME_CONFIG_CACHE_KEY)
         if cached is not None:
-            return deepcopy(cached)
+            return _with_fresh_readonly_fields(cached)
 
     defaults = _default_values()
     storage_ready = True
@@ -587,6 +762,9 @@ def build_runtime_config_payload(*, force_refresh: bool = False) -> dict[str, An
     values.update(cleanup_values)
     payload = {
         "schema": _schema(),
+        "file_fields": _file_fields(),
+        "file_values": _file_values(),
+        "readonly_fields": _readonly_fields(),
         "defaults": defaults,
         "values": values,
         "updated_at": record.updated_at.isoformat() if record and record.updated_at else None,
@@ -603,7 +781,12 @@ def get_runtime_config_values(*, force_refresh: bool = False) -> dict[str, Any]:
     return build_runtime_config_payload(force_refresh=force_refresh)["values"]
 
 
-def save_runtime_config_values(*, values: Mapping[str, Any], user) -> dict[str, Any]:
+def save_runtime_config_values(
+    *,
+    values: Mapping[str, Any],
+    user,
+    file_values: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     if not isinstance(values, Mapping):
         raise ValueError("values 必须是对象。")
     current_payload = build_runtime_config_payload(force_refresh=True)
@@ -615,6 +798,7 @@ def save_runtime_config_values(*, values: Mapping[str, Any], user) -> dict[str, 
     merged_values = deepcopy(current_values)
     merged_values.update(dict(values))
     validated = validate_runtime_config_values(merged_values)
+    validated_file_values = _normalize_file_values(file_values)
     changes = _describe_runtime_config_changes(current_values, validated)
     runtime_values = {key: validated[key] for key in _runtime_field_keys()}
     cleanup_values = {key: validated[key] for key in _cleanup_field_keys()}
@@ -626,6 +810,7 @@ def save_runtime_config_values(*, values: Mapping[str, Any], user) -> dict[str, 
                 defaults={"values": runtime_values, "updated_by": user},
             )
             _save_cleanup_config_values(cleanup_values)
+            _save_file_values(validated_file_values)
             record.values = runtime_values
             record.updated_by = user
             record.save(update_fields=["values", "updated_by", "updated_at"])

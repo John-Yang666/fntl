@@ -137,7 +137,7 @@
                       v-if="getCleanupScheduleField(system)"
                       class="field-card"
                     >
-                      <div class="field-label">{{ getCleanupScheduleField(system)?.label }}</div>
+                      <div class="field-label">{{ getRuntimeConfigFieldLabel(getCleanupScheduleField(system)?.label || '') }}</div>
                       <div class="field-input-row">
                         <el-time-picker
                           :model-value="getTimeValue(system, getCleanupScheduleField(system)?.key || '')"
@@ -167,7 +167,8 @@
                             controls-position="right"
                             @update:model-value="updateIntegerValue(system, row.daysField.key, $event)"
                           />
-                          <span class="field-default">默认：{{ formatDefaultValue(row.daysField.default) }}</span>
+                          <span class="field-unit">天</span>
+                          <span class="field-default">{{ formatCleanupDaysDefault(row.daysField.default) }}</span>
                         </div>
                         <el-checkbox
                           v-if="row.autoExportField"
@@ -183,12 +184,45 @@
 
                 <div v-else class="field-grid">
                   <div
+                    v-for="field in getFileFieldsByGroup(system, group)"
+                    :key="field.key"
+                    class="field-card file-field-card"
+                  >
+                    <div class="field-label">{{ getRuntimeConfigFieldLabel(field.label) }}</div>
+                    <el-input
+                      type="textarea"
+                      :model-value="getFileValue(system, field.key)"
+                      :autosize="{ minRows: 3, maxRows: 8 }"
+                      :placeholder="field.placeholder"
+                      @update:model-value="updateFileValue(system, field.key, $event)"
+                    />
+                    <div v-if="field.description" class="file-field-description">
+                      {{ field.description }}
+                    </div>
+                    <div v-if="field.help_text" class="file-field-help">
+                      {{ field.help_text }}
+                    </div>
+                  </div>
+
+                  <div
+                    v-for="field in getReadonlyFieldsByGroup(system, group)"
+                    :key="field.key"
+                    class="field-card readonly-field-card"
+                  >
+                    <div class="field-label">{{ getRuntimeConfigFieldLabel(field.label) }}</div>
+                    <div class="readonly-field-value">{{ formatReadonlyFieldValue(field.value) }}</div>
+                    <div v-if="field.description" class="readonly-field-description">
+                      {{ field.description }}
+                    </div>
+                  </div>
+
+                  <div
                     v-for="field in getFieldsByGroup(system, group)"
                     :key="field.key"
                     class="field-card"
                   >
                     <template v-if="field.type === 'integer'">
-                      <div class="field-label">{{ field.label }}</div>
+                      <div class="field-label">{{ getRuntimeConfigFieldLabel(field.label) }}</div>
                       <div class="field-input-row">
                         <el-input-number
                           :model-value="getIntegerValue(system, field.key)"
@@ -198,12 +232,13 @@
                           controls-position="right"
                           @update:model-value="updateIntegerValue(system, field.key, $event)"
                         />
-                        <span class="field-default">默认：{{ formatDefaultValue(field.default) }}</span>
+                        <span v-if="hasDaysUnit(getRuntimeConfigFieldLabel(field.label))" class="field-unit">天</span>
+                        <span class="field-default">{{ formatRuntimeConfigDefault(getRuntimeConfigFieldLabel(field.label), field.default) }}</span>
                       </div>
                     </template>
 
                     <template v-else-if="field.type === 'time'">
-                      <div class="field-label">{{ field.label }}</div>
+                      <div class="field-label">{{ getRuntimeConfigFieldLabel(field.label) }}</div>
                       <div class="field-input-row">
                         <el-time-picker
                           :model-value="getTimeValue(system, field.key)"
@@ -218,7 +253,7 @@
                     </template>
 
                     <template v-else-if="field.type === 'boolean'">
-                      <div class="field-label">{{ field.label }}</div>
+                      <div class="field-label">{{ getRuntimeConfigFieldLabel(field.label) }}</div>
                       <el-checkbox
                         :model-value="getBooleanValue(system, field.key)"
                         @update:model-value="updateBooleanValue(system, field.key, $event)"
@@ -228,7 +263,7 @@
                     </template>
 
                     <template v-else>
-                      <div class="field-label">{{ field.label }}</div>
+                      <div class="field-label">{{ getRuntimeConfigFieldLabel(field.label) }}</div>
                       <div class="delay-table-wrap">
                         <el-table :data="getAlarmDelayRows(system, field)" border stripe>
                           <el-table-column prop="code" label="告警码" width="100" />
@@ -303,9 +338,17 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus/es/components/message/index.mjs';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import { useUserStore } from '@/stores/userStore';
+import {
+  formatCleanupDaysDefault,
+  formatRuntimeConfigDefault,
+  getCleanupModelLabel,
+  getRuntimeConfigFieldLabel,
+  hasDaysUnit,
+  translateRuntimeConfigText,
+} from '@/utils/runtimeConfigLabels';
 import { SYSTEMS, SYSTEM_LABELS, getApiBase, type SystemType } from '@/utils/systems';
 
-type RuntimeConfigGroup = 'runtime' | 'auth' | 'cleanup';
+type RuntimeConfigGroup = 'runtime' | 'auth' | 'cleanup' | 'security';
 type RuntimeConfigFieldType = 'integer' | 'alarm_delay_map' | 'time' | 'boolean';
 
 interface RuntimeConfigField {
@@ -320,8 +363,30 @@ interface RuntimeConfigField {
   alarm_meanings?: Record<string, string>;
 }
 
+interface RuntimeConfigReadonlyField {
+  key: string;
+  label: string;
+  type: 'text';
+  group: RuntimeConfigGroup;
+  value: unknown;
+  description?: string;
+}
+
+interface RuntimeConfigFileField {
+  key: string;
+  label: string;
+  type: 'textarea';
+  group: RuntimeConfigGroup;
+  description?: string;
+  help_text?: string;
+  placeholder?: string;
+}
+
 interface RuntimeConfigPayload {
   schema: RuntimeConfigField[];
+  file_fields?: RuntimeConfigFileField[];
+  file_values?: Record<string, string>;
+  readonly_fields?: RuntimeConfigReadonlyField[];
   defaults: Record<string, unknown>;
   values: Record<string, unknown>;
   updated_at: string | null;
@@ -338,6 +403,7 @@ interface RuntimeConfigState {
   error: string | null;
   payload: RuntimeConfigPayload | null;
   draftValues: Record<string, unknown>;
+  draftFileValues: Record<string, string>;
 }
 
 interface AlarmDelayRow {
@@ -372,12 +438,27 @@ interface CleanupExportTestPayload {
   results: Record<string, CleanupExportTestResult>;
 }
 
-const GROUP_ORDER: RuntimeConfigGroup[] = ['runtime', 'cleanup', 'auth'];
+const GROUP_ORDER: RuntimeConfigGroup[] = ['runtime', 'cleanup', 'auth', 'security'];
 const GROUP_LABELS: Record<RuntimeConfigGroup, string> = {
   runtime: '运行参数',
   cleanup: '数据清理',
   auth: '认证参数',
+  security: '安全参数',
 };
+const DEPLOY_HOST_IP_FILE_KEY = 'DEPLOY_HOST_IPS';
+const DEPLOY_HOST_IP_HELP_TEXT = '支持写一个或多个，多个可用逗号、分号或换行分隔';
+const DEPLOY_HOST_IP_NORMALIZED_HELP_TEXT = DEPLOY_HOST_IP_HELP_TEXT
+  .replace(/[，、]/g, ',')
+  .replace(/；/g, ';')
+  .replace(/[。．｡]/g, '.')
+  .replace(/：/g, ':')
+  .replace(/　/g, ' ');
+const DEPLOY_HOST_IP_LEGACY_HINT_LINES = new Set([
+  DEPLOY_HOST_IP_HELP_TEXT,
+  `# ${DEPLOY_HOST_IP_HELP_TEXT}`,
+  DEPLOY_HOST_IP_NORMALIZED_HELP_TEXT,
+  `# ${DEPLOY_HOST_IP_NORMALIZED_HELP_TEXT}`,
+]);
 const ACTIVE_SYSTEM_STORAGE_KEY = 'runtime-config-active-system';
 
 const userStore = useUserStore();
@@ -391,6 +472,7 @@ const systemStates = reactive<Record<SystemType, RuntimeConfigState>>({
     error: null,
     payload: null,
     draftValues: {},
+    draftFileValues: {},
   },
   sy: {
     loading: false,
@@ -399,6 +481,7 @@ const systemStates = reactive<Record<SystemType, RuntimeConfigState>>({
     error: null,
     payload: null,
     draftValues: {},
+    draftFileValues: {},
   },
 });
 const activeGroups = reactive<Record<SystemType, RuntimeConfigGroup>>({
@@ -468,9 +551,24 @@ function getFieldsByGroup(system: SystemType, group: RuntimeConfigGroup): Runtim
   return (systemStates[system].payload?.schema || []).filter((field) => field.group === group);
 }
 
+function getFileFieldsByGroup(system: SystemType, group: RuntimeConfigGroup): RuntimeConfigFileField[] {
+  return (systemStates[system].payload?.file_fields || []).filter((field) => field.group === group);
+}
+
+function getReadonlyFieldsByGroup(system: SystemType, group: RuntimeConfigGroup): RuntimeConfigReadonlyField[] {
+  return (systemStates[system].payload?.readonly_fields || []).filter((field) => field.group === group);
+}
+
 function getAvailableGroups(system: SystemType): RuntimeConfigGroup[] {
   const schema = systemStates[system].payload?.schema || [];
-  return GROUP_ORDER.filter((group) => schema.some((field) => field.group === group));
+  const fileFields = systemStates[system].payload?.file_fields || [];
+  const readonlyFields = systemStates[system].payload?.readonly_fields || [];
+  return GROUP_ORDER.filter(
+    (group) =>
+      schema.some((field) => field.group === group) ||
+      fileFields.some((field) => field.group === group) ||
+      readonlyFields.some((field) => field.group === group),
+  );
 }
 
 function getVisibleGroups(system: SystemType): RuntimeConfigGroup[] {
@@ -500,6 +598,63 @@ function getBooleanValue(system: SystemType, key: string): boolean {
   return systemStates[system].draftValues[key] === true;
 }
 
+function getFileValue(system: SystemType, key: string): string {
+  return systemStates[system].draftFileValues[key] ?? '';
+}
+
+function normalizeDeployHostFileContent(value: string): string {
+  const normalized = value
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[，、]/g, ',')
+    .replace(/；/g, ';')
+    .replace(/[。．｡]/g, '.')
+    .replace(/：/g, ':')
+    .replace(/　/g, ' ');
+
+  return normalized
+    .split('\n')
+    .filter((line) => !DEPLOY_HOST_IP_LEGACY_HINT_LINES.has(line.trim()))
+    .map((line) => line.replace(/\s+$/g, ''))
+    .join('\n');
+}
+
+function getDeployHostEntries(value: string): string[] {
+  return value
+    .split('\n')
+    .flatMap((line) => line.split('#', 1)[0].split(/[,;\s]+/))
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isValidIpv4Address(value: string): boolean {
+  const parts = value.split('.');
+  if (parts.length !== 4) {
+    return false;
+  }
+  return parts.every((part) => {
+    if (!/^\d+$/.test(part)) {
+      return false;
+    }
+    const parsed = Number(part);
+    return parsed >= 0 && parsed <= 255 && String(parsed) === part.replace(/^0+(?=\d)/, '');
+  });
+}
+
+function isLikelyIpv6Address(value: string): boolean {
+  return /^[0-9a-fA-F:]+$/.test(value) && value.includes(':');
+}
+
+function validateDeployHostFileContent(value: string): string | null {
+  const invalidEntries = getDeployHostEntries(normalizeDeployHostFileContent(value)).filter(
+    (entry) => !isValidIpv4Address(entry) && !isLikelyIpv6Address(entry),
+  );
+  if (invalidEntries.length > 0) {
+    return `网管IP格式不正确：${invalidEntries.join(', ')}。${DEPLOY_HOST_IP_HELP_TEXT}。`;
+  }
+  return null;
+}
+
 function updateIntegerValue(system: SystemType, key: string, value: number | undefined): void {
   systemStates[system].draftValues[key] = typeof value === 'number' ? value : 0;
 }
@@ -510,6 +665,12 @@ function updateTimeValue(system: SystemType, key: string, value: string | null):
 
 function updateBooleanValue(system: SystemType, key: string, value: string | number | boolean): void {
   systemStates[system].draftValues[key] = value === true;
+}
+
+function updateFileValue(system: SystemType, key: string, value: string): void {
+  systemStates[system].draftFileValues[key] = key === DEPLOY_HOST_IP_FILE_KEY
+    ? normalizeDeployHostFileContent(value)
+    : value;
 }
 
 function getCleanupScheduleField(system: SystemType): RuntimeConfigField | undefined {
@@ -524,7 +685,7 @@ function getCleanupRows(system: SystemType): CleanupRow[] {
     .map((daysField) => {
       const autoExportKey = daysField.key.replace(/_DAYS$/, '_AUTO_EXPORT');
       return {
-        modelLabel: daysField.label.replace(/\s*保留天数$/, ''),
+        modelLabel: getCleanupModelLabel(daysField.label),
         daysField,
         autoExportField: fieldMap.get(autoExportKey),
       };
@@ -577,6 +738,19 @@ function formatDefaultValue(value: unknown): string {
   return '-';
 }
 
+function formatReadonlyFieldValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.join(', ') : '未配置';
+  }
+  if (typeof value === 'string') {
+    return value.trim() || '未配置';
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return '未配置';
+}
+
 function getGroupDescription(group: RuntimeConfigGroup): string {
   if (group === 'runtime') {
     return '业务运行参数';
@@ -584,7 +758,10 @@ function getGroupDescription(group: RuntimeConfigGroup): string {
   if (group === 'cleanup') {
     return '数据保留与定时清理任务';
   }
-  return 'Token 有效期参数';
+  if (group === 'security') {
+    return '当前后端允许访问的主机与跨域来源';
+  }
+  return translateRuntimeConfigText('Token 有效期参数');
 }
 
 function resetToDefaults(system: SystemType): void {
@@ -593,6 +770,7 @@ function resetToDefaults(system: SystemType): void {
     return;
   }
   systemStates[system].draftValues = cloneValue(payload.defaults);
+  systemStates[system].draftFileValues = cloneValue(payload.file_values || {});
 }
 
 function validateDraft(system: SystemType): string | null {
@@ -605,32 +783,40 @@ function validateDraft(system: SystemType): string | null {
     const rawValue = systemStates[system].draftValues[field.key];
     if (field.type === 'integer') {
       if (typeof rawValue !== 'number' || Number.isNaN(rawValue)) {
-        return `${field.label} 不能为空。`;
+        return `${getRuntimeConfigFieldLabel(field.label)} 不能为空。`;
       }
     }
     if (field.type === 'time') {
       if (typeof rawValue !== 'string' || !/^\d{2}:\d{2}$/.test(rawValue)) {
-        return `${field.label} 必须是 HH:mm 格式。`;
+        return `${getRuntimeConfigFieldLabel(field.label)} 必须是 HH:mm 格式。`;
       }
       const [hour, minute] = rawValue.split(':').map((item) => Number(item));
       if (hour > 23 || minute > 59) {
-        return `${field.label} 必须是合法时间。`;
+        return `${getRuntimeConfigFieldLabel(field.label)} 必须是合法时间。`;
       }
     }
     if (field.type === 'boolean') {
       if (typeof rawValue !== 'boolean') {
-        return `${field.label} 必须是布尔值。`;
+        return `${getRuntimeConfigFieldLabel(field.label)} 必须是布尔值。`;
       }
     }
     if (field.type === 'alarm_delay_map') {
       if (!rawValue || typeof rawValue !== 'object') {
-        return `${field.label} 不能为空。`;
+        return `${getRuntimeConfigFieldLabel(field.label)} 不能为空。`;
       }
       const currentMap = rawValue as Record<string, unknown>;
       const missingCodes = (field.codes || []).filter((code) => currentMap[String(code)] === undefined);
       if (missingCodes.length > 0) {
-        return `${field.label} 缺少告警码：${missingCodes.join(', ')}`;
+        return `${getRuntimeConfigFieldLabel(field.label)} 缺少告警码：${missingCodes.join(', ')}`;
       }
+    }
+  }
+
+  const deployHostFileContent = systemStates[system].draftFileValues[DEPLOY_HOST_IP_FILE_KEY];
+  if (typeof deployHostFileContent === 'string') {
+    const deployHostValidationError = validateDeployHostFileContent(deployHostFileContent);
+    if (deployHostValidationError) {
+      return deployHostValidationError;
     }
   }
 
@@ -647,10 +833,11 @@ async function testCleanupExport(system: SystemType): Promise<void> {
       url: '/runtime-config/cleanup-export-test/',
     });
     const lines = Object.entries(payload.results).map(([name, result]) => {
+      const modelName = translateRuntimeConfigText(name);
       if (result.status === 'failed') {
-        return `${name}: 失败，${result.error || '未知错误'}`;
+        return `${modelName}：失败，${result.error || '未知错误'}`;
       }
-      return `${name}: 成功，候选 ${result.candidate_count} 条，文件 ${result.export_path || '-'}`;
+      return `${modelName}：成功，候选 ${result.candidate_count} 条，文件 ${result.export_path || '-'}`;
     });
     await ElMessageBox.alert(lines.join('\n'), `${SYSTEM_LABELS[system]} 导出测试结果`, {
       confirmButtonText: '确定',
@@ -671,7 +858,10 @@ function hasUnsavedChanges(system: SystemType): boolean {
     return false;
   }
 
-  return JSON.stringify(systemStates[system].draftValues) !== JSON.stringify(payload.values);
+  return (
+    JSON.stringify(systemStates[system].draftValues) !== JSON.stringify(payload.values) ||
+    JSON.stringify(systemStates[system].draftFileValues) !== JSON.stringify(payload.file_values || {})
+  );
 }
 
 function getSaveButtonLabel(system: SystemType): string {
@@ -729,6 +919,7 @@ async function loadSystem(system: SystemType): Promise<void> {
     });
     state.payload = payload;
     state.draftValues = cloneValue(payload.values);
+    state.draftFileValues = cloneValue(payload.file_values || {});
     const availableGroups = getAvailableGroups(system);
     if (availableGroups.length > 0 && !availableGroups.includes(activeGroups[system])) {
       activeGroups[system] = availableGroups[0];
@@ -785,10 +976,12 @@ async function confirmSaveWithPassword(): Promise<void> {
       url: '/runtime-config/',
       data: {
         values: cloneValue(state.draftValues),
+        file_values: cloneValue(state.draftFileValues),
       },
     });
     state.payload = payload;
     state.draftValues = cloneValue(payload.values);
+    state.draftFileValues = cloneValue(payload.file_values || {});
     resetSavePasswordDialog();
     ElMessage.success(`${SYSTEM_LABELS[system]} 参数已保存`);
   } catch (error) {
@@ -1007,10 +1200,50 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.readonly-field-card {
+  border-color: rgba(59, 130, 246, 0.28);
+  background: #f8fbff;
+}
+
+.file-field-card {
+  border-color: rgba(37, 99, 235, 0.32);
+  background: #f8fbff;
+}
+
 .field-label {
   color: #1f2937;
   font-size: 15px;
   font-weight: 600;
+}
+
+.readonly-field-value {
+  min-height: 32px;
+  color: #334155;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 32px;
+  word-break: break-word;
+}
+
+.readonly-field-description {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 20px;
+  word-break: break-word;
+}
+
+.file-field-description {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 20px;
+  word-break: break-word;
+}
+
+.file-field-help {
+  color: #2563eb;
+  font-size: 13px;
+  line-height: 20px;
+  word-break: break-word;
 }
 
 .field-input-row {
@@ -1022,6 +1255,13 @@ onMounted(async () => {
 .field-default {
   color: #9ca3af;
   font-size: 13px;
+}
+
+.field-unit {
+  color: #475569;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .save-password-dialog-copy {
