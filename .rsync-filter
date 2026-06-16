@@ -1,8 +1,72 @@
+# VCS, editor, and local tool state
 .git/
-udp_agent/.env
-node_modules/
-__pycache__/
-*.log
+.vscode/
+.idea/
+.superpowers/
+.worktrees/
 .DS_Store
+Thumbs.db
+
+# Python environments, caches, and build output
 venv/
+.venv/
+.venv-ui/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.nox/
+.tox/
+build/
+dist/
+*.egg-info/
+
+# Node dependencies, caches, and frontend build output
+node_modules/
+dist-ssr/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Electron packaged release output
+electron-dist/
+desktop-release/
+*.dmg
+*.blockmap
+
+# Logs and runtime noise
+*.log
+*.pid
+*.seed
+*.out
+*.err
+*.stackdump
+
+# Local runtime data; remove these if this backup must include live data.
+*.sqlite3
+*.db
+celerybeat-schedule.db
+dump.rdb
+backend/staticfiles/
+backend/media/
+backend/uploads/
+sy_backend/staticfiles/
+sy_backend/media/
+sy_backend/uploads/
+bt_agent/runtime_config.json
+sy_agent/runtime_config.json
+sy_agent/runtime_sub_agent_config.json
+udp_agent/.env
+
+# Generated docs/artifacts and old source archives
 docs/
+artifacts/
+outputs/
+backend.zip
+sy_agent.zip
+beitong-*.zip
