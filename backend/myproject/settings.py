@@ -254,13 +254,13 @@ LOCALE_PATHS = [
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-# 媒体���件配置
+# 媒体�����件配置
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DATA_UPLOAD_MAX_MEMORY_SIZE = _get_env_int("DATA_UPLOAD_MAX_MEMORY_SIZE", 50 * 1024 * 1024)
 FILE_UPLOAD_MAX_MEMORY_SIZE = _get_env_int("FILE_UPLOAD_MAX_MEMORY_SIZE", 10 * 1024 * 1024)
 
-STATIC_URL = '/static/'
+STATIC_URL = os.getenv("DJANGO_STATIC_URL", "/static/")
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 DATA_DIR = _get_data_dir()
 CLEANUP_EXPORT_DIR = str(Path(DATA_DIR) / "cleanup_exports")
@@ -408,21 +408,3 @@ SECURE_HSTS_SECONDS = _get_env_int("SECURE_HSTS_SECONDS", 0)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = _get_env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
 SECURE_HSTS_PRELOAD = _get_env_bool("SECURE_HSTS_PRELOAD", False)
 SECURE_CONTENT_TYPE_NOSNIFF = True
-
-NMS_IP = "192.168.1.11"
-
-ALLOWED_HOSTS = list(dict.fromkeys(list(ALLOWED_HOSTS) + [
-    NMS_IP,
-]))
-
-CORS_ALLOWED_ORIGINS = list(dict.fromkeys(list(CORS_ALLOWED_ORIGINS) + [
-    f"http://{NMS_IP}:38173",
-    f"https://{NMS_IP}:38443",
-]))
-
-CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(list(CSRF_TRUSTED_ORIGINS) + [
-    f"http://{NMS_IP}:38173",
-    f"https://{NMS_IP}:38443",
-    f"http://{NMS_IP}:8000",
-    f"https://{NMS_IP}:8443",
-]))

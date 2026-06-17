@@ -92,12 +92,11 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import axios from 'axios';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus/es/components/message/index.mjs';
 import DeviceNameComponent from '@/components/DeviceNameComponent.vue';
 import { useUserStore } from '@/stores/userStore';
-import { getApiBase, getSystemFromRoute } from '@/utils/systems';
+import { getSystemFromRoute } from '@/utils/systems';
 
 const route = useRoute();
 const device_id = route.params.index as string;
@@ -111,7 +110,6 @@ const showRestartConfirm = ref(false);
 const isSendingRestartCommand = ref(false);
 
 const userStore = useUserStore();
-const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
 const username = computed(() => userStore.user?.username ?? null);
 
 const modes = {
@@ -177,14 +175,18 @@ const sendPacketCommand = async (
   }
 
   try {
-    const response = await axios.post(`${baseURL()}/send-command/${targetId}/`, {
-      function_code: functionCode,
-      time: Math.floor(Date.now() / 1000),
-      operation,
-      username: username.value,
-      is_custom_command: isCustomCommand,
+    const response = await userStore.requestWithAuth<{ status: string }>(getSystemFromRoute(route.params.system), {
+      method: 'post',
+      url: `/send-command/${targetId}/`,
+      data: {
+        function_code: functionCode,
+        time: Math.floor(Date.now() / 1000),
+        operation,
+        username: username.value,
+        is_custom_command: isCustomCommand,
+      },
     });
-    showResponse(response.data.status, 'success');
+    showResponse(response.status, 'success');
   } catch (err: any) {
     console.error('Error:', err);
     showResponse(err.response?.data?.message || '发送失败，请重试。', 'error');

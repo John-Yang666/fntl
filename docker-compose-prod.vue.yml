@@ -8,5 +8,11 @@ services:
       - "${VUE_PORT:-38173}:80"
     volumes:
       - ./frontend/nginx.standalone.conf:/etc/nginx/conf.d/default.conf:ro
-    network_mode: bridge
+    networks:
+      - frontend_proxy
     restart: unless-stopped
+
+networks:
+  frontend_proxy:
+    external: true
+    name: bt_nms_frontend_proxy

@@ -4,8 +4,8 @@
 
 | 范围 | 命令 | 验收标准 |
 | --- | --- | --- |
-| BT 后端 | `cd /Users/yangzijiang/BT_NMS/backend && python manage.py test myapp -v 2` | Django 测试全部通过，无真实 Redis/PostgreSQL 依赖 |
-| SY 后端 | `cd /Users/yangzijiang/BT_NMS/sy_backend && python manage.py test myapp -v 2` | Django 测试全部通过，无真实 Redis/PostgreSQL 依赖 |
+| BT 后端 | `cd /Users/yangzijiang/BT_NMS && docker compose -f docker-compose.yml run --rm -e FNTL_TEST_REAL_SERVICES=1 web python manage.py test myapp -v 2` | Django 测试全部通过，使用 Docker PostgreSQL/Redis 测试路径 |
+| SY 后端 | `cd /Users/yangzijiang/BT_NMS && docker compose -f docker-compose-sy.yml run --rm -e FNTL_TEST_REAL_SERVICES=1 web python manage.py test myapp -v 2` | Django 测试全部通过，使用 Docker PostgreSQL/Redis 测试路径 |
 | Agent/客户端 | `cd /Users/yangzijiang/BT_NMS && python -m unittest discover -s alarm_client/tests && python -m unittest discover -s bt_agent_serial/tests` | unittest 全部通过，不依赖硬件和真实 Redis |
 | 前端 | `cd /Users/yangzijiang/BT_NMS/frontend && npm run test:unit && npm run build` | Vitest 单测通过，生产构建成功 |
 | 虚拟后端/E2E | `cd /Users/yangzijiang/BT_NMS/virtual-backend && npm run test:unit && npm run test:e2e` | simulator 单测和 Playwright 浏览器流程全部通过 |
@@ -32,4 +32,6 @@
 
 ## 说明
 
-默认回归仅使用本机进程、sqlite/locmem 测试依赖和虚拟后端，不把真实硬件、串口、Redis、PostgreSQL 或完整 Docker 作为必跑项。如需验证真实服务，可在 Django 测试前设置 `FNTL_TEST_REAL_SERVICES=1`。
+默认回归的后端阶段使用 Docker Compose 中的 PostgreSQL/Redis，并在 Django 测试前设置 `FNTL_TEST_REAL_SERVICES=1`，避免后端清理、索引、事务等行为只在 sqlite/locmem 路径验证。脚本会记录测试前已运行的 compose 服务，测试后只停止本次新启动的 `db`、`redis`、`redis_stream`。
+
+如需离线快速验证，可使用 `FNTL_BACKEND_TEST_MODE=local bash /Users/yangzijiang/BT_NMS/scripts/run-fntl-regression.sh`，此模式使用本机 Python、sqlite 和 locmem，仅作为开发备用路径，不作为 CI/正式回归的后端验收标准。

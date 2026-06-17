@@ -274,7 +274,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DATA_UPLOAD_MAX_MEMORY_SIZE = _get_env_int("DATA_UPLOAD_MAX_MEMORY_SIZE", 50 * 1024 * 1024)
 FILE_UPLOAD_MAX_MEMORY_SIZE = _get_env_int("FILE_UPLOAD_MAX_MEMORY_SIZE", 10 * 1024 * 1024)
 
-STATIC_URL = 'static/'
+STATIC_URL = os.getenv("DJANGO_STATIC_URL", "/static/")
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 DATA_DIR = _get_data_dir()
 CLEANUP_EXPORT_DIR = str(Path(DATA_DIR) / "cleanup_exports")

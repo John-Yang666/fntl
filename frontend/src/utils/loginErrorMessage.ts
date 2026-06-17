@@ -11,31 +11,17 @@ function getHttpStatus(error: unknown): number | undefined {
   return axios.isAxiosError(error) ? error.response?.status : undefined;
 }
 
-function getApiPort(apiBase: string): string | null {
-  try {
-    const url = new URL(apiBase);
-    if (url.port) {
-      return url.port;
-    }
-    return url.protocol === 'https:' ? '443' : '80';
-  } catch {
-    return null;
-  }
-}
-
 function formatSystemFailure({ system, error, apiBase }: LoginSystemFailure): string {
   const label = SYSTEM_LABELS[system];
 
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;
     if (!error.response) {
-      const port = getApiPort(apiBase);
-      const portText = port ? `${port} 端口、` : '';
-      return `${label} 后端无法连接（${apiBase}）。请检查网管电脑 IP、${portText}防火墙、后端容器是否运行，以及 CORS_ALLOWED_ORIGINS 是否包含当前前端地址。`;
+      return `${label} 后端无法连接（${apiBase}）。请检查前端代理配置、共享 Docker 网络、防火墙和后端容器是否运行。`;
     }
 
     if (status === 400 || status === 403) {
-      return `${label} 后端拒绝登录请求（HTTP ${status}）。请检查配置文件 backend/deploy_host_ip.txt，确认新网管 IP 已加入 DJANGO_ALLOWED_HOSTS 和 CORS_ALLOWED_ORIGINS 后重启容器。`;
+      return `${label} 后端拒绝登录请求（HTTP ${status}）。请检查配置文件 deploy_host_ip.txt，确认新网管 IP 已加入 DJANGO_ALLOWED_HOSTS，并检查前端代理 Host 头配置后重启容器。`;
     }
 
     if (status === 404) {

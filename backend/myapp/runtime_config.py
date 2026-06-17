@@ -493,8 +493,11 @@ def _save_file_values(file_values: Mapping[str, str]) -> None:
     if DEPLOY_HOST_IP_FIELD_KEY not in file_values:
         return
     deploy_host_file = _deploy_host_file()
-    deploy_host_file.parent.mkdir(parents=True, exist_ok=True)
-    deploy_host_file.write_text(file_values[DEPLOY_HOST_IP_FIELD_KEY], encoding="utf-8")
+    try:
+        deploy_host_file.parent.mkdir(parents=True, exist_ok=True)
+        deploy_host_file.write_text(file_values[DEPLOY_HOST_IP_FIELD_KEY], encoding="utf-8")
+    except OSError as exc:
+        raise ValueError("无法写入网管IP配置文件，请检查 deploy_host_ip.txt 挂载是否为可写。") from exc
 
 
 def _settings_list(setting_name: str) -> list[str]:

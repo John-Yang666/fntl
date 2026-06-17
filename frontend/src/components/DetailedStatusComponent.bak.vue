@@ -125,12 +125,10 @@ import { useRoute } from 'vue-router';
 import axios from 'axios';
 import CustomTableColumn from './CustomTableColumn.vue';
 import BoardStatusComponent from './BoardStatusComponent.vue';
-
-// 动态获取当前浏览器地址栏的 IP 或域名
-const backendPort = import.meta.env.VITE_BACKEND_PORT;
-const baseURL = `${window.location.protocol}//${window.location.hostname}:${backendPort}/api`;
+import { getApiBase, getSystemFromRoute } from '@/utils/systems';
 
 const route = useRoute();
+const baseURL = computed(() => getApiBase(getSystemFromRoute(route.params.system)));
 const device_id = ref<number>(parseInt(Array.isArray(route.params.index) ? route.params.index[0] : route.params.index, 10));
 
 const showNeighbor = ref<boolean>(true);
@@ -300,7 +298,7 @@ const getBitValueFromChar = (char: string, bitIndex: number): string => {
 
 const fetchSwitchStatus = async () => {//从开关量二进制数据中提取前端显示所需的数据，对上述响应式数据进行更新
   try {
-    const response = await axios.get(`${baseURL}/switch-status/${device_id.value}/`);
+    const response = await axios.get(`${baseURL.value}/switch-status/${device_id.value}/`);
     const base64Status = response.data.switch_status;
     // 解码 Base64 并转换为二进制字符串
     const byteArray = Uint8Array.from(atob(base64Status), c => c.charCodeAt(0));

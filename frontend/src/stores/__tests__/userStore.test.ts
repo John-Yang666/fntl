@@ -63,7 +63,7 @@ describe('userStore', () => {
 
   it('keeps successfully authenticated systems and clears failed systems on login', async () => {
     axiosMock.post.mockImplementation(async (url: string) => {
-      if (url.includes(':8000')) {
+      if (url.startsWith('/bt-api/')) {
         return { data: { access: 'bt-access', refresh: 'bt-refresh' } };
       }
       throw new Error('SY unavailable');
@@ -87,7 +87,7 @@ describe('userStore', () => {
     await expect(store.login('admin', 'wrong-password')).rejects.toThrow('用户名或密码错误。');
   });
 
-  it('reports backend connectivity, CORS, or firewall problems when login has no response', async () => {
+  it('reports frontend proxy or backend connectivity problems when login has no response', async () => {
     axiosMock.post.mockRejectedValue({
       isAxiosError: true,
       code: 'ERR_NETWORK',
@@ -98,7 +98,7 @@ describe('userStore', () => {
     const store = useUserStore();
 
     await expect(store.login('admin', 'admin')).rejects.toThrow(
-      /无法连接.*8000.*8001.*防火墙.*CORS/s,
+      /无法连接.*\/bt-api.*\/sy-api.*前端代理.*共享 Docker 网络.*防火墙/s,
     );
   });
 
@@ -113,7 +113,7 @@ describe('userStore', () => {
 
     const store = useUserStore();
 
-    await expect(store.login('admin', 'admin')).rejects.toThrow(/deploy_host_ip\.txt.*DJANGO_ALLOWED_HOSTS.*CORS_ALLOWED_ORIGINS/s);
+    await expect(store.login('admin', 'admin')).rejects.toThrow(/deploy_host_ip\.txt.*DJANGO_ALLOWED_HOSTS.*前端代理 Host/s);
   });
 
   it('refreshes an expired access token before retrying authenticated requests', async () => {
@@ -122,20 +122,22 @@ describe('userStore', () => {
     axiosMock.request
       .mockRejectedValueOnce(expired)
       .mockResolvedValueOnce({ data: { ok: true } });
-    axiosMock.post.mockResolvedValue({ data: { access: 'new-access' } });
+    axiosMock.post.mockResolvedValue({ data: { access: 'new-access', refresh: 'new-refresh' } });
 
     const store = useUserStore();
     const result = await store.requestWithAuth('bt', { url: '/devices/' });
 
     expect(result).toEqual({ ok: true });
-    expect(axiosMock.post).toHaveBeenCalledWith('http://fntl.local:8000/api/token/refresh/', {
+    expect(axiosMock.post).toHaveBeenCalledWith('/bt-api/token/refresh/', {
       refresh: 'refresh-token',
     });
     expect(axiosMock.request).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        url: 'http://fntl.local:8000/api/devices/',
+        url: '/bt-api/devices/',
         headers: { Authorization: 'Bearer new-access' },
       }),
     );
+    expect(store.auth.bt.refreshToken).toBe('new-refresh');
+    expect(db.get(TOKEN_STORAGE_KEYS.bt)).toEqual({ access: 'new-access', refresh: 'new-refresh' });
   });
 });

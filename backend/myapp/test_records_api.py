@@ -52,6 +52,7 @@ class RecordsApiTests(APITestCase):
         )
         self.ops_user = user_model.objects.create_user("records-ops", "ops@example.com", "pw")
         self.regular_user = user_model.objects.create_user("records-regular", "regular@example.com", "pw")
+        self.superuser = user_model.objects.create_superuser("records-root", "root@example.com", "pw")
         self.ops_user.groups.add(Group.objects.get(name=SYSTEM_ADMIN_GROUP_NAME))
         self.ops_user.depots.add(self.depot_a)
 
@@ -171,8 +172,8 @@ class RecordsApiTests(APITestCase):
         )
         content = export_response.content.decode("utf-8-sig")
         self.assertIn("告警码", content)
-        self.assertIn("40", content)
-        self.assertNotIn("41", content)
+        self.assertIn(",40,", content)
+        self.assertNotIn(",41,", content)
 
     def test_regular_user_cannot_export_records(self):
         SwitchData.objects.create(device=self.device_a, switch_status=b"\x01")
@@ -183,8 +184,16 @@ class RecordsApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn("A设备", response.content.decode("utf-8-sig"))
 
-    def test_general_device_and_record_endpoints_are_read_only(self):
-        self.client.force_authenticate(self.ops_user)
+    def test_regular_user_cannot_write_general_device_and_record_endpoints(self):
+        switch_record = SwitchData.objects.create(device=self.device_a, switch_status=b"\x01\x02")
+        analog_record = AnalogData.objects.create(
+            device=self.device_a,
+            voltage_1=1.1,
+            current_1=2.2,
+            voltage_2=3.3,
+            current_2=4.4,
+        )
+        relay_record = RelayAction.objects.create(device=self.device_a, relay="一方向", action="吸起")
 
         cases = [
             (
@@ -195,6 +204,9 @@ class RecordsApiTests(APITestCase):
                     "ip_address": "10.0.0.250",
                 },
                 Device,
+                self.device_a,
+                {"name": "被篡改设备"},
+                lambda: self.assertEqual(Device.objects.get(pk=self.device_a.pk).name, "A设备"),
             ),
             (
                 "/api/switch-data/",
@@ -203,6 +215,9 @@ class RecordsApiTests(APITestCase):
                     "switch_status": "0102",
                 },
                 SwitchData,
+                switch_record,
+                {"switch_status": "FFFF"},
+                lambda: self.assertEqual(bytes(SwitchData.objects.get(pk=switch_record.pk).switch_status), b"\x01\x02"),
             ),
             (
                 "/api/analog-data/",
@@ -214,6 +229,9 @@ class RecordsApiTests(APITestCase):
                     "current_2": 4.4,
                 },
                 AnalogData,
+                analog_record,
+                {"voltage_1": 9.9},
+                lambda: self.assertEqual(AnalogData.objects.get(pk=analog_record.pk).voltage_1, 1.1),
             ),
             (
                 "/api/relay-actions/",
@@ -223,14 +241,31 @@ class RecordsApiTests(APITestCase):
                     "action": "吸起",
                 },
                 RelayAction,
+                relay_record,
+                {"action": "落下"},
+                lambda: self.assertEqual(RelayAction.objects.get(pk=relay_record.pk).action, "吸起"),
             ),
         ]
 
-        for endpoint, payload, model in cases:
-            with self.subTest(endpoint=endpoint):
-                before_count = model.objects.count()
+        for user in (self.regular_user, self.ops_user, self.superuser):
+            self.client.force_authenticate(user)
+            for endpoint, post_payload, model, instance, write_payload, assert_unchanged in cases:
+                detail_endpoint = f"{endpoint}{instance.pk}/"
+                with self.subTest(user=user.username, endpoint=endpoint, method="post"):
+                    before_count = model.objects.count()
 
-                response = self.client.post(endpoint, payload, format="json")
+                    response = self.client.post(endpoint, post_payload, format="json")
 
-                self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-                self.assertEqual(model.objects.count(), before_count)
+                    self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+                    self.assertEqual(model.objects.count(), before_count)
+
+                for method in ("patch", "put", "delete"):
+                    with self.subTest(user=user.username, endpoint=detail_endpoint, method=method):
+                        before_count = model.objects.count()
+
+                        request_method = getattr(self.client, method)
+                        response = request_method(detail_endpoint, write_payload, format="json")
+
+                        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+                        self.assertEqual(model.objects.count(), before_count)
+                        assert_unchanged()

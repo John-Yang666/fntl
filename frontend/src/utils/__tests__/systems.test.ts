@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAuthWebSocketProtocols,
+  getAdminBase,
   getApiBase,
   getSystemFromRoute,
   getWsBase,
@@ -9,13 +10,15 @@ import {
 } from '../systems';
 
 describe('systems helpers', () => {
-  it('builds BT/SY API and WebSocket origins from the browser location', () => {
+  it('builds BT/SY API and WebSocket paths through the frontend origin', () => {
     window.history.pushState({}, '', 'http://fntl.local:5173/main');
 
-    expect(getApiBase('bt')).toBe('http://fntl.local:8000/api');
-    expect(getApiBase('sy')).toBe('http://fntl.local:8001/api');
-    expect(getWsBase('bt')).toBe('ws://fntl.local:8000');
-    expect(getWsBase('sy')).toBe('ws://fntl.local:8001');
+    expect(getApiBase('bt')).toBe('/bt-api');
+    expect(getApiBase('sy')).toBe('/sy-api');
+    expect(getWsBase('bt')).toBe('ws://fntl.local:5173/bt-ws');
+    expect(getWsBase('sy')).toBe('ws://fntl.local:5173/sy-ws');
+    expect(getAdminBase('bt')).toBe('/bt-admin');
+    expect(getAdminBase('sy')).toBe('/sy-admin');
   });
 
   it('uses BT as the fallback route system and validates device keys', () => {

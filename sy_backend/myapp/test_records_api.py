@@ -49,6 +49,8 @@ class SyRecordsApiTests(APITestCase):
             ip_address="10.0.1.202",
         )
         self.ops_user = user_model.objects.create_user("sy-records-ops", "ops@example.com", "pw")
+        self.regular_user = user_model.objects.create_user("sy-records-regular", "regular@example.com", "pw")
+        self.superuser = user_model.objects.create_superuser("sy-records-root", "root@example.com", "pw")
         self.ops_user.groups.add(Group.objects.get(name=SYSTEM_ADMIN_GROUP_NAME))
         self.ops_user.depots.add(self.depot_a)
 
@@ -150,11 +152,12 @@ class SyRecordsApiTests(APITestCase):
         )
         content = export_response.content.decode("utf-8-sig")
         self.assertIn("告警码", content)
-        self.assertIn("40", content)
-        self.assertNotIn("41", content)
+        self.assertIn(",40,", content)
+        self.assertNotIn(",41,", content)
 
-    def test_general_device_and_record_endpoints_are_read_only(self):
-        self.client.force_authenticate(self.ops_user)
+    def test_regular_user_cannot_write_general_device_and_record_endpoints(self):
+        switch_record = SwitchData.objects.create(device=self.device_a, switch_status=b"\x01\x02", version="v4")
+        relay_record = RelayAction.objects.create(device=self.device_a, relay="一方向", action="吸起", source="A1")
 
         cases = [
             (
@@ -165,6 +168,9 @@ class SyRecordsApiTests(APITestCase):
                     "ip_address": "10.0.1.250",
                 },
                 Device,
+                self.device_a,
+                {"name": "被篡改设备"},
+                lambda: self.assertEqual(Device.objects.get(pk=self.device_a.pk).name, "SY-A设备"),
             ),
             (
                 "/api/switch-data/",
@@ -174,6 +180,9 @@ class SyRecordsApiTests(APITestCase):
                     "version": "v4",
                 },
                 SwitchData,
+                switch_record,
+                {"switch_status": "FFFF"},
+                lambda: self.assertEqual(bytes(SwitchData.objects.get(pk=switch_record.pk).switch_status), b"\x01\x02"),
             ),
             (
                 "/api/relay-actions/",
@@ -184,14 +193,31 @@ class SyRecordsApiTests(APITestCase):
                     "source": "A1",
                 },
                 RelayAction,
+                relay_record,
+                {"action": "落下"},
+                lambda: self.assertEqual(RelayAction.objects.get(pk=relay_record.pk).action, "吸起"),
             ),
         ]
 
-        for endpoint, payload, model in cases:
-            with self.subTest(endpoint=endpoint):
-                before_count = model.objects.count()
+        for user in (self.regular_user, self.ops_user, self.superuser):
+            self.client.force_authenticate(user)
+            for endpoint, post_payload, model, instance, write_payload, assert_unchanged in cases:
+                detail_endpoint = f"{endpoint}{instance.pk}/"
+                with self.subTest(user=user.username, endpoint=endpoint, method="post"):
+                    before_count = model.objects.count()
 
-                response = self.client.post(endpoint, payload, format="json")
+                    response = self.client.post(endpoint, post_payload, format="json")
 
-                self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-                self.assertEqual(model.objects.count(), before_count)
+                    self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+                    self.assertEqual(model.objects.count(), before_count)
+
+                for method in ("patch", "put", "delete"):
+                    with self.subTest(user=user.username, endpoint=detail_endpoint, method=method):
+                        before_count = model.objects.count()
+
+                        request_method = getattr(self.client, method)
+                        response = request_method(detail_endpoint, write_payload, format="json")
+
+                        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+                        self.assertEqual(model.objects.count(), before_count)
+                        assert_unchanged()

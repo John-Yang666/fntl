@@ -276,7 +276,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus/es/components/message/index.mjs';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import { useUserStore } from '@/stores/userStore';
-import { SYSTEM_LABELS, SYSTEMS, getSystemOrigin, type SystemType } from '@/utils/systems';
+import { SYSTEM_LABELS, SYSTEMS, getAdminBase, type SystemType } from '@/utils/systems';
 
 interface DeviceOption {
   device_id: number;
@@ -537,7 +537,7 @@ const formatDuration = (durationSeconds: number): string => {
 };
 
 const openAdmin = (system: SystemType, model: string) => {
-  window.open(`${getSystemOrigin(system)}/admin/myapp/${model}/`, '_blank');
+  window.open(`${getAdminBase(system)}/myapp/${model}/`, '_blank');
 };
 
 const canOpenAdmin = computed(() => {

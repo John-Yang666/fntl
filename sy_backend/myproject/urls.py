@@ -3,6 +3,7 @@
 from django.contrib import admin  # type: ignore
 from django.urls import path, include  # type: ignore
 from django.views.generic import RedirectView  # type: ignore
+from django.shortcuts import redirect  # type: ignore
 
 from rest_framework.routers import DefaultRouter  # type: ignore
 
@@ -18,13 +19,21 @@ router.register(r"user-operations", views.UserOperationViewSet)
 router.register(r"alerts", views.AlarmDataViewSet)
 router.register(r"uploaded-files", views.UploadedFileViewSet, basename="uploadedfile")
 
+def legacy_admin_redirect(request, path=""):
+    target = f"/sy-admin/{path}"
+    if request.META.get("QUERY_STRING"):
+        target = f'{target}?{request.META["QUERY_STRING"]}'
+    return redirect(target, permanent=False)
+
 # 自定义操作：用于自定义的视图（View 或 APIView），适合处理特定的业务逻辑或自定义的 URL 格式。
 urlpatterns = [
-    # 根路径重定向到 /admin/
-    path("", RedirectView.as_view(url="/admin/", permanent=True)),
+    # 根路径重定向到 SY admin
+    path("", RedirectView.as_view(url="/sy-admin/", permanent=True)),
 
     # Django admin 界面
-    path("admin/", admin.site.urls),
+    path("sy-admin/", admin.site.urls),
+    path("admin/", legacy_admin_redirect),
+    path("admin/<path:path>", legacy_admin_redirect),
 
     # DRF ViewSet 路由
     path("api/", include(router.urls)),

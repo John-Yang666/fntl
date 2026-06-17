@@ -1,6 +1,7 @@
 from django.contrib import admin # type: ignore
 from django.urls import path, include # type: ignore
 from django.views.generic import RedirectView  # 导入 RedirectView
+from django.shortcuts import redirect
 from rest_framework.routers import DefaultRouter # type: ignore
 from myapp import views
 from myapp import ops_views
@@ -21,10 +22,18 @@ ops_router.register(r'depots', ops_views.OpsDepotViewSet, basename='ops-depot')
 ops_router.register(r'lines', ops_views.OpsLineViewSet, basename='ops-line')
 ops_router.register(r'devices', ops_views.OpsDeviceViewSet, basename='ops-device')
 
+def legacy_admin_redirect(request, path=''):
+    target = f'/bt-admin/{path}'
+    if request.META.get('QUERY_STRING'):
+        target = f'{target}?{request.META["QUERY_STRING"]}'
+    return redirect(target, permanent=False)
+
 # 自定义操作：用于自定义的视图（View 或 APIView），适合处理特定的业务逻辑或自定义的 URL 格式。
 urlpatterns = [
-    path('', RedirectView.as_view(url='/admin/', permanent=True)),  # 将根路径重定向到 /admin/
-    path('admin/', admin.site.urls),  # 启用 admin 界面
+    path('', RedirectView.as_view(url='/bt-admin/', permanent=True)),  # 将根路径重定向到 BT admin
+    path('bt-admin/', admin.site.urls),  # 前端同源代理入口
+    path('admin/', legacy_admin_redirect),  # 兼容旧 admin 入口
+    path('admin/<path:path>', legacy_admin_redirect),
     path('api/', include(router.urls)),
     path('api/ops/', include(ops_router.urls)),
     path('api/ops/devices/import/preview/', ops_views.OpsDeviceImportPreviewView.as_view(), name='ops-device-import-preview'),

@@ -26,7 +26,8 @@ services:
       dockerfile: Dockerfile
     image: my_vue:dev
     environment:
-      - VITE_BACKEND_PORT=8001
+      - VITE_BT_PROXY_TARGET=http://web:8000
+      - VITE_SY_PROXY_TARGET=http://sy-backend-gateway:8000
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -36,6 +37,7 @@ services:
       sh -c "npm ci && npm run dev"
     networks:
       - bt_nms_network
+      - frontend_proxy
     restart: unless-stopped
 
   web:
@@ -47,10 +49,11 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - "8001:8000" # +1
+      - "127.0.0.1:8001:8000" # +1
     environment:
       - DEBUG=True
       - DJANGO_SETTINGS_MODULE=myproject.settings
+      - DJANGO_STATIC_URL=/bt-static/
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DATABASE_NAME=mydatabase
@@ -183,6 +186,9 @@ networks:
     driver: bridge
   kafka_kafka-net:
     external: true
+  frontend_proxy:
+    external: true
+    name: bt_nms_frontend_proxy
 
 volumes:
   bt_nms_postgres_data:

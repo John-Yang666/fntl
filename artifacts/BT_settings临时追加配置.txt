@@ -1,0 +1,38 @@
+将下面内容追加到 BT 后端容器内 /app/myproject/settings.py 文件最末尾。
+注意：不要放进三引号注释块里，不要放进已有列表中间。
+
+# 临时允许网管电脑 IP 访问
+NMS_IP = "192.168..22"
+
+def _append_unique_config(original, additions):
+    values = list(original or [])
+    for item in additions:
+        if item not in values:
+            values.append(item)
+    return values
+
+ALLOWED_HOSTS = _append_unique_config(
+    globals().get("ALLOWED_HOSTS", []),
+    [NMS_IP],
+)
+
+CORS_ALLOWED_ORIGINS = _append_unique_config(
+    globals().get("CORS_ALLOWED_ORIGINS", []),
+    [
+        f"http://{NMS_IP}:38173",
+    ],
+)
+
+CSRF_TRUSTED_ORIGINS = _append_unique_config(
+    globals().get("CSRF_TRUSTED_ORIGINS", []),
+    [
+        f"http://{NMS_IP}:38173",
+        f"http://{NMS_IP}:8000",
+    ],
+)
+
+改完后执行：
+
+docker restart bt_nms_django_app
+docker exec bt_nms_django_app python manage.py check
+docker logs --tail 100 bt_nms_django_app
