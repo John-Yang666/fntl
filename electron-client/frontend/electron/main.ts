@@ -70,7 +70,11 @@ function requestSettingsDialog(): void {
 function buildAdminUrl(system: SystemType, adminPath: string): string {
   const config = clientConfig || DEFAULT_CLIENT_CONFIG;
   const baseUrl = system === 'bt' ? config.btBaseUrl : config.syBaseUrl;
-  const target = new URL(adminPath.replace(/^\/+/, ''), `${baseUrl}/`);
+  const adminPrefix = system === 'bt' ? '/bt-admin' : '/sy-admin';
+  const normalizedPath = adminPath.startsWith('/bt-admin/') || adminPath.startsWith('/sy-admin/')
+    ? adminPath
+    : `${adminPrefix}/${adminPath.replace(/^\/?(admin\/)?/, '')}`;
+  const target = new URL(normalizedPath.replace(/^\/+/, ''), `${baseUrl}/`);
   return target.toString();
 }
 

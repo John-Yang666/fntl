@@ -162,8 +162,8 @@ INSTALLED_APPS = [
 SITE_ID = 1  # 默认站点的ID
 
 # 和 BT 共用同一主机名时，避免 Django 默认 cookie 名冲突导致互相顶掉登录态
-SESSION_COOKIE_NAME = 'sy_sessionid'
-CSRF_COOKIE_NAME = 'sy_csrftoken'
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "sy_sessionid")
+CSRF_COOKIE_NAME = os.getenv("CSRF_COOKIE_NAME", "sy_csrftoken")
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

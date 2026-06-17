@@ -7,12 +7,6 @@ WORKDIR /app
 # 复制依赖清单和锁文件
 COPY package.json package-lock.json ./
 
-# 注入 docker-compose 中的环境变量给 Vite
-ARG VITE_BT_BACKEND_PORT
-ARG VITE_SY_BACKEND_PORT
-ENV VITE_BT_BACKEND_PORT=$VITE_BT_BACKEND_PORT
-ENV VITE_SY_BACKEND_PORT=$VITE_SY_BACKEND_PORT
-
 # 安装依赖
 RUN npm ci --no-audit --no-fund
 

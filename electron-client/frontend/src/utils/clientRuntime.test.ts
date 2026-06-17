@@ -35,15 +35,16 @@ describe('frontend desktop client runtime', () => {
     expect(isDesktopClient()).toBe(true);
     expect(getDesktopApiBase('bt')).toBe('/__client/proxy/bt/api');
     expect(getDesktopWsBase('sy')).toBe('ws://127.0.0.1/__client/proxy/sy');
-    expect(getDesktopSystemOrigin('sy')).toBe('https://sy.local:8444');
+    expect(getDesktopSystemOrigin('bt')).toBe('http://bt.local:38173');
+    expect(getDesktopSystemOrigin('sy')).toBe('https://sy.local:38443');
   });
 
-  it('delegates backend Admin opening to the Electron bridge', async () => {
+  it('delegates same-origin Admin opening to the Electron bridge', async () => {
     const openBackendAdminMock = vi.fn();
     setDesktopClientBridgeForTests({
       getConfig: vi.fn().mockResolvedValue({
-        btBaseUrl: 'http://bt.local:8000',
-        syBaseUrl: 'http://sy.local:8001',
+        btBaseUrl: 'http://frontend.local:38173',
+        syBaseUrl: 'http://frontend.local:38173',
       }),
       saveConfig: vi.fn(),
       openSettings: vi.fn(),
@@ -51,8 +52,8 @@ describe('frontend desktop client runtime', () => {
     });
     await initializeDesktopClientConfig();
 
-    await openBackendAdmin('bt', '/admin/myapp/device/');
+    await openBackendAdmin('bt', '/bt-admin/myapp/device/');
 
-    expect(openBackendAdminMock).toHaveBeenCalledWith('bt', '/admin/myapp/device/');
+    expect(openBackendAdminMock).toHaveBeenCalledWith('bt', '/bt-admin/myapp/device/');
   });
 });

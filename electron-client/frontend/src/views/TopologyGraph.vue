@@ -361,7 +361,7 @@ const connectTopologyWebSocket = (system: SystemType) => {
   clearReconnectTimer(system);
   const token = userStore.auth[system].token;
   const socket = new WebSocket(
-    `${getWsBase(system)}/ws/topology/`,
+    `${getWsBase(system)}/topology/`,
     buildAuthWebSocketProtocols(token),
   );
   topologySockets[system] = socket;

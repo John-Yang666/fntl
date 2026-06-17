@@ -985,11 +985,11 @@ const relayAxisBounds = computed(() => ({
 const realtimeEnabled = computed(() => !endTime.value);
 const directMonitorWsUrl = computed(() => {
   const system = getSystemFromRoute(route.params.system);
-  return `${getWsBase(system)}/ws/device-monitor/${deviceId.value}/`;
+  return `${getWsBase(system)}/device-monitor/${deviceId.value}/`;
 });
 const sameOriginMonitorWsUrl = computed(() => {
-  const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${wsScheme}://${window.location.host}/ws/device-monitor/${deviceId.value}/`;
+  const system = getSystemFromRoute(route.params.system);
+  return `${getWsBase(system)}/device-monitor/${deviceId.value}/`;
 });
 const monitorWsUrls = computed(() => {
   const urls = [sameOriginMonitorWsUrl.value, directMonitorWsUrl.value];

@@ -58,6 +58,17 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(refresh_request.full_url, "http://example.test/api/token/refresh/")
         self.assertEqual(retry_request.headers["Authorization"], "Bearer new-access")
 
+    def test_refresh_updates_rotated_refresh_token(self):
+        transport = FakeTransport()
+        transport.queue_json(200, {"access": "new-access", "refresh": "new-refresh"})
+        client = ApiClient("bt", "http://example.test/api", transport=transport)
+        client.refresh_token = "old-refresh"
+
+        client.refresh_access_token()
+
+        self.assertEqual(client.access_token, "new-access")
+        self.assertEqual(client.refresh_token, "new-refresh")
+
     def test_list_devices_reads_all_paginated_pages(self):
         transport = FakeTransport()
         transport.queue_json(200, {"results": [{"device_id": 1}], "next": "http://example.test/api/devices/?page=2"})

@@ -151,6 +151,10 @@ INSTALLED_APPS = [
 
 SITE_ID = 1  # 默认站点的ID
 
+# 和 SY 共用同一前端源时，避免 Django 默认 cookie 名互相顶掉 admin 登录态/CSRF
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "bt_sessionid")
+CSRF_COOKIE_NAME = os.getenv("CSRF_COOKIE_NAME", "bt_csrftoken")
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

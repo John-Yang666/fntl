@@ -43,9 +43,10 @@ function configKeyForSystem(system: SystemType): keyof ClientConfig {
   return system === 'bt' ? 'btBaseUrl' : 'syBaseUrl';
 }
 
-function joinBackendPath(prefix: 'api' | 'ws', suffix: string | undefined): string {
+function joinFrontendProxyPath(system: SystemType, prefix: 'api' | 'ws', suffix: string | undefined): string {
   const normalizedSuffix = suffix && suffix !== '/' ? suffix : '/';
-  return `/${prefix}${normalizedSuffix.startsWith('/') ? normalizedSuffix : `/${normalizedSuffix}`}`;
+  const frontendPrefix = prefix === 'api' ? `/${system}-api` : `/${system}-ws`;
+  return `${frontendPrefix}${normalizedSuffix.startsWith('/') ? normalizedSuffix : `/${normalizedSuffix}`}`;
 }
 
 export function resolveProxyTargetUrl(
@@ -66,7 +67,7 @@ export function resolveProxyTargetUrl(
   }
 
   const target = new URL(config[configKeyForSystem(system)]);
-  target.pathname = joinBackendPath(prefix, match[3]);
+  target.pathname = joinFrontendProxyPath(system, prefix, match[3]);
   target.search = localUrl.search;
   target.hash = '';
   if (kind === 'websocket') {
@@ -140,7 +141,7 @@ async function proxyHttpRequest(
 
   upstream.on('error', (error) => {
     if (!res.headersSent) {
-      writeJson(res, 502, { detail: `后端请求失败: ${error.message}` });
+      writeJson(res, 502, { detail: `前端入口请求失败: ${error.message}` });
     } else {
       res.destroy(error);
     }

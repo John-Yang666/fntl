@@ -153,12 +153,23 @@ class AlertRuntimeStateTests(unittest.TestCase):
 
 
 class ConfigDefaultsTests(unittest.TestCase):
-    def test_default_config_uses_local_backend_ports(self):
+    def test_default_config_uses_frontend_api_prefixes(self):
         config = AppConfig.default()
 
-        self.assertEqual(config.systems["bt"].api_base, "http://127.0.0.1:8000/api")
-        self.assertEqual(config.systems["sy"].api_base, "http://127.0.0.1:8001/api")
+        self.assertEqual(config.systems["bt"].api_base, "http://127.0.0.1:38173/bt-api")
+        self.assertEqual(config.systems["sy"].api_base, "http://127.0.0.1:38173/sy-api")
         self.assertIsInstance(config.systems["bt"], SystemConfig)
+
+    def test_legacy_backend_ports_are_migrated_to_frontend_api_prefixes(self):
+        config = AppConfig.from_dict({
+            "systems": {
+                "bt": {"api_base": "http://192.168.1.10:8000/api"},
+                "sy": {"api_base": "https://192.168.1.10:8444/api"},
+            }
+        })
+
+        self.assertEqual(config.systems["bt"].api_base, "http://192.168.1.10:38173/bt-api")
+        self.assertEqual(config.systems["sy"].api_base, "https://192.168.1.10:38443/sy-api")
 
 
 if __name__ == "__main__":

@@ -41,8 +41,8 @@ class LoginDialog(QDialog):
         form = QFormLayout()
         form.addRow("用户名", self.username_edit)
         form.addRow("密码", self.password_edit)
-        form.addRow("BT API", self.bt_api_edit)
-        form.addRow("SY API", self.sy_api_edit)
+        form.addRow("BT 前端 API", self.bt_api_edit)
+        form.addRow("SY 前端 API", self.sy_api_edit)
         form.addRow("", self.remember_checkbox)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -81,8 +81,8 @@ class SettingsDialog(QDialog):
         self.sy_api_edit = QLineEdit(config.systems["sy"].api_base)
 
         form = QFormLayout()
-        form.addRow("BT API", self.bt_api_edit)
-        form.addRow("SY API", self.sy_api_edit)
+        form.addRow("BT 前端 API", self.bt_api_edit)
+        form.addRow("SY 前端 API", self.sy_api_edit)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)

@@ -136,14 +136,21 @@ export const useUserStore = defineStore('user', {
         refresh: tokenData.refresh,
       });
       const newToken = response.data.access;
-      await this.updateToken(system, newToken);
+      const newRefreshToken = response.data.refresh || tokenData.refresh;
+      await this.updateToken(system, newToken, newRefreshToken);
     },
 
-    async updateToken(system: SystemType, newToken: string): Promise<void> {
+    async updateToken(system: SystemType, newToken: string, newRefreshToken?: string): Promise<void> {
       this.auth[system].token = newToken;
+      if (newRefreshToken) {
+        this.auth[system].refreshToken = newRefreshToken;
+      }
       const tokenData = await getFromDB<{ access: string; refresh: string }>(TOKEN_STORAGE_KEYS[system]);
       if (tokenData) {
         tokenData.access = newToken;
+        if (newRefreshToken) {
+          tokenData.refresh = newRefreshToken;
+        }
         await saveToDB(TOKEN_STORAGE_KEYS[system], tokenData);
       }
     },

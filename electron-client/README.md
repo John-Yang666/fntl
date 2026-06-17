@@ -35,14 +35,14 @@ electron-client/
 - Electron 自带 Chromium 内核，不依赖用户电脑上的 Chrome/Safari/Edge 渲染主界面。
 - 启动后本地开启 `127.0.0.1:<随机端口>`，加载 `frontend/dist`。
 - HTTP API 通过本机代理访问：
-  - `/__client/proxy/bt/api/*` -> BT 后端 `/api/*`
-  - `/__client/proxy/sy/api/*` -> SY 后端 `/api/*`
+  - `/__client/proxy/bt/api/*` -> 前端入口 `/bt-api/*` -> BT 后端 `/api/*`
+  - `/__client/proxy/sy/api/*` -> 前端入口 `/sy-api/*` -> SY 后端 `/api/*`
 - WebSocket 通过本机代理访问：
-  - `/__client/proxy/bt/ws/*` -> BT 后端 `/ws/*`
-  - `/__client/proxy/sy/ws/*` -> SY 后端 `/ws/*`
-- 默认后端地址：
-  - BT: `http://127.0.0.1:8000`
-  - SY: `http://127.0.0.1:8001`
+  - `/__client/proxy/bt/ws/*` -> 前端入口 `/bt-ws/*` -> BT 后端 `/ws/*`
+  - `/__client/proxy/sy/ws/*` -> 前端入口 `/sy-ws/*` -> SY 后端 `/ws/*`
+- 默认前端入口：
+  - BT: `http://127.0.0.1:38173`
+  - SY: `http://127.0.0.1:38173`
 
 ## macOS 本机验证
 

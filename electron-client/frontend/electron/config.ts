@@ -7,21 +7,27 @@ export interface ClientConfig {
 }
 
 export const DEFAULT_CLIENT_CONFIG: ClientConfig = {
-  btBaseUrl: 'http://127.0.0.1:8000',
-  syBaseUrl: 'http://127.0.0.1:8001',
+  btBaseUrl: 'http://127.0.0.1:38173',
+  syBaseUrl: 'http://127.0.0.1:38173',
 };
 
-export function normalizeBackendBaseUrl(value: string): string {
+export function normalizeFrontendBaseUrl(value: string): string {
   const trimmed = value.trim().replace(/\/+$/, '');
   let parsed: URL;
   try {
     parsed = new URL(trimmed);
   } catch (error) {
-    throw new Error('Backend URL must be a valid absolute URL');
+    throw new Error('Frontend entry URL must be a valid absolute URL');
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('Backend URL must start with http:// or https://');
+    throw new Error('Frontend entry URL must start with http:// or https://');
+  }
+
+  if (parsed.port === '8000' || parsed.port === '8001') {
+    parsed.port = '38173';
+  } else if (parsed.port === '8443' || parsed.port === '8444') {
+    parsed.port = '38443';
   }
 
   parsed.pathname = parsed.pathname.replace(/\/+$/, '');
@@ -32,8 +38,8 @@ export function normalizeBackendBaseUrl(value: string): string {
 
 export function normalizeClientConfig(config: Partial<ClientConfig> | null | undefined): ClientConfig {
   return {
-    btBaseUrl: normalizeBackendBaseUrl(config?.btBaseUrl || DEFAULT_CLIENT_CONFIG.btBaseUrl),
-    syBaseUrl: normalizeBackendBaseUrl(config?.syBaseUrl || DEFAULT_CLIENT_CONFIG.syBaseUrl),
+    btBaseUrl: normalizeFrontendBaseUrl(config?.btBaseUrl || DEFAULT_CLIENT_CONFIG.btBaseUrl),
+    syBaseUrl: normalizeFrontendBaseUrl(config?.syBaseUrl || DEFAULT_CLIENT_CONFIG.syBaseUrl),
   };
 }
 

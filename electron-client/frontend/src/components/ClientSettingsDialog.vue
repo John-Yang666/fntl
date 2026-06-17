@@ -11,21 +11,21 @@
     <div class="client-settings-dialog">
       <el-alert
         v-if="forceConfig"
-        title="首次启动需要配置 BT/SY 后端服务地址。"
+        title="首次启动需要配置前端入口地址。"
         type="warning"
         :closable="false"
         class="settings-alert"
       />
       <el-form label-width="110px" @submit.prevent>
-        <el-form-item label="BT 后端地址">
-          <el-input v-model="form.btBaseUrl" placeholder="http://127.0.0.1:8000" />
+        <el-form-item label="BT 前端入口">
+          <el-input v-model="form.btBaseUrl" placeholder="http://127.0.0.1:38173" />
         </el-form-item>
-        <el-form-item label="SY 后端地址">
-          <el-input v-model="form.syBaseUrl" placeholder="http://127.0.0.1:8001" />
+        <el-form-item label="SY 前端入口">
+          <el-input v-model="form.syBaseUrl" placeholder="http://127.0.0.1:38173" />
         </el-form-item>
       </el-form>
       <p class="settings-hint">
-        地址填写到后端服务根路径即可，客户端会自动访问对应的 /api 和 /ws。
+        地址填写到前端入口根路径即可，客户端会经 /bt-api、/sy-api、/bt-ws、/sy-ws 转发。
       </p>
       <p v-if="errorMessage" class="settings-error">{{ errorMessage }}</p>
     </div>

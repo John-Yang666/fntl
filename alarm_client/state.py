@@ -7,6 +7,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 SYSTEMS = ("bt", "sy")
 SYSTEM_LABELS = {"bt": "BT", "sy": "SY"}
@@ -15,6 +16,13 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "alarm_client.log"
 LOCK_PATH = CONFIG_DIR / "alarm_client.lock"
 _PASSWORD_MASK_KEY = b"BT_NMS_ALARM_CLIENT_STATIC_MASK_V1"
+
+
+DEFAULT_FRONTEND_ORIGIN = "http://127.0.0.1:38173"
+DEFAULT_API_BASES = {
+    "bt": f"{DEFAULT_FRONTEND_ORIGIN}/bt-api",
+    "sy": f"{DEFAULT_FRONTEND_ORIGIN}/sy-api",
+}
 
 
 def _xor_bytes(data: bytes) -> bytes:
@@ -56,8 +64,8 @@ class AppConfig:
     def default(cls) -> "AppConfig":
         return cls(
             systems={
-                "bt": SystemConfig(api_base="http://127.0.0.1:8000/api"),
-                "sy": SystemConfig(api_base="http://127.0.0.1:8001/api"),
+                "bt": SystemConfig(api_base=DEFAULT_API_BASES["bt"]),
+                "sy": SystemConfig(api_base=DEFAULT_API_BASES["sy"]),
             }
         )
 
@@ -70,7 +78,7 @@ class AppConfig:
             raw = raw_systems.get(system, {})
             if isinstance(raw, dict):
                 systems[system] = SystemConfig(
-                    api_base=str(raw.get("api_base") or systems[system].api_base).rstrip("/"),
+                    api_base=normalize_api_base(system, str(raw.get("api_base") or systems[system].api_base)),
                     enabled=bool(raw.get("enabled", True)),
                 )
 
@@ -109,6 +117,42 @@ class AppConfig:
             },
             "poll_interval_seconds": self.poll_interval_seconds,
         }
+
+
+def normalize_api_base(system: str, value: str) -> str:
+    raw = value.strip().rstrip("/")
+    if not raw:
+        return DEFAULT_API_BASES.get(system, raw)
+
+    parsed = urlsplit(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return raw
+
+    hostname = parsed.hostname or ""
+    port = parsed.port
+    if port in {8000, 8001}:
+        port = 38173
+    elif port in {8443, 8444}:
+        port = 38443
+
+    if parsed.port is None:
+        netloc = parsed.netloc
+    elif parsed.username or parsed.password:
+        auth = parsed.username or ""
+        if parsed.password:
+            auth = f"{auth}:{parsed.password}"
+        host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+        netloc = f"{auth}@{host}:{port}"
+    else:
+        host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+        netloc = f"{host}:{port}"
+
+    expected_path = f"/{system}-api"
+    path = parsed.path.rstrip("/")
+    if path in {"", "/", "/api"}:
+        path = expected_path
+
+    return urlunsplit((parsed.scheme, netloc, path, "", "")).rstrip("/")
 
 
 def load_config(path: Path = CONFIG_PATH) -> AppConfig:

@@ -1,4 +1,5 @@
 import {
+  getDesktopAdminBase,
   getDesktopApiBase,
   getDesktopSystemOrigin,
   getDesktopWsBase,
@@ -36,44 +37,18 @@ export function getSystemFromRoute(value: unknown): SystemType {
   return isSystemType(value) ? value : 'bt';
 }
 
-function isHttpsPage(): boolean {
-  return window.location.protocol === 'https:';
-}
-
-function getBackendPort(system: SystemType): string {
-  if (system === 'bt') {
-    return isHttpsPage()
-      ? import.meta.env.VITE_BT_BACKEND_HTTPS_PORT || import.meta.env.VITE_BT_BACKEND_PORT || '8443'
-      : import.meta.env.VITE_BT_BACKEND_PORT || '8000';
-  }
-  return isHttpsPage()
-    ? import.meta.env.VITE_SY_BACKEND_HTTPS_PORT || import.meta.env.VITE_SY_BACKEND_PORT || '8444'
-    : import.meta.env.VITE_SY_BACKEND_PORT || '8001';
-}
-
-function getWsPort(system: SystemType): string {
-  if (system === 'bt') {
-    return isHttpsPage()
-      ? import.meta.env.VITE_BT_WS_HTTPS_PORT || import.meta.env.VITE_BT_WS_PORT || getBackendPort(system)
-      : import.meta.env.VITE_BT_WS_PORT || getBackendPort(system);
-  }
-  return isHttpsPage()
-    ? import.meta.env.VITE_SY_WS_HTTPS_PORT || import.meta.env.VITE_SY_WS_PORT || getBackendPort(system)
-    : import.meta.env.VITE_SY_WS_PORT || getBackendPort(system);
-}
-
 export function getSystemOrigin(system: SystemType): string {
   if (isDesktopClient()) {
     return getDesktopSystemOrigin(system);
   }
-  return `${window.location.protocol}//${window.location.hostname}:${getBackendPort(system)}`;
+  return window.location.origin;
 }
 
 export function getApiBase(system: SystemType): string {
   if (isDesktopClient()) {
     return getDesktopApiBase(system);
   }
-  return `${getSystemOrigin(system)}/api`;
+  return system === 'bt' ? '/bt-api' : '/sy-api';
 }
 
 export function getWsBase(system: SystemType): string {
@@ -81,12 +56,14 @@ export function getWsBase(system: SystemType): string {
     return getDesktopWsBase(system);
   }
   const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const configuredPort = getWsPort(system);
-  const currentPort = window.location.port;
-  if (!configuredPort || configuredPort === currentPort) {
-    return `${wsScheme}://${window.location.host}`;
+  return `${wsScheme}://${window.location.host}/${system === 'bt' ? 'bt-ws' : 'sy-ws'}`;
+}
+
+export function getAdminBase(system: SystemType): string {
+  if (isDesktopClient()) {
+    return getDesktopAdminBase(system);
   }
-  return `${wsScheme}://${window.location.hostname}:${configuredPort}`;
+  return system === 'bt' ? '/bt-admin' : '/sy-admin';
 }
 
 export function buildAuthWebSocketProtocols(token: string | null | undefined): string[] {

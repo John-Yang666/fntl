@@ -275,7 +275,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus/es/components/message/index.mjs';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import { useUserStore } from '@/stores/userStore';
-import { SYSTEM_LABELS, SYSTEMS, getSystemOrigin, type SystemType } from '@/utils/systems';
+import { SYSTEM_LABELS, SYSTEMS, getAdminBase, type SystemType } from '@/utils/systems';
 import { isDesktopClient, openBackendAdmin } from '@/utils/clientRuntime';
 
 interface DeviceOption {
@@ -537,12 +537,12 @@ const formatDuration = (durationSeconds: number): string => {
 };
 
 const openAdmin = (system: SystemType, model: string) => {
-  const adminPath = `/admin/myapp/${model}/`;
+  const adminPath = `${getAdminBase(system)}/myapp/${model}/`;
   if (isDesktopClient()) {
     void openBackendAdmin(system, adminPath);
     return;
   }
-  window.open(`${getSystemOrigin(system)}/admin/myapp/${model}/`, '_blank');
+  window.open(adminPath, '_blank');
 };
 
 const canOpenAdmin = computed(() => {

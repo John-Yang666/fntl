@@ -132,12 +132,11 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import axios from 'axios';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus/es/components/message/index.mjs';
 import DeviceNameComponent from '@/components/DeviceNameComponent.vue';
 import { useUserStore } from '@/stores/userStore';
-import { getApiBase, getSystemFromRoute } from '@/utils/systems';
+import { getSystemFromRoute } from '@/utils/systems';
 
 const route = useRoute();
 const device_id = route.params.index as string;
@@ -153,7 +152,6 @@ const pendingRemoteAction = ref<'start' | 'disable' | null>(null);
 const isSendingRemoteAction = ref(false);
 
 const userStore = useUserStore();
-const baseURL = () => getApiBase(getSystemFromRoute(route.params.system));
 const username = computed(() => userStore.user?.username ?? null);
 
 /** ✅ 从 DeviceNameComponent 接收的设备信息（避免重复 GET） */
@@ -226,17 +224,18 @@ const sendBbByName = async (targetId: string, bbName: string, extra?: any) => {
   }
 
   try {
-    const res = await axios.post(
-      `${baseURL()}/sy/send-command/${targetId}/`,
-      {
+    const res = await userStore.requestWithAuth<{ status?: string }>(getSystemFromRoute(route.params.system), {
+      method: 'post',
+      url: `/sy/send-command/${targetId}/`,
+      data: {
         username: username.value,
         cmd_type: 'BB',
         bb_name: bbName,
         ...extra,
-      }
-    );
+      },
+    });
 
-    ElMessage.success(res.data.status ?? '命令已发送');
+    ElMessage.success(res.status ?? '命令已发送');
     error.value = '';
   } catch (err: any) {
     console.error('Error:', err);
@@ -256,16 +255,17 @@ const sendBbByCode = async (targetId: string, codeHex: string) => {
   }
 
   try {
-    const res = await axios.post(
-      `${baseURL()}/sy/send-command/${targetId}/`,
-      {
+    const res = await userStore.requestWithAuth<{ status?: string }>(getSystemFromRoute(route.params.system), {
+      method: 'post',
+      url: `/sy/send-command/${targetId}/`,
+      data: {
         username: username.value,
         cmd_type: 'BB',
         bb_code: codeHex,
-      }
-    );
+      },
+    });
 
-    ElMessage.success(res.data.status ?? '命令已发送');
+    ElMessage.success(res.status ?? '命令已发送');
     error.value = '';
   } catch (err: any) {
     console.error('Error:', err);

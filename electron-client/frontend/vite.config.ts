@@ -7,7 +7,8 @@ import { fileURLToPath, URL } from 'node:url';
 export default defineConfig(({ mode }) => {
   // 加载环境变量
   const env = loadEnv(mode, process.cwd());
-  const backendPort = env.VITE_BACKEND_PORT || '8000';
+  const btProxyTarget = env.VITE_BT_PROXY_TARGET || 'http://127.0.0.1:8000';
+  const syProxyTarget = env.VITE_SY_PROXY_TARGET || 'http://127.0.0.1:8001';
 
   return {
     plugins: [
@@ -30,14 +31,51 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: 5173,
       proxy: {
-        '/api': {
-          target: `http://localhost:${backendPort}`, //是给 /api/ 的 HTTP 请求用的
-          changeOrigin: true,
+        '/bt-api': {
+          target: btProxyTarget,
+          changeOrigin: false,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/bt-api/, '/api'),
+        },
+        '/sy-api': {
+          target: syProxyTarget,
+          changeOrigin: false,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/sy-api/, '/api'),
+        },
+        '/bt-ws': {
+          target: btProxyTarget,
+          changeOrigin: false,
+          secure: false,
+          ws: true,
+          rewrite: (path) => path.replace(/^\/bt-ws/, '/ws'),
+        },
+        '/sy-ws': {
+          target: syProxyTarget,
+          changeOrigin: false,
+          secure: false,
+          ws: true,
+          rewrite: (path) => path.replace(/^\/sy-ws/, '/ws'),
+        },
+        '/bt-admin': {
+          target: btProxyTarget,
+          changeOrigin: false,
           secure: false,
         },
-        '/ws': {
-          target: `ws://localhost:${backendPort}`, //是给 WebSocket 请求用的
-          ws: true,
+        '/sy-admin': {
+          target: syProxyTarget,
+          changeOrigin: false,
+          secure: false,
+        },
+        '/bt-static': {
+          target: btProxyTarget,
+          changeOrigin: false,
+          secure: false,
+        },
+        '/sy-static': {
+          target: syProxyTarget,
+          changeOrigin: false,
+          secure: false,
         },
       },
     },

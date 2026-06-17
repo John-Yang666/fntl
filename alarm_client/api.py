@@ -25,7 +25,7 @@ Transport = Callable[[Request, bytes | None, float], HttpResponse]
 
 
 def default_transport(request: Request, body: bytes | None, timeout: float) -> HttpResponse:
-    with urlopen(request, data=body, timeout=timeout) as response:  # noqa: S310 - user-configured backend URL
+    with urlopen(request, data=body, timeout=timeout) as response:  # noqa: S310 - user-configured frontend API URL
         return HttpResponse(status=response.status, data=response.read())
 
 
@@ -62,6 +62,9 @@ class ApiClient:
         if not access:
             raise ApiError(self.system, f"{self.system.upper()} refresh response missing access token", status=401)
         self.access_token = str(access)
+        refresh = payload.get("refresh") if isinstance(payload, dict) else None
+        if refresh:
+            self.refresh_token = str(refresh)
 
     def get_json(self, endpoint_or_url: str) -> Any:
         try:

@@ -291,8 +291,7 @@ services:
       - /app/node_modules
     ports:
       - "38174:5173"
-    command: >
-      sh -c "npm ci && npm run dev"
+    command: npm run dev -- --host 0.0.0.0
     networks:
       - sy_nms_network
       - frontend_proxy

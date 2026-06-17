@@ -6,20 +6,20 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { resolveProxyTargetUrl, startDesktopServer, type DesktopServer } from './proxy';
 
 const config = {
-  btBaseUrl: 'http://bt.example.local:8000',
-  syBaseUrl: 'https://sy.example.local:8444',
+  btBaseUrl: 'http://frontend.example.local:38173',
+  syBaseUrl: 'https://frontend.example.local:38443',
 };
 
 describe('desktop local proxy URL mapping', () => {
-  it('maps BT API requests to the configured backend /api path', () => {
+  it('maps BT API requests to the configured frontend /bt-api path', () => {
     expect(resolveProxyTargetUrl(config, '/__client/proxy/bt/api/token/?next=/main')).toBe(
-      'http://bt.example.local:8000/api/token/?next=/main',
+      'http://frontend.example.local:38173/bt-api/token/?next=/main',
     );
   });
 
-  it('maps SY websocket requests to wss when the configured backend is https', () => {
+  it('maps SY websocket requests to /sy-ws and wss when the configured frontend is https', () => {
     expect(resolveProxyTargetUrl(config, '/__client/proxy/sy/ws/topology/?token=abc', 'websocket')).toBe(
-      'wss://sy.example.local:8444/ws/topology/?token=abc',
+      'wss://frontend.example.local:38443/sy-ws/topology/?token=abc',
     );
   });
 
@@ -42,6 +42,7 @@ describe('desktop local proxy HTTP forwarding', () => {
       req.on('end', () => {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({
+          url: req.url,
           contentLength: req.headers['content-length'],
           body: Buffer.concat(chunks).toString('utf8'),
         }));
@@ -66,7 +67,7 @@ describe('desktop local proxy HTTP forwarding', () => {
       distDir,
       getConfig: async () => ({
         btBaseUrl: `http://127.0.0.1:${upstreamAddress.port}`,
-        syBaseUrl: 'http://127.0.0.1:8001',
+        syBaseUrl: 'http://127.0.0.1:38173',
       }),
     });
     servers.push(desktopServer);
@@ -79,6 +80,7 @@ describe('desktop local proxy HTTP forwarding', () => {
     });
 
     await expect(response.json()).resolves.toEqual({
+      url: '/bt-api/token/',
       contentLength: String(Buffer.byteLength(body)),
       body,
     });

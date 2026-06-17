@@ -13,16 +13,25 @@ export interface BtNmsClientBridge {
 }
 
 export const DEFAULT_CLIENT_CONFIG: ClientConfig = {
-  btBaseUrl: 'http://127.0.0.1:8000',
-  syBaseUrl: 'http://127.0.0.1:8001',
+  btBaseUrl: 'http://127.0.0.1:38173',
+  syBaseUrl: 'http://127.0.0.1:38173',
 };
 
 let bridgeOverride: BtNmsClientBridge | null | undefined;
 let desktopConfig: ClientConfig | null = null;
 let configLoaded = false;
 
-function normalizeBackendBaseUrl(value: string): string {
-  return value.trim().replace(/\/+$/, '');
+function normalizeFrontendBaseUrl(value: string): string {
+  const parsed = new URL(value.trim().replace(/\/+$/, ''));
+  if (parsed.port === '8000' || parsed.port === '8001') {
+    parsed.port = '38173';
+  } else if (parsed.port === '8443' || parsed.port === '8444') {
+    parsed.port = '38443';
+  }
+  parsed.search = '';
+  parsed.hash = '';
+  parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+  return parsed.toString().replace(/\/+$/, '');
 }
 
 export function getClientBridge(): BtNmsClientBridge | null {
@@ -54,8 +63,8 @@ export async function initializeDesktopClientConfig(): Promise<ClientConfig | nu
   }
   const config = await bridge.getConfig();
   desktopConfig = config ? {
-    btBaseUrl: normalizeBackendBaseUrl(config.btBaseUrl),
-    syBaseUrl: normalizeBackendBaseUrl(config.syBaseUrl),
+    btBaseUrl: normalizeFrontendBaseUrl(config.btBaseUrl),
+    syBaseUrl: normalizeFrontendBaseUrl(config.syBaseUrl),
   } : null;
   configLoaded = true;
   return desktopConfig;
@@ -75,8 +84,8 @@ export async function saveDesktopClientConfig(config: ClientConfig): Promise<voi
     throw new Error('Desktop client bridge is unavailable');
   }
   const normalized = {
-    btBaseUrl: normalizeBackendBaseUrl(config.btBaseUrl),
-    syBaseUrl: normalizeBackendBaseUrl(config.syBaseUrl),
+    btBaseUrl: normalizeFrontendBaseUrl(config.btBaseUrl),
+    syBaseUrl: normalizeFrontendBaseUrl(config.syBaseUrl),
   };
   await bridge.saveConfig(normalized);
   desktopConfig = normalized;
@@ -100,6 +109,10 @@ export function getDesktopWsBase(system: SystemType): string {
 export function getDesktopSystemOrigin(system: SystemType): string {
   const config = desktopConfig || DEFAULT_CLIENT_CONFIG;
   return system === 'bt' ? config.btBaseUrl : config.syBaseUrl;
+}
+
+export function getDesktopAdminBase(system: SystemType): string {
+  return system === 'bt' ? '/bt-admin' : '/sy-admin';
 }
 
 export async function openBackendAdmin(system: SystemType, path: string): Promise<void> {
