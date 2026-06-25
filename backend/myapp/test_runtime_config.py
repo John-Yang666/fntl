@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -17,6 +18,7 @@ from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 from consts import ALARM_DELAY
 from myapp.models import RuntimeConfig, UserOperation
 from myapp.runtime_config import (
+    build_default_cleanup_task_args,
     build_runtime_config_payload,
     get_alarm_delay_map,
     get_communication_timeout,
@@ -59,13 +61,13 @@ class RuntimeConfigApiTests(APITestCase):
             defaults={
                 "task": "myapp.tasks.my_daily_task.my_daily_task",
                 "crontab": schedule,
-                "args": "[3, 30, 30, 30, 30]",
+                "args": "[3, 3, 30, 30, 30]",
             },
         )
-        if self.periodic_task.crontab_id != schedule.id or self.periodic_task.args != "[3, 30, 30, 30, 30]":
+        if self.periodic_task.crontab_id != schedule.id or self.periodic_task.args != "[3, 3, 30, 30, 30]":
             self.periodic_task.task = "myapp.tasks.my_daily_task.my_daily_task"
             self.periodic_task.crontab = schedule
-            self.periodic_task.args = "[3, 30, 30, 30, 30]"
+            self.periodic_task.args = "[3, 3, 30, 30, 30]"
             self.periodic_task.save(update_fields=["task", "crontab", "args"])
 
     def test_runtime_config_requires_superuser(self):
@@ -83,8 +85,15 @@ class RuntimeConfigApiTests(APITestCase):
         )
         self.assertEqual(response.data["values"]["CLEANUP_SCHEDULE_TIME"], "03:00")
         self.assertEqual(response.data["values"]["CLEANUP_SWITCH_DATA_DAYS"], 3)
+        self.assertEqual(response.data["values"]["CLEANUP_ANALOG_DATA_DAYS"], 3)
         self.assertIs(response.data["values"]["CLEANUP_SWITCH_DATA_AUTO_EXPORT"], True)
         self.assertIsNone(response.data["updated_by"])
+
+    def test_cleanup_default_task_args_keep_analog_data_for_three_days(self):
+        self.assertEqual(
+            build_default_cleanup_task_args(),
+            [3, 3, 30, 30, 30, True, True, True, True, True],
+        )
 
     def test_runtime_config_includes_deploy_host_ips_from_file(self):
         deploy_host_file = Path(settings.BASE_DIR) / "deploy_host_ip.txt"
@@ -177,6 +186,48 @@ class RuntimeConfigApiTests(APITestCase):
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertIn("网管IP格式不正确", response.data["detail"])
             self.assertEqual(deploy_host_file.read_text(encoding="utf-8"), "192.168.1.88\n")
+        finally:
+            if original_content is None:
+                deploy_host_file.unlink(missing_ok=True)
+            else:
+                deploy_host_file.write_text(original_content, encoding="utf-8")
+            cache.clear()
+
+    def test_runtime_config_put_keeps_other_values_when_deploy_host_ip_file_cannot_be_written(self):
+        deploy_host_file = Path(settings.BASE_DIR) / "deploy_host_ip.txt"
+        original_content = deploy_host_file.read_text(encoding="utf-8") if deploy_host_file.exists() else None
+        current_file_content = "192.168.1.88\n"
+        new_file_content = "192.168.1.99\n"
+        try:
+            deploy_host_file.write_text(current_file_content, encoding="utf-8")
+            cache.clear()
+            payload = build_runtime_config_payload(force_refresh=True)
+            updated_values = deepcopy(payload["values"])
+            updated_values["COMMUNICATION_TIMEOUT"] = 46
+
+            self.client.force_authenticate(user=self.superuser)
+            with patch.object(type(deploy_host_file), "write_text", side_effect=OSError("read-only mount")):
+                response = self.client.put(
+                    reverse("runtime_config"),
+                    {
+                        "values": updated_values,
+                        "file_values": {
+                            "DEPLOY_HOST_IPS": new_file_content,
+                        },
+                    },
+                    format="json",
+                )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(get_communication_timeout(), 46)
+            self.assertEqual(deploy_host_file.read_text(encoding="utf-8"), current_file_content)
+            self.assertEqual(response.data["file_values"]["DEPLOY_HOST_IPS"], current_file_content)
+            self.assertEqual(
+                response.data["file_save_errors"],
+                {
+                    "DEPLOY_HOST_IPS": "无法写入网管IP配置文件，请检查 deploy_host_ip.txt 挂载是否为可写。",
+                },
+            )
         finally:
             if original_content is None:
                 deploy_host_file.unlink(missing_ok=True)
@@ -277,7 +328,7 @@ class RuntimeConfigApiTests(APITestCase):
         self.periodic_task.refresh_from_db()
         self.assertEqual(
             json.loads(self.periodic_task.args),
-            [60, 30, 30, 30, 30, True, True, True, True, True],
+            [60, 3, 30, 30, 30, True, True, True, True, True],
         )
         self.assertEqual(self.periodic_task.crontab.hour, "4")
         self.assertEqual(self.periodic_task.crontab.minute, "30")

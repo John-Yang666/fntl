@@ -386,6 +386,7 @@ interface RuntimeConfigPayload {
   schema: RuntimeConfigField[];
   file_fields?: RuntimeConfigFileField[];
   file_values?: Record<string, string>;
+  file_save_errors?: Record<string, string>;
   readonly_fields?: RuntimeConfigReadonlyField[];
   defaults: Record<string, unknown>;
   values: Record<string, unknown>;
@@ -545,6 +546,10 @@ function getErrorMessage(error: unknown, fallback: string): string {
     }
   }
   return fallback;
+}
+
+function getFileSaveErrorMessages(errors: Record<string, string> | undefined): string[] {
+  return Object.values(errors || {}).filter((message) => message.trim().length > 0);
 }
 
 function getFieldsByGroup(system: SystemType, group: RuntimeConfigGroup): RuntimeConfigField[] {
@@ -983,7 +988,12 @@ async function confirmSaveWithPassword(): Promise<void> {
     state.draftValues = cloneValue(payload.values);
     state.draftFileValues = cloneValue(payload.file_values || {});
     resetSavePasswordDialog();
-    ElMessage.success(`${SYSTEM_LABELS[system]} 参数已保存`);
+    const fileSaveErrorMessages = getFileSaveErrorMessages(payload.file_save_errors);
+    if (fileSaveErrorMessages.length > 0) {
+      ElMessage.warning(`${SYSTEM_LABELS[system]} 参数已保存，但${fileSaveErrorMessages.join('；')}`);
+    } else {
+      ElMessage.success(`${SYSTEM_LABELS[system]} 参数已保存`);
+    }
   } catch (error) {
     if (axios.isAxiosError(error) && error.config?.url?.includes('/token/')) {
       savePasswordDialog.error = '登录密码验证失败，请重试。';

@@ -56,7 +56,6 @@
 </template>
 
 <script setup lang="ts">
-import { defineProps, defineEmits } from 'vue';
 import type { Board } from '../utils/types';
 import CustomTableColumn from './CustomTableColumn.vue';
 import BoardStatusComponent from './BoardStatusComponent.vue';

@@ -10,8 +10,8 @@ import {
 describe('runtime config labels', () => {
   it('translates cleanup model names to Chinese labels', () => {
     expect(getCleanupModelLabel('SwitchData 保留天数')).toBe('开关量数据');
-    expect(getCleanupModelLabel('AnalogData 保留天数')).toBe('模拟量数据');
-    expect(getCleanupModelLabel('AlarmData 保留天数')).toBe('告警数据');
+    expect(getCleanupModelLabel('AnalogData 保留天数')).toBe('电压电流数据');
+    expect(getCleanupModelLabel('AlarmData 保留天数')).toBe('历史告警记录');
     expect(getCleanupModelLabel('RelayAction 保留天数')).toBe('继电器动作记录');
     expect(getCleanupModelLabel('UserOperation 保留天数')).toBe('用户操作记录');
     expect(getCleanupModelLabel('RawFrameLog 保留天数')).toBe('原始报文日志');

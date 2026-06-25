@@ -17,12 +17,13 @@ from django.core.cache import cache # type: ignore
 import json
 import base64
 import redis
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 #import paho.mqtt.client as mqtt
 from django.shortcuts import render, get_object_or_404 # type: ignore
-from django.http import HttpResponse # type: ignore
+from django.http import HttpResponse, StreamingHttpResponse # type: ignore
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django_celery_beat.models import PeriodicTask # type: ignore
 from django_filters.rest_framework import DjangoFilterBackend # type: ignore
 from rest_framework.permissions import IsAuthenticated # type: ignore
@@ -43,6 +44,30 @@ User = get_user_model()
 FAST_COUNT_CACHE_TTL = 30
 redis_comm_client = redis.StrictRedis(host='redis', port=6379, db=2, decode_responses=True)
 jwt_authenticator = JWTAuthentication()
+
+
+def _positive_int_setting(name, default):
+    try:
+        value = int(getattr(settings, name, default))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _records_api_max_page_size():
+    return _positive_int_setting("RECORDS_API_MAX_PAGE_SIZE", 500)
+
+
+def _records_export_max_days():
+    return _positive_int_setting("RECORDS_EXPORT_MAX_DAYS", 90)
+
+
+def _records_export_max_rows():
+    return _positive_int_setting("RECORDS_EXPORT_MAX_ROWS", 200000)
+
+
+def _records_export_chunk_size():
+    return _positive_int_setting("RECORDS_EXPORT_CHUNK_SIZE", 2000)
 
 
 def _is_truthy_query_param(value):
@@ -158,14 +183,80 @@ def _dated_records_export_filename(record_type):
     return f"bt-{record_type}-{timezone.localdate().strftime('%Y%m%d')}.csv"
 
 
+class _CsvEcho:
+    def write(self, value):
+        return value
+
+
+def _iter_csv_export(headers, rows):
+    writer = csv.writer(_CsvEcho())
+    yield "\ufeff"
+    yield writer.writerow(headers)
+    for row in rows:
+        yield writer.writerow(row)
+
+
 def _csv_export_response(record_type, headers, rows):
-    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
+    response = StreamingHttpResponse(
+        _iter_csv_export(headers, rows),
+        content_type="text/csv; charset=utf-8-sig",
+    )
     response["Content-Disposition"] = f'attachment; filename="{_dated_records_export_filename(record_type)}"'
-    response.write("\ufeff")
-    writer = csv.writer(response)
-    writer.writerow(headers)
-    writer.writerows(rows)
     return response
+
+
+def _records_export_error(detail):
+    return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _parse_records_export_datetime(value, param_name):
+    if not value:
+        return None, _records_export_error(f"缺少导出时间范围，请提供 {param_name}。")
+
+    parsed = parse_datetime(value)
+    if parsed is None:
+        return None, _records_export_error("导出时间格式无效，请使用 ISO 8601 时间。")
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone=timezone.utc)
+    return parsed, None
+
+
+def _validate_records_export_time_range(request, time_field):
+    start_param = f"{time_field}__gte"
+    end_param = f"{time_field}__lte"
+    start_at, error_response = _parse_records_export_datetime(request.query_params.get(start_param), start_param)
+    if error_response is not None:
+        return error_response
+
+    end_at, error_response = _parse_records_export_datetime(request.query_params.get(end_param), end_param)
+    if error_response is not None:
+        return error_response
+
+    if end_at < start_at:
+        return _records_export_error("导出结束时间不能早于开始时间。")
+
+    max_days = _records_export_max_days()
+    if end_at - start_at > timedelta(days=max_days):
+        return _records_export_error(f"导出时间范围不能超过 {max_days} 天。")
+
+    return None
+
+
+def _validate_records_export_request(request, queryset, time_field):
+    error_response = _validate_records_export_time_range(request, time_field)
+    if error_response is not None:
+        return error_response
+
+    max_rows = _records_export_max_rows()
+    if queryset.values("pk")[max_rows:max_rows + 1].exists():
+        return _records_export_error(f"导出结果超过 {max_rows} 行，请缩小时间范围或筛选条件。")
+
+    return None
+
+
+def _records_export_rows(queryset, row_builder):
+    for record in queryset.iterator(chunk_size=_records_export_chunk_size()):
+        yield row_builder(record)
 
 
 def _list_without_count(viewset, request):
@@ -519,7 +610,11 @@ class DeviceFlagsView(APIView):
 
 class CustomPageNumberPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
-    max_page_size = 10000
+    max_page_size = 500
+
+    def get_page_size(self, request):
+        self.max_page_size = _records_api_max_page_size()
+        return super().get_page_size(request)
 
 class SwitchDataViewSet(viewsets.ReadOnlyModelViewSet):# 从数据库读取开关量信息
     queryset = SwitchData.objects.all()
@@ -554,18 +649,29 @@ class SwitchDataViewSet(viewsets.ReadOnlyModelViewSet):# 从数据库读取开�
 
     @action(detail=False, methods=["get"], url_path="export")
     def export(self, request):
+        error_response = _validate_records_export_time_range(request, "timestamp")
+        if error_response is not None:
+            return error_response
+
         queryset = self.filter_queryset(self.get_queryset())
-        rows = [
-            [
+        error_response = _validate_records_export_request(request, queryset, "timestamp")
+        if error_response is not None:
+            return error_response
+
+        def row(record):
+            return [
                 _local_datetime_text(record.timestamp),
                 record.device.device_id,
                 record.device.name,
                 record.get_status_bits_grouped_by_byte(start_byte=4),
                 bytes(record.switch_status or b"").hex().upper(),
             ]
-            for record in queryset
-        ]
-        return _csv_export_response("switch-data", ["时间", "设备ID", "设备名称", "开关量", "HEX"], rows)
+
+        return _csv_export_response(
+            "switch-data",
+            ["时间", "设备ID", "设备名称", "开关量", "HEX"],
+            _records_export_rows(queryset, row),
+        )
 
 class AnalogDataViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AnalogData.objects.all()
@@ -601,9 +707,17 @@ class AnalogDataViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="export")
     def export(self, request):
+        error_response = _validate_records_export_time_range(request, "timestamp")
+        if error_response is not None:
+            return error_response
+
         queryset = self.filter_queryset(self.get_queryset())
-        rows = [
-            [
+        error_response = _validate_records_export_request(request, queryset, "timestamp")
+        if error_response is not None:
+            return error_response
+
+        def row(record):
+            return [
                 _local_datetime_text(record.timestamp),
                 record.device.device_id,
                 record.device.name,
@@ -612,12 +726,11 @@ class AnalogDataViewSet(viewsets.ReadOnlyModelViewSet):
                 record.voltage_2,
                 record.current_2,
             ]
-            for record in queryset
-        ]
+
         return _csv_export_response(
             "analog-data",
             ["时间", "设备ID", "设备名称", "电压1(V)", "电流1(mA)", "电压2(V)", "电流2(mA)"],
-            rows,
+            _records_export_rows(queryset, row),
         )
     
 class RelayActionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -650,18 +763,29 @@ class RelayActionViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="export")
     def export(self, request):
+        error_response = _validate_records_export_time_range(request, "timestamp")
+        if error_response is not None:
+            return error_response
+
         queryset = self.filter_queryset(self.get_queryset())
-        rows = [
-            [
+        error_response = _validate_records_export_request(request, queryset, "timestamp")
+        if error_response is not None:
+            return error_response
+
+        def row(record):
+            return [
                 _local_datetime_text(record.timestamp),
                 record.device.device_id,
                 record.device.name,
                 record.relay,
                 record.action,
             ]
-            for record in queryset.select_related("device")
-        ]
-        return _csv_export_response("relay-actions", ["时间", "设备ID", "设备名称", "继电器", "动作"], rows)
+
+        return _csv_export_response(
+            "relay-actions",
+            ["时间", "设备ID", "设备名称", "继电器", "动作"],
+            _records_export_rows(queryset.select_related("device"), row),
+        )
 
 class UserOperationViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = UserOperation.objects.all()
@@ -693,9 +817,17 @@ class UserOperationViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="export")
     def export(self, request):
+        error_response = _validate_records_export_time_range(request, "timestamp")
+        if error_response is not None:
+            return error_response
+
         queryset = self.filter_queryset(self.get_queryset())
-        rows = [
-            [
+        error_response = _validate_records_export_request(request, queryset, "timestamp")
+        if error_response is not None:
+            return error_response
+
+        def row(record):
+            return [
                 _local_datetime_text(record.timestamp),
                 record.device.device_id if record.device else "",
                 record.device.name if record.device else "系统级操作",
@@ -703,9 +835,12 @@ class UserOperationViewSet(viewsets.ReadOnlyModelViewSet):
                 record.operation,
                 record.username or "",
             ]
-            for record in queryset.select_related("device")
-        ]
-        return _csv_export_response("user-operations", ["时间", "设备ID", "设备名称", "操作码", "操作名称", "用户名"], rows)
+
+        return _csv_export_response(
+            "user-operations",
+            ["时间", "设备ID", "设备名称", "操作码", "操作名称", "用户名"],
+            _records_export_rows(queryset.select_related("device"), row),
+        )
 
 class ActiveAlarmListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -775,9 +910,17 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="export")
     def export(self, request):
+        error_response = _validate_records_export_time_range(request, "timestamp_start")
+        if error_response is not None:
+            return error_response
+
         queryset = self.filter_queryset(self.get_queryset())
-        rows = [
-            [
+        error_response = _validate_records_export_request(request, queryset, "timestamp_start")
+        if error_response is not None:
+            return error_response
+
+        def row(record):
+            return [
                 _local_datetime_text(record.timestamp_start),
                 _local_datetime_text(record.timestamp_end),
                 record.device.device_id,
@@ -786,12 +929,11 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
                 record.alarm_meaning,
                 "已确认" if record.is_confirmed else "未确认",
             ]
-            for record in queryset.select_related("device")
-        ]
+
         return _csv_export_response(
             "alerts",
             ["开始时间", "结束时间", "设备ID", "设备名称", "告警码", "告警含义", "确认状态"],
-            rows,
+            _records_export_rows(queryset.select_related("device"), row),
         )
 
     @action(detail=False, methods=['post'], url_path='bulk-confirm')

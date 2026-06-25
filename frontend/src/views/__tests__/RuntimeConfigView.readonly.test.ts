@@ -52,4 +52,12 @@ describe('RuntimeConfigView readonly fields', () => {
     expect(template).toContain('readonly-field-description');
     expect(template).toContain('field.description');
   });
+
+  it('warns when file-backed settings fail after other runtime config is saved', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/views/RuntimeConfigView.vue'), 'utf8');
+
+    expect(source).toContain('file_save_errors?: Record<string, string>');
+    expect(source).toContain('getFileSaveErrorMessages(payload.file_save_errors)');
+    expect(source).toContain('ElMessage.warning(`${SYSTEM_LABELS[system]} 参数已保存，但${fileSaveErrorMessages.join');
+  });
 });

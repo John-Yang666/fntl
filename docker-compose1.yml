@@ -1,7 +1,7 @@
 # 增加车间级微服务时，需要新建docker-compose文件（建议将文件名+1），将本文件内容复制过去，并在标记了 +1的位置加1（可参考docker-compose和docker-compose1）.
 services:
   redis:
-    image: redis:7.4.1
+    image: redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     command:
       - redis-server
       - --appendonly no
@@ -43,7 +43,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     command: ["/app/entrypoint.sh"]
     volumes:
       - ./backend:/app
@@ -75,7 +75,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     command: python udp_receiver.py
     environment:
       - DEBUG=True
@@ -98,7 +98,7 @@ services:
     build: 
       context: ./backend
       dockerfile: Dockerfile
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     command: python summarize_alarms_container.py
     volumes:
       - ./backend:/app
@@ -118,7 +118,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     command: celery -A myproject worker --loglevel=info
     volumes:
       - ./backend:/app
@@ -140,7 +140,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     command: celery -A myproject beat --loglevel=info
     volumes:
       - ./backend:/app
@@ -157,7 +157,10 @@ services:
 
 
   db:
-    image: postgres:16.3
+    image: bt_nms_postgres:16.14-alpine-secure
+    build:
+      context: ./deploy/postgres
+      dockerfile: Dockerfile
     environment:
       - POSTGRES_DB=mydatabase
       - POSTGRES_USER=myuser
@@ -169,9 +172,13 @@ services:
     restart: unless-stopped
 
   flower:
-    image: mher/flower:latest
+    profiles: ["observability"]
+    image: bt_nms_flower:2.0.1-py3.14-slim
+    build:
+      context: ./deploy/flower
+      dockerfile: Dockerfile
     ports:
-      - "5556:5555" # +1
+      - "127.0.0.1:5556:5555" # +1
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:

@@ -37,6 +37,44 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+_ADMIN_MODEL_ORDER = {
+    "alarmdata": 0,
+    "relayaction": 1,
+    "useroperation": 2,
+    "switchdata": 3,
+    "device": 4,
+}
+
+
+def _apply_myapp_admin_model_order(app_list):
+    for app in app_list:
+        if app.get("app_label") != "myapp":
+            continue
+        app["models"].sort(
+            key=lambda model: (
+                _ADMIN_MODEL_ORDER.get(
+                    str(model.get("object_name", "")).lower(),
+                    len(_ADMIN_MODEL_ORDER),
+                ),
+                model.get("name", ""),
+            )
+        )
+    return app_list
+
+
+def _install_myapp_admin_model_order():
+    if getattr(admin.site, "_sy_myapp_model_order_installed", False):
+        return
+
+    admin.site._sy_myapp_default_get_app_list = admin.site.get_app_list
+
+    def get_app_list(request, app_label=None):
+        app_list = admin.site._sy_myapp_default_get_app_list(request, app_label)
+        return _apply_myapp_admin_model_order(app_list)
+
+    admin.site.get_app_list = get_app_list
+    admin.site._sy_myapp_model_order_installed = True
+
 
 def _estimated_admin_count(queryset):
     if not hasattr(queryset, "query"):
@@ -78,8 +116,8 @@ class EstimatedCountPaginator(Paginator):
 
 
 class LargeTableAdminMixin:
-    paginator = Paginator
-    show_full_result_count = True
+    paginator = EstimatedCountPaginator
+    show_full_result_count = False
     list_per_page = 50
     list_max_show_all = 200
     list_select_related = ("device",)
@@ -385,13 +423,13 @@ class RelayActionDeviceFilter(CheckboxMultiSelectFilter):
     parameter_name = "device__device_id__exact"
 
     def lookups(self, request, model_admin):
-        device_ids = (
-            model_admin.get_queryset(request)
-            .order_by()
-            .values_list("device_id", flat=True)
-            .distinct()
-        )
-        devices = Device.objects.filter(device_id__in=device_ids).order_by("device_id")
+        devices = Device.objects.all().order_by("device_id")
+        user = request.user
+        if not user.is_superuser and hasattr(user, "managed_depots_qs"):
+            depots_qs = user.managed_depots_qs()
+            devices = devices.filter(depot__in=depots_qs) if depots_qs.exists() else devices.none()
+        elif not user.is_superuser:
+            devices = devices.none()
         return [(device.device_id, str(device)) for device in devices]
 
     def queryset(self, request, queryset):
@@ -974,7 +1012,7 @@ class RelayActionAdmin(LargeTableAdminMixin, DepotScopedAdmin, ImportExportModel
 
     list_display = ('timestamp_with_seconds', 'device', 'relay', 'action', 'source')
     search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'relay', 'action', 'source')
-    list_filter = (('timestamp', MyDateRangePicker), RelayActionDeviceFilter, RelayActionRelayFilter, 'source')
+    list_filter = (('timestamp', MyDateRangePicker), RelayActionDeviceFilter)
     actions = [batch_delete, truncate_table]
 
     def has_import_permission(self, request, *args, **kwargs):
@@ -1312,3 +1350,6 @@ class UploadedFileAdmin(ReadOnlyForNonSuperuserAdminMixin, admin.ModelAdmin):
             return format_html('<a href="{}" target="_blank">下载</a>', obj.file.url)
         return "-"
     file_link.short_description = '文件下载链接'
+
+
+_install_myapp_admin_model_order()

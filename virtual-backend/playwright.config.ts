@@ -14,6 +14,8 @@ export default defineConfig({
     command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort',
     cwd: '../frontend',
     env: {
+      VITE_BT_PROXY_TARGET: 'http://127.0.0.1:18080',
+      VITE_SY_PROXY_TARGET: 'http://127.0.0.1:18081',
       VITE_BT_BACKEND_PORT: '18080',
       VITE_SY_BACKEND_PORT: '18081',
       VITE_BT_WS_PORT: '18080',

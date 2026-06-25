@@ -4,8 +4,9 @@ services:
   vue:
     image: my_vue:prod
     container_name: bt_nms_vue_prod0
+    user: "101:101"
     ports:
-      - "${VUE_PORT:-38173}:80"
+      - "${VUE_PORT:-38173}:8080"
     volumes:
       - ./frontend/nginx.standalone.conf:/etc/nginx/conf.d/default.conf:ro
     networks:

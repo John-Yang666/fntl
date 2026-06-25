@@ -36,10 +36,10 @@ BT_NMS 当前由前端、BT 后端、SY 后端、数据采集 agent、PostgreSQL
 | SY 后端 admin/API | `http://<主机IP>:8001/admin/`、`/api/` | 由 `bt_nms_sy_nginx0` 暴露 |
 | BT Redis Stream | `<主机IP>:36379` | BT agent 写 `stream:udp:packets`，接收下行 `stream:udp:cmd` |
 | SY Redis Stream | `<主机IP>:36380` | SY agent 写 `sy.raw`，接收 `sy-serial-commands` |
-| BT Flower | `http://<主机IP>:5555/` | Celery 监控 |
-| SY Flower | `http://<主机IP>:5556/` | Celery 监控 |
-| BT Portainer | `http://<主机IP>:9000/` | Docker 管理界面 |
-| SY Portainer | `http://<主机IP>:9001/` | Docker 管理界面 |
+| BT Flower | `http://127.0.0.1:5555/` | Celery 监控，默认不启动，需要 `--profile observability` |
+| SY Flower | `http://127.0.0.1:5556/` | Celery 监控，默认不启动，需要 `--profile observability` |
+| BT Portainer | `http://127.0.0.1:9000/` | Docker 管理界面，默认不启动，需要 `--profile docker-admin` |
+| SY Portainer | `http://127.0.0.1:9001/` | Docker 管理界面，默认不启动，需要 `--profile docker-admin` |
 
 现场访问异常时，先确认防火墙放行 `38173`、`8000`、`8001`、`36379`、`36380`。
 
@@ -62,8 +62,8 @@ Compose 文件：`docker-compose-prod.yml`
 | `bt_nms_summarize_alarms_container0` | 汇总 BT 告警和设备状态 |
 | `bt_nms_celery_worker0` | Celery worker |
 | `bt_nms_celery_beat0` | Celery 定时调度 |
-| `bt_nms_flower0` | Celery 监控 |
-| `bt_nms_portainer0` | Docker 管理 |
+| `bt_nms_flower0` | Celery 监控，`observability` profile |
+| `bt_nms_portainer0` | Docker 管理，`docker-admin` profile |
 
 ### SY 生产环境
 
@@ -81,8 +81,8 @@ Compose 文件：`docker-compose-sy-prod.yml`
 | `bt_nms_sy_summarize_alarms_container0` | 汇总 SY 告警和设备状态 |
 | `bt_nms_sy_celery_worker0` | Celery worker |
 | `bt_nms_sy_celery_beat0` | Celery 定时调度 |
-| `bt_nms_sy_flower0` | Celery 监控 |
-| `bt_nms_sy_portainer0` | Docker 管理 |
+| `bt_nms_sy_flower0` | Celery 监控，`observability` profile |
+| `bt_nms_sy_portainer0` | Docker 管理，`docker-admin` profile |
 
 ## 4. 目录与持久化数据
 
@@ -98,6 +98,51 @@ Compose 文件：`docker-compose-sy-prod.yml`
 | `frontend/dist` | 本地 dist 挂载模式下的前端产物 | 小改动现场模式下建议备份 |
 
 Redis 和 Redis Streams 当前配置为不持久化，并使用 `tmpfs` 或禁用 `save`/`appendonly`。Redis 只作为运行态缓存和消息总线，不应作为长期数据备份来源。
+
+### Linux Docker Rootless 模式
+
+Linux 生产宿主机可以选择 Docker Engine rootless mode，让 Docker daemon 和容器都运行在非 root 用户命名空间内。该模式不适用于本机 macOS/Windows Docker Desktop 的日常开发环境；Docker Desktop 另有自己的隔离机制和设置入口。
+
+rootless 现场建议使用独立运维用户，例如 `bt-nms`。首次准备时先按 Docker 官方 rootless 文档安装 `uidmap`、`newuidmap`、`newgidmap` 等前置依赖，并确保 `/etc/subuid`、`/etc/subgid` 给该用户至少 65536 个 subordinate UID/GID。
+
+在 Linux 生产宿主机上以非 root 运维用户执行：
+
+```bash
+deploy/rootless/install-rootless-linux.sh
+
+export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock
+export DOCKER_HOST_SOCKET=/run/user/$(id -u)/docker.sock
+export DATA_DIR=$HOME/bt_nms_data
+
+deploy/rootless/preflight-rootless-bt-nms.sh
+```
+
+`DOCKER_HOST` 让 `docker`/`docker compose` 连接 rootless daemon。`DOCKER_HOST_SOCKET` 只给可选的 Portainer 使用；启用 `docker-admin` profile 时，Portainer 会挂载这个 rootless socket，而不是默认假设 `/var/run/docker.sock`。rootless 生产部署建议把 `DATA_DIR` 放在运维用户可写目录下，例如 `$HOME/bt_nms_data`；如果继续使用 `/srv/bt_nms_data`，必须确认该目录由 rootless 运维用户可写。
+
+rootless 预检通过后，再执行常规生产 compose 命令：
+
+```bash
+docker compose -f docker-compose-prod.yml config
+docker compose -f docker-compose-sy-prod.yml config
+docker compose -f docker-compose-prod.yml up -d --build --remove-orphans
+docker compose -f docker-compose-sy-prod.yml up -d --build --remove-orphans
+```
+
+回滚到普通 rootful Docker 时，先停止生产栈并备份数据，再以 rootless 运维用户执行：
+
+```bash
+docker compose -f docker-compose-prod.yml down
+docker compose -f docker-compose-sy-prod.yml down
+systemctl --user disable --now docker
+dockerd-rootless-setuptool.sh uninstall
+unset DOCKER_HOST DOCKER_HOST_SOCKET
+```
+
+如果切换前禁用了系统级 Docker daemon，回滚时再由管理员恢复：
+
+```bash
+sudo systemctl enable --now docker.service docker.socket
+```
 
 Windows 受保护部署的 agent 运行态数据：
 
@@ -203,12 +248,16 @@ docker restart bt_nms_sy_django_app0 bt_nms_sy_nginx0
 启动 BT 生产环境：
 
 ```bash
+install -d -m 700 deploy/secrets
+# 首次部署时在 deploy/secrets/ 下放入 bt_database_password 和 bt_django_secret_key，文件权限建议 600。
 docker compose -f docker-compose-prod.yml up -d --build --remove-orphans
 ```
 
 启动 SY 生产环境：
 
 ```bash
+install -d -m 700 deploy/secrets
+# 首次部署时在 deploy/secrets/ 下放入 sy_database_password 和 sy_django_secret_key，文件权限建议 600。
 docker compose -f docker-compose-sy-prod.yml up -d --build --remove-orphans
 ```
 
@@ -219,6 +268,12 @@ docker compose -f docker-compose-prod.vue.yml up -d --force-recreate
 ```
 
 注意：独立前端模式不要加 `--remove-orphans`，避免误删同项目名下其他生产容器。
+
+Flower 和 Portainer 默认不随生产栈启动。临时启用 Flower 前先设置 `FLOWER_BASIC_AUTH` / `SY_FLOWER_BASIC_AUTH`；临时启用 Portainer 时要确认只绑定本机回环地址。Portainer 挂载 Docker daemon socket，等同于给容器宿主机 Docker 管理权限，非必要不要启用；rootless 部署时需要设置 `DOCKER_HOST_SOCKET=/run/user/$(id -u)/docker.sock`。
+
+生产 Python 后端容器默认以非 root 用户运行，固定 UID/GID 为 `10001:10001`。生产 compose 会先执行一次性 `init-permissions` 服务，修正 `staticfiles`、`media`、`cleanup_exports` 这些可写目录的属主；如果现场手工创建 `${DATA_DIR}` 下的目录，也要允许 `10001:10001` 写入。生产 nginx 容器以 UID/GID `101:101` 运行，前端宿主访问端口仍是 `38173` / `38443`，容器内监听端口为 `8080` / `8443`。Postgres 和 Redis 只启用 `no-new-privileges` 与进程数限制；不对它们批量启用 `read_only` 或 `cap_drop`，避免破坏官方镜像的数据目录和初始化假设。
+
+生产 compose 中 Flower、Portainer 等第三方管理镜像使用固定版本和 digest。后端/前端构建上下文通过 `.dockerignore` 排除 `.git`、缓存、测试输出、`media`、`staticfiles`、压缩包和文档产物。构建发布镜像后运行 `scripts/scan-container-images.sh`，脚本使用固定 Trivy 镜像扫描 `HIGH,CRITICAL` 漏洞并默认忽略没有修复版本的项；GitHub Actions 中的 `container-image-scan.yml` 复用同一入口，默认生产/运行时镜像的扫描应保持为必过项。`my_vue:dev` 开发镜像和默认关闭的 Portainer 管理镜像只做提示性扫描，发现上游基础镜像漏洞时单独评估升级窗口。
 
 ## 6. 日常启停与更新
 
@@ -231,16 +286,18 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 重启 BT 生产后端相关服务：
 
 ```bash
+docker compose -f docker-compose-prod.yml run --rm init-permissions
 docker compose -f docker-compose-prod.yml up -d --no-deps --force-recreate web nginx udp_receiver summarize_alarms_container celery celery-beat
 ```
 
 重启 SY 生产后端相关服务：
 
 ```bash
+docker compose -f docker-compose-sy-prod.yml run --rm init-permissions
 docker compose -f docker-compose-sy-prod.yml up -d --no-deps --force-recreate web nginx sy_receiver summarize_alarms_container celery celery-beat
 ```
 
-只改 Python、Django 模板、admin 文案或业务代码时，通常不需要重新构建镜像，执行上述重建容器命令即可。
+生产后端不再挂载 `backend` / `sy_backend` 源码目录。只改 Python、Django 模板、admin 文案或业务代码时，需要重新构建对应后端镜像后再重建容器。
 
 改 Dockerfile、Python 依赖或基础镜像时：
 
@@ -499,8 +556,8 @@ docker save -o my_vue_prod.tar my_vue:prod
 后端生产镜像：
 
 ```bash
-docker save -o my_django_v5.0.6_prod.tar my_django:v5.0.6-prod
-docker save -o my_django_v5.0.6_sy_prod.tar my_django:v5.0.6-sy-prod
+docker save -o my_django_v5.2.15_py3.14_prod.tar my_django:v5.2.15-py3.14-prod
+docker save -o my_django_v5.2.15_py3.14_sy_prod.tar my_django:v5.2.15-py3.14-sy-prod
 ```
 
 受保护 Docker 镜像：
@@ -687,13 +744,9 @@ du -sh /srv/bt_nms_data/*
 
 ## 13. 安全与账号
 
-默认超级用户由生产 entrypoint 自动创建：
+生产 entrypoint 只在显式设置 `DJANGO_SUPERUSER_USERNAME` 和 `DJANGO_SUPERUSER_PASSWORD`，或设置等效的 `DJANGO_SUPERUSER_PASSWORD_FILE` 时创建超级用户。不要使用默认弱密码；entrypoint 会拒绝 `admin`、`password`、`123456`、`12345678`。
 
-- 用户名：`admin`
-- 邮箱：`admin@example.com`
-- 密码：`admin`
-
-现场正式交付后必须修改默认密码。
+首次交付建议创建一次超级用户后清空 `.env` 里的超级用户密码配置，后续用 `changepassword` 或 Django admin 管理账号。
 
 修改密码：
 
@@ -707,6 +760,13 @@ docker exec -it bt_nms_sy_django_app0 python manage.py changepassword admin
 - 后端管理端口只开放给运维网段。
 - Redis Streams 端口只开放给 agent 所在机器。
 - 生产环境保持 `DEBUG=false`。
+- 生产密钥和数据库密码放在 `deploy/secrets/`，不要提交到 Git，不要通过聊天工具外发。
+- 生产 Python 后端容器以 UID/GID `10001:10001` 运行；不要把业务可写目录改回 root-only 权限。
+- 生产 nginx 容器以 UID/GID `101:101` 运行；证书文件需要允许该用户读取，不要给 nginx 增加额外 Linux capability。
+- Postgres/Redis 已限制 `no-new-privileges` 和进程数；`read_only`、`cap_drop` 需要先做数据库初始化、写入、重启恢复和备份恢复验证后再单独评估。
+- Flower 只在需要排查 Celery 时临时启用，并设置 basic auth。
+- Portainer 只在需要 Docker 管理时通过 `--profile docker-admin` 临时启用；它挂载 Docker daemon socket，风险级别高于普通业务容器。rootless 部署时使用 `DOCKER_HOST_SOCKET` 指向 `/run/user/<uid>/docker.sock`。排障结束后执行 `docker compose ... stop portainer` 和 `docker compose ... rm -f portainer`。
+- 构建发布镜像后运行 `scripts/scan-container-images.sh`；CI 至少拦截默认生产/运行时镜像里存在修复版本的 `HIGH` / `CRITICAL` 漏洞。开发服务器镜像和默认关闭的 Docker 管理镜像只作为提示性扫描。
 - 备份文件、镜像 tar 和 Windows `%ProgramData%\BT_NMS` 配置不要外发。
 
 ## 14. 变更发布检查单

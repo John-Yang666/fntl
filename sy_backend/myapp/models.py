@@ -499,6 +499,7 @@ class RelayAction(models.Model):
         ordering = ['-timestamp']
         indexes = [
             models.Index(fields=["timestamp"], name="sy_relay_ts_idx"),
+            models.Index(fields=["device", "-timestamp"], name="sy_relay_dev_ts_desc_idx"),
         ]
 
     def __str__(self):

@@ -5,7 +5,7 @@ services:
   # 业务 Redis（保持原样）
   # =======================
   redis:
-    image: redis:7.4.1
+    image: redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: bt_nms_sy_redis
     command:
       - redis-server
@@ -37,7 +37,7 @@ services:
   # 供 sy_agent / sy_receiver / sy_command_sender / admin 重连 使用
   # =======================
   redis_stream:
-    image: redis:7.4.1
+    image: redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: bt_nms_sy_redis_stream
     command:
       - redis-server
@@ -71,7 +71,10 @@ services:
   # PostgreSQL
   # =======================
   db:
-    image: postgres:16.3
+    image: bt_nms_postgres:16.14-alpine-secure
+    build:
+      context: ./deploy/postgres
+      dockerfile: Dockerfile
     container_name: bt_nms_sy_postgres_db
     environment:
       - POSTGRES_DB=mydatabase
@@ -90,7 +93,7 @@ services:
     #build:
     #  context: ./sy_backend
     #  dockerfile: Dockerfile
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_sy_django_app
     command: ["/app/entrypoint.sh"]
     volumes:
@@ -152,7 +155,7 @@ services:
   # sy_receiver（从 Streams 读 sy.raw）
   # =======================
   sy_receiver:
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_sy_receiver
     command: python sy_receiver.py
     volumes:
@@ -195,7 +198,7 @@ services:
   # summarize_alarms_container
   # =======================
   summarize_alarms_container:
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_sy_summarize_alarms_container
     command: python sy_summarize_alarms_container.py
     volumes:
@@ -221,7 +224,7 @@ services:
   # celery worker
   # =======================
   celery:
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_sy_celery_worker
     command: celery -A myproject worker --loglevel=info
     volumes:
@@ -250,7 +253,7 @@ services:
   # celery beat
   # =======================
   celery-beat:
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_sy_celery_beat
     command: celery -A myproject beat --loglevel=info
     volumes:
@@ -298,7 +301,7 @@ services:
     restart: unless-stopped
 
   nginx_https:
-    image: nginx:1.27-alpine
+    image: nginxinc/nginx-unprivileged:1.31.2-alpine3.23@sha256:054e14f543eb688809d59ec2ad1644d1a61678e247c87a318ad605977eb37eaf
     container_name: bt_nms_sy_nginx_https_dev
     ports:
       - "127.0.0.1:8444:8443"
@@ -315,10 +318,14 @@ services:
   # Flower
   # =======================
   flower:
-    image: mher/flower:latest
+    profiles: ["observability"]
+    image: bt_nms_flower:2.0.1-py3.14-slim
+    build:
+      context: ./deploy/flower
+      dockerfile: Dockerfile
     container_name: bt_nms_sy_flower
     ports:
-      - "5556:5555"
+      - "127.0.0.1:5556:5555"
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:
@@ -331,16 +338,17 @@ services:
   # Portainer
   # =======================
   portainer:
-    image: portainer/portainer-ce:latest
+    profiles: ["docker-admin"]
+    image: portainer/portainer-ce:2.39.3-alpine@sha256:90ae993781c08a4dcd1f96c6547a072bb3f90b7ebd5e082d071ef1ad8a341373
     container_name: bt_nms_sy_portainer
     ports:
-      - "9001:9000"
+      - "127.0.0.1:9001:9000"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DOCKER_HOST_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - sy_nms_portainer_data:/data
     networks:
       - sy_nms_network
-    restart: unless-stopped
+    restart: "no"
 
 
 networks:

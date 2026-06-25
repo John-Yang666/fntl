@@ -36,6 +36,45 @@ from .udp_sender import create_packet
 
 logger = logging.getLogger(__name__)
 
+_ADMIN_MODEL_ORDER = {
+    "alarmdata": 0,
+    "relayaction": 1,
+    "useroperation": 2,
+    "switchdata": 3,
+    "analogdata": 4,
+    "device": 5,
+}
+
+
+def _apply_myapp_admin_model_order(app_list):
+    for app in app_list:
+        if app.get("app_label") != "myapp":
+            continue
+        app["models"].sort(
+            key=lambda model: (
+                _ADMIN_MODEL_ORDER.get(
+                    str(model.get("object_name", "")).lower(),
+                    len(_ADMIN_MODEL_ORDER),
+                ),
+                model.get("name", ""),
+            )
+        )
+    return app_list
+
+
+def _install_myapp_admin_model_order():
+    if getattr(admin.site, "_bt_myapp_model_order_installed", False):
+        return
+
+    admin.site._bt_myapp_default_get_app_list = admin.site.get_app_list
+
+    def get_app_list(request, app_label=None):
+        app_list = admin.site._bt_myapp_default_get_app_list(request, app_label)
+        return _apply_myapp_admin_model_order(app_list)
+
+    admin.site.get_app_list = get_app_list
+    admin.site._bt_myapp_model_order_installed = True
+
 
 def _estimated_admin_count(queryset):
     if not hasattr(queryset, "query"):
@@ -77,8 +116,8 @@ class EstimatedCountPaginator(Paginator):
 
 
 class LargeTableAdminMixin:
-    paginator = Paginator
-    show_full_result_count = True
+    paginator = EstimatedCountPaginator
+    show_full_result_count = False
     list_per_page = 50
     list_max_show_all = 200
     list_select_related = ("device",)
@@ -884,7 +923,7 @@ class RelayActionAdmin(ReadOnlyImportExportAdminMixin, LargeTableAdminMixin, Dep
     resource_class = RelayActionResource
     list_display = ('timestamp_with_seconds', 'device', 'relay', 'action')
     search_fields = ('device__name', 'device__device_id', 'device__ip_address', 'relay', 'action')
-    list_filter = (('timestamp', MyDateRangePicker), 'device', 'relay')
+    list_filter = (('timestamp', MyDateRangePicker), 'device')
     actions = [batch_delete, truncate_table]
 
     def timestamp_with_seconds(self, obj):
@@ -1049,3 +1088,6 @@ class UploadedFileAdmin(ReadOnlyForNonSuperuserAdminMixin, admin.ModelAdmin):
             return format_html('<a href="{}" target="_blank">下载</a>', obj.file.url)
         return "-"
     file_link.short_description = '文件下载链接'
+
+
+_install_myapp_admin_model_order()

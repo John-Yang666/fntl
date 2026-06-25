@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import override_settings
@@ -54,6 +56,16 @@ class SyRecordsApiTests(APITestCase):
         self.ops_user.groups.add(Group.objects.get(name=SYSTEM_ADMIN_GROUP_NAME))
         self.ops_user.depots.add(self.depot_a)
 
+    def export_time_params(self, time_field="timestamp"):
+        now = timezone.now()
+        return {
+            f"{time_field}__gte": (now - timedelta(days=1)).isoformat(),
+            f"{time_field}__lte": (now + timedelta(days=1)).isoformat(),
+        }
+
+    def streaming_csv_content(self, response):
+        return b"".join(response.streaming_content).decode("utf-8-sig")
+
     def test_switch_list_count_and_export_are_scoped(self):
         SwitchData.objects.create(device=self.device_a, switch_status=b"\x0a\x0b", version="v4")
         SwitchData.objects.create(device=self.device_b, switch_status=b"\x0c\x0d", version="v4")
@@ -61,7 +73,10 @@ class SyRecordsApiTests(APITestCase):
 
         list_response = self.client.get("/api/switch-data/", {"page": 1, "page_size": 20, "include_count": 0})
         count_response = self.client.get("/api/switch-data/count/", {"device__line": "1号线"})
-        export_response = self.client.get("/api/switch-data/export/", {"device__line": "1号线"})
+        export_response = self.client.get(
+            "/api/switch-data/export/",
+            {"device__line": "1号线", **self.export_time_params()},
+        )
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(list_response.data["count"], None)
@@ -73,7 +88,8 @@ class SyRecordsApiTests(APITestCase):
             export_response["Content-Disposition"],
             r'attachment; filename="sy-switch-data-\d{8}\.csv"',
         )
-        content = export_response.content.decode("utf-8-sig")
+        self.assertTrue(export_response.streaming)
+        content = self.streaming_csv_content(export_response)
         self.assertIn("SY-A设备", content)
         self.assertIn("0A0B", content)
         self.assertNotIn("SY-B设备", content)
@@ -91,12 +107,16 @@ class SyRecordsApiTests(APITestCase):
         ]:
             with self.subTest(endpoint=endpoint):
                 count_response = self.client.get(f"/api/{endpoint}/count/", {"device__line": "1号线"})
-                export_response = self.client.get(f"/api/{endpoint}/export/", {"device__line": "1号线"})
+                export_response = self.client.get(
+                    f"/api/{endpoint}/export/",
+                    {"device__line": "1号线", **self.export_time_params()},
+                )
 
                 self.assertEqual(count_response.status_code, status.HTTP_200_OK)
                 self.assertEqual(count_response.data["count"], 1)
                 self.assertEqual(export_response.status_code, status.HTTP_200_OK)
-                content = export_response.content.decode("utf-8-sig")
+                self.assertTrue(export_response.streaming)
+                content = self.streaming_csv_content(export_response)
                 self.assertIn(expected_text, content)
                 self.assertNotIn(excluded_text, content)
 
@@ -143,17 +163,111 @@ class SyRecordsApiTests(APITestCase):
         )
         self.client.force_authenticate(self.ops_user)
 
-        export_response = self.client.get("/api/alerts/export/", {"alarm_code": 40, "is_confirmed": "false"})
+        export_response = self.client.get(
+            "/api/alerts/export/",
+            {"alarm_code": 40, "is_confirmed": "false", **self.export_time_params("timestamp_start")},
+        )
 
         self.assertEqual(export_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(export_response.streaming)
         self.assertRegex(
             export_response["Content-Disposition"],
             r'attachment; filename="sy-alerts-\d{8}\.csv"',
         )
-        content = export_response.content.decode("utf-8-sig")
+        content = self.streaming_csv_content(export_response)
         self.assertIn("告警码", content)
         self.assertIn(",40,", content)
         self.assertNotIn(",41,", content)
+
+    def test_record_exports_require_time_range(self):
+        self.client.force_authenticate(self.ops_user)
+
+        for endpoint in ("switch-data", "relay-actions", "user-operations", "alerts"):
+            with self.subTest(endpoint=endpoint):
+                response = self.client.get(f"/api/{endpoint}/export/")
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn("缺少导出时间范围", response.data["detail"])
+
+    def test_record_exports_reject_invalid_time_ranges(self):
+        now = timezone.now()
+        too_old = now - timedelta(days=91)
+        cases = [
+            (
+                "switch-data",
+                [
+                    {
+                        "timestamp__gte": "not-a-time",
+                        "timestamp__lte": now.isoformat(),
+                        "detail": "导出时间格式无效",
+                    },
+                    {
+                        "timestamp__gte": now.isoformat(),
+                        "timestamp__lte": (now - timedelta(seconds=1)).isoformat(),
+                        "detail": "导出结束时间不能早于开始时间",
+                    },
+                    {
+                        "timestamp__gte": too_old.isoformat(),
+                        "timestamp__lte": now.isoformat(),
+                        "detail": "导出时间范围不能超过",
+                    },
+                ],
+            ),
+            (
+                "alerts",
+                [
+                    {
+                        "timestamp_start__gte": "not-a-time",
+                        "timestamp_start__lte": now.isoformat(),
+                        "detail": "导出时间格式无效",
+                    },
+                    {
+                        "timestamp_start__gte": now.isoformat(),
+                        "timestamp_start__lte": (now - timedelta(seconds=1)).isoformat(),
+                        "detail": "导出结束时间不能早于开始时间",
+                    },
+                    {
+                        "timestamp_start__gte": too_old.isoformat(),
+                        "timestamp_start__lte": now.isoformat(),
+                        "detail": "导出时间范围不能超过",
+                    },
+                ],
+            ),
+        ]
+        self.client.force_authenticate(self.ops_user)
+
+        for endpoint, param_cases in cases:
+            for params in param_cases:
+                with self.subTest(endpoint=endpoint, detail=params["detail"]):
+                    expected_detail = params.pop("detail")
+
+                    response = self.client.get(f"/api/{endpoint}/export/", params)
+
+                    self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                    self.assertIn(expected_detail, response.data["detail"])
+
+    @override_settings(RECORDS_EXPORT_MAX_ROWS=1)
+    def test_record_export_rejects_results_over_limit(self):
+        SwitchData.objects.create(device=self.device_a, switch_status=b"\x01", version="v4")
+        SwitchData.objects.create(device=self.device_a, switch_status=b"\x02", version="v4")
+        self.client.force_authenticate(self.ops_user)
+
+        response = self.client.get("/api/switch-data/export/", self.export_time_params())
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(getattr(response, "streaming", False))
+        self.assertIn("导出结果超过 1 行", response.data["detail"])
+
+    @override_settings(RECORDS_API_MAX_PAGE_SIZE=2)
+    def test_record_list_page_size_is_capped_by_setting(self):
+        for index in range(3):
+            SwitchData.objects.create(device=self.device_a, switch_status=bytes([index + 1]), version="v4")
+        self.client.force_authenticate(self.ops_user)
+
+        response = self.client.get("/api/switch-data/", {"page": 1, "page_size": 10000, "include_count": 0})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 2)
 
     def test_regular_user_cannot_write_general_device_and_record_endpoints(self):
         switch_record = SwitchData.objects.create(device=self.device_a, switch_status=b"\x01\x02", version="v4")

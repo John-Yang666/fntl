@@ -17,8 +17,8 @@ if not exist "%ARTIFACT_DIR%" mkdir "%ARTIFACT_DIR%"
 pushd "%ROOT%"
 
 echo [INFO] Pulling required base images...
-docker pull node:22 || goto :fail
-docker pull nginx:1.27-alpine-slim || goto :fail
+docker pull node:22@sha256:e0d149b4727ac0c20d9774e801e423d7a946a0bffced886f42cfe9cd3c67820a || goto :fail
+docker pull nginxinc/nginx-unprivileged:1.31.2-alpine3.23@sha256:054e14f543eb688809d59ec2ad1644d1a61678e247c87a318ad605977eb37eaf || goto :fail
 
 echo [INFO] Building %IMAGE_NAME% ...
 docker build -t %IMAGE_NAME% -f frontend/Dockerfile.prod --build-arg VITE_BT_BACKEND_PORT=%BT_PORT% --build-arg VITE_SY_BACKEND_PORT=%SY_PORT% frontend || goto :fail

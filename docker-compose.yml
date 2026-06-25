@@ -5,7 +5,7 @@ services:
   # 老 redis：给 Django/Celery 用（不动）
   # =======================
   redis:
-    image: redis:7.4.1
+    image: redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: bt_nms_redis
     command:
       - redis-server
@@ -37,7 +37,7 @@ services:
   # 不持久化 + tmpfs，尽量不写硬盘
   # =======================
   redis_stream:
-    image: redis:7.4.1
+    image: redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: bt_nms_redis_stream
     command:
       - redis-server
@@ -69,7 +69,10 @@ services:
     restart: unless-stopped
 
   db:
-    image: postgres:16.3
+    image: bt_nms_postgres:16.14-alpine-secure
+    build:
+      context: ./deploy/postgres
+      dockerfile: Dockerfile
     container_name: bt_nms_postgres_db
     environment:
       - POSTGRES_DB=mydatabase
@@ -83,7 +86,7 @@ services:
 
   # ============ Django (dev) ============
   web:
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_django_app
     command: ["/app/entrypoint.sh"]
     volumes:
@@ -135,7 +138,7 @@ services:
     restart: unless-stopped
 
   udp_receiver:
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_udp_receiver
     command: python udp_receiver.py
     working_dir: /app
@@ -178,7 +181,7 @@ services:
     #build:
     #  context: ./backend
     #  dockerfile: Dockerfile
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_summarize_alarms_container
     command: python summarize_alarms_container.py
     working_dir: /app
@@ -210,7 +213,7 @@ services:
     #build:
     #  context: ./backend
     #  dockerfile: Dockerfile
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_celery_worker
     command: celery -A myproject worker --loglevel=info
     volumes:
@@ -256,7 +259,7 @@ services:
     #build:
     #  context: ./backend
     #  dockerfile: Dockerfile
-    image: my_django:v5.0.6
+    image: my_django:v5.2.15-py3.14
     container_name: bt_nms_celery_beat
     command: celery -A myproject beat --loglevel=info
     volumes:
@@ -318,10 +321,10 @@ services:
     restart: unless-stopped
 
   vue_https:
-    image: nginx:1.27-alpine
+    image: nginxinc/nginx-unprivileged:1.31.2-alpine3.23@sha256:054e14f543eb688809d59ec2ad1644d1a61678e247c87a318ad605977eb37eaf
     container_name: bt_nms_vue_https_dev
     ports:
-      - "38443:443"
+      - "38443:8443"
     volumes:
       - ./nginx/dev-frontend-https.conf:/etc/nginx/conf.d/default.conf:ro
       - ./deploy/certs:/etc/nginx/certs:ro
@@ -332,7 +335,7 @@ services:
     restart: unless-stopped
 
   nginx_https:
-    image: nginx:1.27-alpine
+    image: nginxinc/nginx-unprivileged:1.31.2-alpine3.23@sha256:054e14f543eb688809d59ec2ad1644d1a61678e247c87a318ad605977eb37eaf
     container_name: bt_nms_nginx_https_dev
     ports:
       - "127.0.0.1:8443:8443"
@@ -346,10 +349,14 @@ services:
     restart: unless-stopped
 
   flower:
-    image: mher/flower:latest
+    profiles: ["observability"]
+    image: bt_nms_flower:2.0.1-py3.14-slim
+    build:
+      context: ./deploy/flower
+      dockerfile: Dockerfile
     container_name: bt_nms_flower
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:
@@ -361,16 +368,17 @@ services:
       - bt_nms_network
 
   portainer:
-    image: portainer/portainer-ce:latest
+    profiles: ["docker-admin"]
+    image: portainer/portainer-ce:2.39.3-alpine@sha256:90ae993781c08a4dcd1f96c6547a072bb3f90b7ebd5e082d071ef1ad8a341373
     container_name: bt_nms_portainer
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DOCKER_HOST_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - bt_nms_portainer_data:/data
     networks:
       - bt_nms_network
-    restart: unless-stopped
+    restart: "no"
 
 networks:
   bt_nms_network:

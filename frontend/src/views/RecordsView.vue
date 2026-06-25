@@ -272,6 +272,7 @@
 </template>
 
 <script lang="ts" setup>
+import axios from 'axios';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus/es/components/message/index.mjs';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
@@ -368,6 +369,8 @@ type RecordState = {
 const systems = SYSTEMS;
 const labels = SYSTEM_LABELS;
 const RECORDS_SELECTED_SYSTEM_KEY = 'records:selectedSystem';
+const MAX_RECORD_EXPORT_RANGE_DAYS = 90;
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 const userStore = useUserStore();
 
 const recordTabs: Array<{ type: RecordType; label: string; systems: SystemType[] }> = [
@@ -886,8 +889,70 @@ const getExportFilename = (recordType: RecordType) => {
   return `${selectedSystem.value}-${recordType}-${year}${month}${day}.csv`;
 };
 
+const getExportRangeValidationMessage = (): string | null => {
+  const range = timeRange.value;
+  if (!range || range.length !== 2 || !range[0] || !range[1]) {
+    return '请选择导出时间范围';
+  }
+
+  const start = new Date(range[0]);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(range[1]);
+  end.setHours(23, 59, 59, 999);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return '请选择有效的导出时间范围';
+  }
+  if (end.getTime() < start.getTime()) {
+    return '导出结束时间不能早于开始时间';
+  }
+  if (end.getTime() - start.getTime() > MAX_RECORD_EXPORT_RANGE_DAYS * MILLISECONDS_PER_DAY) {
+    return `导出时间范围不能超过 ${MAX_RECORD_EXPORT_RANGE_DAYS} 天`;
+  }
+
+  return null;
+};
+
+const extractResponseDetail = async (data: unknown): Promise<string | null> => {
+  if (data instanceof Blob) {
+    const text = await data.text();
+    if (!text) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown };
+      return typeof parsed.detail === 'string' ? parsed.detail : null;
+    } catch {
+      return null;
+    }
+  }
+
+  if (data && typeof data === 'object' && 'detail' in data) {
+    const detail = (data as { detail?: unknown }).detail;
+    return typeof detail === 'string' ? detail : null;
+  }
+
+  return null;
+};
+
+const getExportErrorMessage = async (error: unknown): Promise<string> => {
+  if (axios.isAxiosError(error)) {
+    const detail = await extractResponseDetail(error.response?.data);
+    if (detail) {
+      return detail;
+    }
+  }
+  return '导出失败，请重试。';
+};
+
 const exportActiveRecord = async () => {
   const recordType = activeRecordType.value;
+  const validationMessage = getExportRangeValidationMessage();
+  if (validationMessage) {
+    ElMessage.warning(validationMessage);
+    return;
+  }
+
   exporting[recordType] = true;
   try {
     const blob = await userStore.requestWithAuth<Blob>(selectedSystem.value, {
@@ -903,7 +968,7 @@ const exportActiveRecord = async () => {
     URL.revokeObjectURL(link.href);
   } catch (error) {
     console.error('导出记录失败:', error);
-    ElMessage.error('导出失败，请重试。');
+    ElMessage.error(await getExportErrorMessage(error));
   } finally {
     exporting[recordType] = false;
   }

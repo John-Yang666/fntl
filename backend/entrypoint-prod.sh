@@ -11,6 +11,22 @@ echo "==== [ENTRYPOINT] 当前工作目录: $(pwd)"
 echo "==== [ENTRYPOINT] 当前目录内容: "
 ls -la
 
+load_file_secret() {
+  local var_name="$1"
+  local file_var_name="${var_name}_FILE"
+  local file_path="${!file_var_name:-}"
+
+  if [ -z "${file_path}" ]; then
+    return 0
+  fi
+  if [ ! -r "${file_path}" ]; then
+    echo "[错误] ${file_var_name} 指向不可读文件: ${file_path}" >&2
+    exit 1
+  fi
+
+  export "${var_name}=$(cat "${file_path}")"
+}
+
 #echo "=== 迁移数据库（makemigrations）==="
 #if ! python manage.py makemigrations; then
 #  echo "[警告] makemigrations 执行失败，但继续执行 migrate"
@@ -21,6 +37,8 @@ python manage.py migrate
 
 echo "==== [ENTRYPOINT] 收集静态文件 ===="
 python manage.py collectstatic --noinput
+
+load_file_secret DJANGO_SUPERUSER_PASSWORD
 
 if [ -n "${DJANGO_SUPERUSER_USERNAME:-}" ] || [ -n "${DJANGO_SUPERUSER_PASSWORD:-}" ]; then
   if [ -z "${DJANGO_SUPERUSER_USERNAME:-}" ] || [ -z "${DJANGO_SUPERUSER_PASSWORD:-}" ]; then

@@ -1,9 +1,9 @@
 const MODEL_LABELS: Record<string, string> = {
   RawFrameLog: '原始报文日志',
   SwitchData: '开关量数据',
-  AnalogData: '模拟量数据',
+  AnalogData: '电压电流数据',
   ChangeBitEvent: '变位事件',
-  AlarmData: '告警数据',
+  AlarmData: '历史告警记录',
   RelayAction: '继电器动作记录',
   UserOperation: '用户操作记录',
 };
@@ -26,7 +26,7 @@ export function translateRuntimeConfigText(text: string): string {
     (result, [source, target]) => result.replaceAll(source, target),
     translated,
   );
-  return translatedText.replace(/(原始报文日志|开关量数据|模拟量数据|变位事件|告警数据|继电器动作记录|用户操作记录):\s*/g, '$1：');
+  return translatedText.replace(/(原始报文日志|开关量数据|电压电流数据|变位事件|历史告警记录|继电器动作记录|用户操作记录):\s*/g, '$1：');
 }
 
 export function getCleanupModelLabel(label: string): string {

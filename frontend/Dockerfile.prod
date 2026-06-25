@@ -1,32 +1,32 @@
 ########################################
 # ============ 构建阶段 ================
 ########################################
-ARG NODE_IMAGE=node:22
-ARG NGINX_IMAGE=nginx:1.27-alpine-slim
+ARG NODE_IMAGE=node:22@sha256:e0d149b4727ac0c20d9774e801e423d7a946a0bffced886f42cfe9cd3c67820a
+ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.31.2-alpine3.23@sha256:054e14f543eb688809d59ec2ad1644d1a61678e247c87a318ad605977eb37eaf
 FROM ${NODE_IMAGE} AS build
 
 WORKDIR /app
 
+ARG NPM_VERSION=11.17.0
+RUN npm install -g npm@${NPM_VERSION} && npm cache clean --force
+
 # 仅复制依赖清单，最大化命中缓存
 COPY package.json package-lock.json ./
-COPY npm-cache/ /opt/npm-cache/
 
 # 离线构建时：
 # 1. NODE_IMAGE / NGINX_IMAGE 必须已经存在于本地 Docker
-# 2. frontend/npm-cache 必须预热过一次
+# 2. 同一台构建机的 BuildKit npm cache 必须预热过一次
 ARG NPM_INSTALL_MODE=online
-RUN if [ "$NPM_INSTALL_MODE" = "offline" ]; then \
-      if [ ! -d /opt/npm-cache/_cacache ]; then \
-        echo "offline npm cache not found in frontend/npm-cache" >&2; \
-        echo "warm it once with: npm ci --cache ./npm-cache" >&2; \
-        exit 1; \
-      fi; \
-      npm ci --offline --cache /opt/npm-cache --no-audit --no-fund; \
+RUN --mount=type=cache,target=/root/.npm \
+    if [ "$NPM_INSTALL_MODE" = "offline" ]; then \
+      npm ci --offline --cache /root/.npm --no-audit --no-fund; \
     else \
-      npm ci --no-audit --no-fund; \
+      npm ci --cache /root/.npm --no-audit --no-fund; \
     fi
 
 # 复制源码（放在依赖安装之后，避免改源码导致重装依赖）
+ARG SOURCE_CACHE_BUST=dev
+RUN echo "source cache bust: ${SOURCE_CACHE_BUST}" > /tmp/source-cache-bust.txt
 COPY . .
 
 # 生产构建
@@ -48,5 +48,5 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # 拷贝静态产物
 COPY --from=build /app/dist /usr/share/nginx/html
 
-EXPOSE 80 443
+EXPOSE 8080 8443
 CMD ["nginx", "-g", "daemon off;"]

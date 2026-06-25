@@ -1,0 +1,77 @@
+name: Container Image Scan
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "sy_backend/**"
+      - "frontend/**"
+      - "docker-compose*.yml"
+      - "scripts/scan-container-images.sh"
+      - ".github/workflows/container-image-scan.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "sy_backend/**"
+      - "frontend/**"
+      - "docker-compose*.yml"
+      - "scripts/scan-container-images.sh"
+      - ".github/workflows/container-image-scan.yml"
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: .trivy-cache
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Build scan targets
+        run: |
+          docker build -t my_django:v5.2.15-py3.14 -f backend/Dockerfile backend
+          docker build -t my_django:v5.2.15-py3.14-prod -f backend/Dockerfile.prod backend
+          docker build -t my_django:v5.2.15-py3.14-sy-prod -f sy_backend/Dockerfile.prod sy_backend
+          docker build -t my_vue:dev -f frontend/Dockerfile frontend
+          docker build -t my_vue:prod -f frontend/Dockerfile.prod frontend
+          docker build -t bt_nms_electron_frontend:prod -f electron-client/frontend/Dockerfile.prod electron-client/frontend
+          docker build -t bt_nms_postgres:16.14-alpine-secure -f deploy/postgres/Dockerfile deploy/postgres
+          docker build -t bt_nms_flower:2.0.1-py3.14-slim -f deploy/flower/Dockerfile deploy/flower
+
+      - name: Scan default production/runtime images
+        run: |
+          scripts/scan-container-images.sh \
+            my_django:v5.2.15-py3.14 \
+            my_django:v5.2.15-py3.14-prod \
+            my_django:v5.2.15-py3.14-sy-prod \
+            my_vue:prod \
+            bt_nms_electron_frontend:prod \
+            bt_nms_postgres:16.14-alpine-secure \
+            bt_nms_flower:2.0.1-py3.14-slim \
+            redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99 \
+            python:3.14-slim@sha256:44dd04494ee8f3b538294360e7c4b3acb87c8268e4d0a4828a6500b1eff50061 \
+            nginxinc/nginx-unprivileged:1.31.2-alpine3.23@sha256:054e14f543eb688809d59ec2ad1644d1a61678e247c87a318ad605977eb37eaf
+
+      - name: Scan development-only frontend image
+        continue-on-error: true
+        run: |
+          scripts/scan-container-images.sh \
+            my_vue:dev
+
+      - name: Scan optional Docker admin image
+        continue-on-error: true
+        run: |
+          scripts/scan-container-images.sh \
+            portainer/portainer-ce:2.39.3-alpine@sha256:90ae993781c08a4dcd1f96c6547a072bb3f90b7ebd5e082d071ef1ad8a341373

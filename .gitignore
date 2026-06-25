@@ -22,12 +22,28 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+*.bak.py
+*_backup.py
+
+# Django collectstatic outputs
+backend/staticfiles/
+sy_backend/staticfiles/
 
 # Frontend dependencies and build caches
 node_modules/
 **/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/src/**/*.vue.js
+frontend/src/**/*.vue.d.ts
+electron-client/frontend/src/**/*.vue.js
+electron-client/frontend/src/**/*.vue.d.ts
+.trivy-cache/
+
+# Local source snapshots and packaged handoff artifacts
+backend.zip
+sy_agent.zip
+beitong-*-src-*.zip
 
 # OS/editor files
 .DS_Store

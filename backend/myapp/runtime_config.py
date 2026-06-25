@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import timedelta
 import ipaddress
 import json
+import logging
 import re
 from typing import Any
 
@@ -26,6 +27,7 @@ from consts import (
 
 RUNTIME_CONFIG_CACHE_KEY = "bt_runtime_config_payload"
 RUNTIME_CONFIG_SINGLETON_PK = 1
+logger = logging.getLogger(__name__)
 ALARM_DELAY_FIELD_KEY = "ALARM_DELAY"
 CLEANUP_TASK_NAME = "My Daily Task"
 CLEANUP_SCHEDULE_TIME_KEY = "CLEANUP_SCHEDULE_TIME"
@@ -33,7 +35,7 @@ CLEANUP_DEFAULT_SCHEDULE_TIME = "03:00"
 CLEANUP_TIME_PATTERN = re.compile(r"^(?P<hour>\d{2}):(?P<minute>\d{2})$")
 CLEANUP_DEFAULT_ARGS = {
     "CLEANUP_SWITCH_DATA_DAYS": 3,
-    "CLEANUP_ANALOG_DATA_DAYS": 30,
+    "CLEANUP_ANALOG_DATA_DAYS": 3,
     "CLEANUP_ALARM_DATA_DAYS": 30,
     "CLEANUP_RELAY_ACTION_DAYS": 30,
     "CLEANUP_USER_OPERATION_DAYS": 30,
@@ -489,15 +491,18 @@ def _normalize_file_values(file_values: Mapping[str, Any] | None) -> dict[str, s
     return normalized
 
 
-def _save_file_values(file_values: Mapping[str, str]) -> None:
+def _save_file_values(file_values: Mapping[str, str]) -> dict[str, str]:
+    errors: dict[str, str] = {}
     if DEPLOY_HOST_IP_FIELD_KEY not in file_values:
-        return
+        return errors
     deploy_host_file = _deploy_host_file()
     try:
         deploy_host_file.parent.mkdir(parents=True, exist_ok=True)
         deploy_host_file.write_text(file_values[DEPLOY_HOST_IP_FIELD_KEY], encoding="utf-8")
     except OSError as exc:
-        raise ValueError("无法写入网管IP配置文件，请检查 deploy_host_ip.txt 挂载是否为可写。") from exc
+        errors[DEPLOY_HOST_IP_FIELD_KEY] = "无法写入网管IP配置文件，请检查 deploy_host_ip.txt 挂载是否为可写。"
+        logger.warning("Unable to write deploy host IP file %s: %s", deploy_host_file, exc)
+    return errors
 
 
 def _settings_list(setting_name: str) -> list[str]:
@@ -542,6 +547,7 @@ def _with_fresh_readonly_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
     result = deepcopy(payload)
     result["file_fields"] = _file_fields()
     result["file_values"] = _file_values()
+    result["file_save_errors"] = {}
     result["readonly_fields"] = _readonly_fields()
     return result
 
@@ -750,6 +756,7 @@ def build_runtime_config_payload(*, force_refresh: bool = False) -> dict[str, An
         "schema": _schema(),
         "file_fields": _file_fields(),
         "file_values": _file_values(),
+        "file_save_errors": {},
         "readonly_fields": _readonly_fields(),
         "defaults": defaults,
         "values": values,
@@ -789,6 +796,7 @@ def save_runtime_config_values(
     runtime_values = {key: validated[key] for key in _runtime_field_keys()}
     cleanup_values = {key: validated[key] for key in _cleanup_field_keys()}
     RuntimeConfig = _load_model()
+    file_save_errors: dict[str, str] = {}
     try:
         with transaction.atomic():
             record, _created = RuntimeConfig.objects.select_for_update().get_or_create(
@@ -796,7 +804,7 @@ def save_runtime_config_values(
                 defaults={"values": runtime_values, "updated_by": user},
             )
             _save_cleanup_config_values(cleanup_values)
-            _save_file_values(validated_file_values)
+            file_save_errors = _save_file_values(validated_file_values)
             record.values = runtime_values
             record.updated_by = user
             record.save(update_fields=["values", "updated_by", "updated_at"])
@@ -804,7 +812,9 @@ def save_runtime_config_values(
     except (OperationalError, ProgrammingError) as exc:
         raise ValueError("运行时配置表尚未迁移完成，当前只能查看默认值，暂时无法保存。") from exc
 
-    return build_runtime_config_payload(force_refresh=True)
+    payload = build_runtime_config_payload(force_refresh=True)
+    payload["file_save_errors"] = file_save_errors
+    return payload
 
 
 def get_communication_timeout() -> int:

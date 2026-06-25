@@ -62,6 +62,26 @@ def _get_env_bool(name: str, default: bool = False) -> bool:
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _get_env_file(name: str):
+    file_path = os.getenv(f"{name}_FILE", "").strip()
+    if not file_path:
+        return None
+
+    try:
+        return Path(file_path).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ImproperlyConfigured(
+            f"{name}_FILE points to an unreadable file: {file_path}"
+        ) from exc
+
+
+def _get_env_secret(name: str, default: str = "") -> str:
+    file_value = _get_env_file(name)
+    if file_value is not None:
+        return file_value
+    return os.getenv(name, default).strip()
+
+
 def _get_env_int(name: str, default: int) -> int:
     raw_value = os.getenv(name)
     if raw_value is None or raw_value == "":
@@ -111,7 +131,7 @@ DEBUG = _get_env_bool("DEBUG", False)
 #DEBUG = False #20241218 改成false之后后端admin界面显示不出css样式
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "").strip()
+SECRET_KEY = _get_env_secret("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
     if DEBUG or _running_tests() or _get_env_bool("DJANGO_ALLOW_INSECURE_DEFAULTS", False):
         SECRET_KEY = "django-insecure-dev-only-change-me"
@@ -206,7 +226,7 @@ else:
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.getenv('DATABASE_NAME', 'mydatabase'),
             'USER': os.getenv('DATABASE_USER', 'myuser'),
-            'PASSWORD': os.getenv('DATABASE_PASSWORD', ''),
+            'PASSWORD': _get_env_secret('DATABASE_PASSWORD'),
             'HOST': os.getenv('DATABASE_HOST', 'db'),
             'PORT': os.getenv('DATABASE_PORT', '5432'),
         }

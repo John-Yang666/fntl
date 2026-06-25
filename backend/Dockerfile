@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM python:3.12
+FROM python:3.14-slim@sha256:44dd04494ee8f3b538294360e7c4b3acb87c8268e4d0a4828a6500b1eff50061
 
 # 设置工作目录
 WORKDIR /app
@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     sed -i "s|deb.debian.org|${APT_MIRROR_HOST}|g; s|security.debian.org|${APT_MIRROR_HOST}|g" /etc/apt/sources.list.d/debian.sources && \
     apt-get update && \
-    apt-get install -y --no-install-recommends netcat-openbsd gcc
+    apt-get install -y --no-install-recommends netcat-openbsd build-essential libpq-dev libpq5
 
 # 复制依赖清单和锁文件并安装依赖（使用 BuildKit 缓存提升重复构建速度）
 COPY requirements.txt /app/
@@ -40,7 +40,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       --trusted-host ${PIP_TRUSTED_HOST} \
       -r requirements.txt \
       -c requirements.lock.txt; \
-    fi
+    fi && \
+    apt-get purge -y --auto-remove build-essential libpq-dev
 
 # 复制项目文件和脚本到容器中
 COPY . /app
