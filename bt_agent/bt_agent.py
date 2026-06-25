@@ -391,7 +391,7 @@ class MessageBus:
         ts_ms = int(time.time() * 1000)
         fields = {
             b"type": b"packet",
-            b"src": b"udp_agent",
+            b"src": b"bt_agent",
             b"ts": str(ts_ms).encode(),
             b"ip": source_ip.encode(),
             b"data_hex": data.hex().encode(),
@@ -522,7 +522,7 @@ class UdpCommunicationThread(threading.Thread):
 
             global udp_packet_count
             udp_packet_count += 1
-            logger.info(f"收到来自 {source_ip}:{source_port} 的数据包")
+            logger.debug(f"收到来自 {source_ip}:{source_port} 的数据包")
 
             if source_ip in BLOCKED_IPS:
                 AGENT_STATS.note_blocked_packet()
@@ -574,7 +574,7 @@ class UdpCommunicationThread(threading.Thread):
     def handle_analog_data(self, data, addr):
         try:
             analog_data = data[4:16]
-            logger.info(f"Received analog data from {addr}: {analog_data.hex()}")
+            logger.debug(f"Received analog data from {addr}: {analog_data.hex()}")
         except Exception as e:
             logger.error(f"Error handling analog data: {e}", exc_info=True)
 

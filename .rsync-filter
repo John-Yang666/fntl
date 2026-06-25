@@ -61,7 +61,7 @@ sy_backend/uploads/
 bt_agent/runtime_config.json
 sy_agent/runtime_config.json
 sy_agent/runtime_sub_agent_config.json
-udp_agent/.env
+bt_agent/.env
 
 # Generated docs/artifacts and old source archives
 docs/

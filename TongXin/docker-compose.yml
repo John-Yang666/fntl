@@ -55,7 +55,7 @@ services:
       - --maxclients
       - "500"
     ports:
-      - "36379:6379"   # 宿主机（如 udp_agent）可连 127.0.0.1:36379
+      - "36379:6379"   # 宿主机（如 bt_agent）可连 127.0.0.1:36379
     tmpfs:
       - /data:rw,mode=1777,size=268435456
     networks:

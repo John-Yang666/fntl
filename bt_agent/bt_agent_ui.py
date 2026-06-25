@@ -94,6 +94,8 @@ UNEXPECTED_RESTART_DELAY_MS = 3000
 DISK_CHECK_SEC = 30.0
 DISK_THRESHOLD_OPTIONS = [5, 10, 15, 20, 25, 30]
 STATUS_PREFIX = "[BT_STATUS] "
+LOG_QUEUE_MAXSIZE = 5000
+LOG_QUEUE_DRAIN_LIMIT = 200
 
 STATUS_LABEL_STYLES = {
     "good": "color: #166534; background: #dcfce7; border: 1px solid #86efac; border-radius: 6px; padding: 2px 8px; font-weight: 600;",
@@ -946,7 +948,7 @@ class BtAgentUIWindow(QMainWindow):
         self.ip_status_by_ip: dict[str, dict[str, Any]] = {}
         self._recent_status_ts: Optional[str] = None
 
-        self._log_queue: "queue.Queue[tuple[str, Any]]" = queue.Queue()
+        self._log_queue = queue.Queue(maxsize=LOG_QUEUE_MAXSIZE)
         self._log_lines: "deque[str]" = deque(maxlen=500)
         self._visible_log_lines: "deque[str]" = deque(maxlen=300)
         self._log_dirty = False
@@ -1739,6 +1741,23 @@ class BtAgentUIWindow(QMainWindow):
         else:
             self.start_agent()
 
+    def _enqueue_log_event(self, kind: str, payload: Any) -> None:
+        try:
+            self._log_queue.put_nowait((kind, payload))
+            return
+        except queue.Full:
+            pass
+
+        try:
+            self._log_queue.get_nowait()
+        except queue.Empty:
+            pass
+
+        try:
+            self._log_queue.put_nowait((kind, payload))
+        except queue.Full:
+            pass
+
     def _read_child_output(self) -> None:
         proc = self._proc
         if proc is None or proc.stdout is None:
@@ -1749,16 +1768,16 @@ class BtAgentUIWindow(QMainWindow):
                 try:
                     payload = json.loads(line[len(STATUS_PREFIX):].strip())
                 except Exception:
-                    self._log_queue.put(("log", line))
+                    self._enqueue_log_event("log", line)
                     continue
-                self._log_queue.put(("status", payload))
+                self._enqueue_log_event("status", payload)
                 continue
-            self._log_queue.put(("log", line))
+            self._enqueue_log_event("log", line)
         code = proc.wait()
-        self._log_queue.put(("exit", code))
+        self._enqueue_log_event("exit", code)
 
     def _poll_log_queue(self) -> None:
-        while True:
+        for _ in range(LOG_QUEUE_DRAIN_LIMIT):
             try:
                 kind, payload = self._log_queue.get_nowait()
             except queue.Empty:

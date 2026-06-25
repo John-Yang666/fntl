@@ -543,7 +543,7 @@ pg_restore -l /srv/bt_nms_data/backups/bt_2026-05-26_1530.dump >/dev/null
 rsync -av --delete --exclude-from=BT_NMS/.rsync-filter BT_NMS/ BT_NMS_backup/
 ```
 
-当前 `.rsync-filter` 会排除 `.git/`、`udp_agent/.env`、`node_modules/`、`__pycache__/`、`*.log`、`.DS_Store`、`venv/`、`docs/`。如果需要备份文档，请调整排除规则或单独备份 `docs/`。
+当前 `.rsync-filter` 会排除 `.git/`、`bt_agent/.env`、`node_modules/`、`__pycache__/`、`*.log`、`.DS_Store`、`venv/`、`docs/`。如果需要备份文档，请调整排除规则或单独备份 `docs/`。
 
 ### 镜像备份
 
