@@ -49,107 +49,50 @@ class PasswordStorageTests(unittest.TestCase):
 
 
 class AlertRuntimeStateTests(unittest.TestCase):
-    def test_new_unconfirmed_alert_clears_pause_and_requests_playback(self):
-        state = AlertRuntimeState(selected_devices=set())
-        state.paused = True
-
-        evaluation = state.evaluate(
-            {
-                "bt": [
-                    {
-                        "device_id": 1,
-                        "device_name": "BT-1",
-                        "alarm_code": 40,
-                        "alarm_meaning": "测试告警",
-                        "timestamp": "2026-05-26T10:00:00+08:00",
-                        "confirmed": False,
-                    }
-                ],
-                "sy": [],
-            }
-        )
-
+    def test_new_unconfirmed_snapshot_requests_playback(self):
+        state = AlertRuntimeState()
+        evaluation = state.update_snapshot("bt", {
+            "revision": 1,
+            "total_unconfirmed_count": 1,
+            "audible_occurrence_ids": ["alarm-1"],
+        })
         self.assertTrue(evaluation.has_new_unconfirmed_alerts)
         self.assertTrue(evaluation.should_play_sound)
-        self.assertFalse(state.paused)
-        self.assertEqual(evaluation.count, 1)
+        self.assertEqual(evaluation.total_unconfirmed_count, 1)
 
-    def test_closed_popup_pause_blocks_existing_alert_until_new_one(self):
-        state = AlertRuntimeState(selected_devices=set())
-        first = {
-            "bt": [
-                {
-                    "device_id": 1,
-                    "device_name": "BT-1",
-                    "alarm_code": 40,
-                    "alarm_meaning": "测试告警",
-                    "timestamp": "2026-05-26T10:00:00+08:00",
-                    "confirmed": False,
-                }
-            ],
-            "sy": [],
-        }
-
-        state.evaluate(first)
+    def test_pause_silences_current_occurrences_but_not_a_new_one(self):
+        state = AlertRuntimeState()
+        state.update_snapshot("bt", {
+            "revision": 1,
+            "total_unconfirmed_count": 1,
+            "audible_occurrence_ids": ["alarm-1"],
+        })
         state.pause()
-        second = state.evaluate(first)
+        self.assertFalse(state.evaluation().should_play_sound)
 
-        self.assertFalse(second.has_new_unconfirmed_alerts)
-        self.assertFalse(second.should_play_sound)
-        self.assertTrue(state.paused)
+        evaluation = state.update_snapshot("bt", {
+            "revision": 2,
+            "total_unconfirmed_count": 2,
+            "audible_occurrence_ids": ["alarm-1", "alarm-2"],
+        })
+        self.assertTrue(evaluation.has_new_unconfirmed_alerts)
+        self.assertTrue(evaluation.should_play_sound)
 
-        third = state.evaluate(
-            {
-                "bt": [
-                    first["bt"][0],
-                    {
-                        "device_id": 2,
-                        "device_name": "BT-2",
-                        "alarm_code": 41,
-                        "alarm_meaning": "新增告警",
-                        "timestamp": "2026-05-26T10:01:00+08:00",
-                        "confirmed": False,
-                    },
-                ],
-                "sy": [],
-            }
-        )
-
-        self.assertTrue(third.has_new_unconfirmed_alerts)
-        self.assertTrue(third.should_play_sound)
-        self.assertFalse(state.paused)
-
-    def test_selected_devices_filter_alerts(self):
-        state = AlertRuntimeState(selected_devices={"sy:8"})
-
-        evaluation = state.evaluate(
-            {
-                "bt": [
-                    {
-                        "device_id": 1,
-                        "device_name": "BT-1",
-                        "alarm_code": 40,
-                        "alarm_meaning": "BT 告警",
-                        "timestamp": "2026-05-26T10:00:00+08:00",
-                        "confirmed": False,
-                    }
-                ],
-                "sy": [
-                    {
-                        "device_id": 8,
-                        "device_name": "SY-8",
-                        "alarm_code": 62,
-                        "alarm_meaning": "SY 告警",
-                        "timestamp": "2026-05-26T10:00:00+08:00",
-                        "confirmed": False,
-                    }
-                ],
-            }
-        )
-
-        self.assertEqual(evaluation.count, 1)
-        self.assertEqual(evaluation.alerts[0]["system"], "sy")
-        self.assertEqual(evaluation.alerts[0]["device_id"], 8)
+    def test_current_to_history_with_same_occurrence_id_does_not_look_new(self):
+        state = AlertRuntimeState()
+        state.update_snapshot("sy", {
+            "revision": 1,
+            "total_unconfirmed_count": 1,
+            "audible_occurrence_ids": ["stable-id"],
+        })
+        state.pause()
+        evaluation = state.update_snapshot("sy", {
+            "revision": 2,
+            "total_unconfirmed_count": 1,
+            "audible_occurrence_ids": ["stable-id"],
+        })
+        self.assertFalse(evaluation.has_new_unconfirmed_alerts)
+        self.assertFalse(evaluation.should_play_sound)
 
 
 class ConfigDefaultsTests(unittest.TestCase):

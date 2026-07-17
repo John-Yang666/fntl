@@ -41,10 +41,11 @@ from django_filters.rest_framework import DjangoFilterBackend  # type: ignore
 from rest_framework.permissions import IsAuthenticated  # type: ignore
 from rest_framework import status
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import connection, transaction
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .runtime_config import build_runtime_config_payload, save_runtime_config_values
 from .tasks.cleanup_tasks import run_cleanup_export_test
+from .alarm_monitoring import monitored_devices_for_user, publish_alarm_state_changed
 import csv
 from datetime import timedelta
 
@@ -715,8 +716,9 @@ class ActiveAlarmListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        monitored_ids = monitored_devices_for_user(_resolve_request_user(request)).values_list("device_id", flat=True)
         alarms = _filter_related_device_queryset_for_request(
-            AlarmActive.objects.select_related("device").all(),
+            AlarmActive.objects.select_related("device").filter(device_id__in=monitored_ids),
             request,
         )
         serializer = AlarmActiveSerializer(alarms, many=True)
@@ -736,6 +738,7 @@ class ConfirmAlarmView(APIView):
             )
             alarm.is_confirmed = True
             alarm.save()
+            transaction.on_commit(lambda: publish_alarm_state_changed("alarm.confirmed"))
             return Response({"message": "告警已确认"}, status=status.HTTP_200_OK)
         except AlarmActive.DoesNotExist:
             return Response(
@@ -772,6 +775,9 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
             )
             .order_by("-timestamp_start")
         )
+        if _is_truthy_query_param(self.request.query_params.get("monitored", "0")):
+            monitored_ids = monitored_devices_for_user(_resolve_request_user(self.request)).values_list("device_id", flat=True)
+            queryset = queryset.filter(device_id__in=monitored_ids)
         return _apply_device_line_name_filter(queryset, self.request)
 
     def list(self, request, *args, **kwargs):
@@ -820,7 +826,9 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
         unique_ids = [str(item) for item in dict.fromkeys(ids) if item]
         queryset = self.get_queryset().filter(id__in=unique_ids)
         scoped_count = queryset.count()
-        queryset.filter(is_confirmed=False).update(is_confirmed=True)
+        updated = queryset.filter(is_confirmed=False).update(is_confirmed=True)
+        if updated:
+            transaction.on_commit(lambda: publish_alarm_state_changed("alarm.bulk_confirmed"))
         return Response({"confirmed": scoped_count, "skipped": max(len(unique_ids) - scoped_count, 0)})
 
     @action(detail=True, methods=["post"], url_path="confirm")
@@ -829,6 +837,7 @@ class AlarmDataViewSet(viewsets.ReadOnlyModelViewSet):
         if not alarm.is_confirmed:
             alarm.is_confirmed = True
             alarm.save(update_fields=["is_confirmed"])
+            transaction.on_commit(lambda: publish_alarm_state_changed("alarm.confirmed"))
         return Response({"message": "历史告警已确认"}, status=status.HTTP_200_OK)
 
 

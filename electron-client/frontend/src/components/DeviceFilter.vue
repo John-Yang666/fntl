@@ -43,7 +43,7 @@
           <div class="pin-tip">勾选“置顶”后，该设备会在拓扑图中显示在更上层。</div>
         </div>
         <div class="button-container">
-          <el-button type="primary" @click="refreshPage">确认</el-button>
+          <el-button type="primary" :loading="saving" @click="saveSettings">保存监控设备</el-button>
         </div>
       </el-collapse-item>
     </el-collapse>
@@ -52,13 +52,13 @@
 
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
+import { ElMessage } from 'element-plus';
 import { useUserStore } from '@/stores/userStore';
 import {
   reconcilePinnedDeviceKeys,
-  reconcileSelectedDeviceKeys,
   savePinnedDeviceKeys,
-  saveSelectedDeviceKeys,
-} from '@/utils/selectedDevices';
+} from '@/utils/pinnedDevices';
+import { loadMonitoringDeviceKeys, saveMonitoringDeviceKeys } from '@/utils/monitoringPreferences';
 import { SYSTEMS, makeDeviceKey, type SystemType } from '@/utils/systems';
 
 interface Device {
@@ -73,6 +73,7 @@ interface Device {
 const allDevices = ref<Device[]>([]);
 const selectedDevices = ref<string[]>([]);
 const pinnedDevices = ref<string[]>([]);
+const saving = ref(false);
 const DEVICE_SETTINGS_CHANGED_EVENT = 'device-settings-changed';
 const userStore = useUserStore();
 
@@ -134,9 +135,7 @@ const fetchDevices = async () => {
 
     allDevices.value = mergedDevices;
 
-    selectedDevices.value = await reconcileSelectedDeviceKeys(
-      mergedDevices.map((device) => device.key),
-    );
+    selectedDevices.value = await loadMonitoringDeviceKeys(userStore);
     pinnedDevices.value = await reconcilePinnedDeviceKeys(selectedDevices.value);
   } catch (error) {
     console.error('获取设备数据时出错！', error);
@@ -144,9 +143,7 @@ const fetchDevices = async () => {
 };
 
 const handleDeviceChange = async () => {
-  await saveSelectedDeviceKeys(selectedDevices.value);
   pinnedDevices.value = await reconcilePinnedDeviceKeys(selectedDevices.value);
-  window.dispatchEvent(new CustomEvent(DEVICE_SETTINGS_CHANGED_EVENT));
 };
 
 const handlePinnedChange = async (deviceKey: string, checked: string | number | boolean) => {
@@ -162,8 +159,21 @@ const handlePinnedChange = async (deviceKey: string, checked: string | number | 
 const isPinned = (deviceKey: string) => pinnedDevices.value.includes(deviceKey);
 const isSelected = (deviceKey: string) => selectedDevices.value.includes(deviceKey);
 
-const refreshPage = () => {
-  location.reload();
+const saveSettings = async () => {
+  saving.value = true;
+  try {
+    await saveMonitoringDeviceKeys(
+      userStore,
+      selectedDevices.value,
+      allDevices.value.map((device) => device.key),
+    );
+    window.dispatchEvent(new CustomEvent(DEVICE_SETTINGS_CHANGED_EVENT));
+    ElMessage.success('监控设备已保存');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '监控设备保存失败');
+  } finally {
+    saving.value = false;
+  }
 };
 
 onMounted(() => {

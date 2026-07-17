@@ -48,8 +48,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { useUserStore } from '@/stores/userStore';
 import {
   reconcilePinnedDeviceKeys,
-  reconcileSelectedDeviceKeys,
-} from '@/utils/selectedDevices';
+} from '@/utils/pinnedDevices';
+import { loadMonitoringDeviceKeys } from '@/utils/monitoringPreferences';
 import {
   SYSTEMS,
   buildAuthWebSocketProtocols,
@@ -220,12 +220,7 @@ const fetchDevices = async () => {
       return [];
     });
 
-    const allAvailableKeys = successfulResponses.flatMap(({ system, data }) =>
-      Object.values(data).flatMap((devices) =>
-        devices.map((device) => makeDeviceKey(system, device.device_id)),
-      ),
-    );
-    const selectedKeys = new Set(await reconcileSelectedDeviceKeys(allAvailableKeys));
+    const selectedKeys = new Set(await loadMonitoringDeviceKeys(userStore));
     pinnedDeviceKeys.value = new Set(
       await reconcilePinnedDeviceKeys(Array.from(selectedKeys)),
     );
@@ -245,7 +240,7 @@ const fetchDevices = async () => {
           }
 
           const uniqueKey = makeDeviceKey(system, deviceId);
-          if (selectedKeys.size > 0 && !selectedKeys.has(uniqueKey)) {
+          if (!selectedKeys.has(uniqueKey)) {
             return;
           }
 

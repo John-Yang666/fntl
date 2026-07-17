@@ -59,6 +59,7 @@ class SwitchDataSerializer(serializers.ModelSerializer):
         return bytes(obj.switch_status or b'').hex().upper()
 
 class AlarmActiveSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True)
     device_id = serializers.IntegerField(source='device.device_id')
     device_name = serializers.CharField(source='device.name')
     alarm_meaning = serializers.SerializerMethodField()
@@ -67,7 +68,7 @@ class AlarmActiveSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AlarmActive
-        fields = ['device_id', 'device_name', 'alarm_code', 'alarm_meaning', 'timestamp', 'confirmed']
+        fields = ['id', 'device_id', 'device_name', 'alarm_code', 'alarm_meaning', 'timestamp', 'confirmed']
 
     def get_alarm_meaning(self, obj):
         return obj.alarm_meaning

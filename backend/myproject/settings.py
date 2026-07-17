@@ -229,6 +229,8 @@ else:
             'PASSWORD': _get_env_secret('DATABASE_PASSWORD'),
             'HOST': os.getenv('DATABASE_HOST', 'db'),
             'PORT': os.getenv('DATABASE_PORT', '5432'),
+            # template0 avoids inheriting stale libc collation metadata from long-lived dev volumes.
+            'TEST': {'TEMPLATE': os.getenv('DATABASE_TEST_TEMPLATE', 'template0')},
         }
     }
 

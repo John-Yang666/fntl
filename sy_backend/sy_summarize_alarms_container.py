@@ -23,6 +23,7 @@ from myapp.tasks.sy_device_context import (  # noqa: E402
     load_sy_device_context_cache,
 )
 from myapp.tasks.topology_processing import process_topology_status  # noqa: E402
+from myapp.alarm_monitoring import publish_alarm_state_changed  # noqa: E402
 
 
 logger = logging.getLogger("sy_summarize")
@@ -423,6 +424,7 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
         if active0:
             alarm_data_to_create.append(
                 AlarmData(
+                    id=active0["id"],
                     device_id=device_id,
                     alarm_code=0,
                     timestamp_start=active0["timestamp_start"],
@@ -513,6 +515,7 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
                 if comm_ok:
                     alarm_data_to_create.append(
                         AlarmData(
+                            id=active_alarm["id"],
                             device_id=device_id,
                             alarm_code=0,
                             timestamp_start=active_alarm["timestamp_start"],
@@ -537,6 +540,7 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
             if bit_info.get("bit_value") == 0:
                 alarm_data_to_create.append(
                     AlarmData(
+                        id=active_alarm["id"],
                         device_id=device_id,
                         alarm_code=alarm_code,
                         timestamp_start=active_alarm["timestamp_start"],
@@ -557,6 +561,8 @@ def summarize_alarms_iteration(state: dict | None = None) -> dict:
         AlarmActive.objects.bulk_create(active_alarms_to_create, batch_size=1000)
     if active_alarm_ids_to_delete:
         AlarmActive.objects.filter(id__in=active_alarm_ids_to_delete).delete()
+    if alarm_data_to_create or active_alarms_to_create or active_alarm_ids_to_delete:
+        publish_alarm_state_changed("alarm.changed")
 
     logger.info(
         "[sy_summarize] devices=%s dirty=%s recalc_devices=%s active=%s topology_pushes=%s raised=%s cleared=%s",

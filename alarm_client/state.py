@@ -56,9 +56,7 @@ class Credentials:
 @dataclass
 class AppConfig:
     systems: dict[str, SystemConfig] = field(default_factory=dict)
-    selected_devices: set[str] = field(default_factory=set)
     credentials: Credentials = field(default_factory=Credentials)
-    poll_interval_seconds: int = 3
 
     @classmethod
     def default(cls) -> "AppConfig":
@@ -91,17 +89,12 @@ class AppConfig:
             except Exception:
                 password = ""
 
-        raw_selected = data.get("selected_devices", [])
-        selected_devices = {str(item) for item in raw_selected if isinstance(item, str)}
-
         return cls(
             systems=systems,
-            selected_devices=selected_devices,
             credentials=Credentials(
                 username=str(credentials_data.get("username") or ""),
                 password=password,
             ),
-            poll_interval_seconds=max(1, int(data.get("poll_interval_seconds") or 3)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -110,12 +103,10 @@ class AppConfig:
                 system: {"api_base": config.api_base.rstrip("/"), "enabled": config.enabled}
                 for system, config in self.systems.items()
             },
-            "selected_devices": sorted(self.selected_devices),
             "credentials": {
                 "username": self.credentials.username,
                 "password_encoded": encode_password(self.credentials.password),
             },
-            "poll_interval_seconds": self.poll_interval_seconds,
         }
 
 
@@ -190,94 +181,59 @@ def save_config(config: AppConfig, path: Path = CONFIG_PATH) -> None:
 
 @dataclass
 class AlertEvaluation:
-    alerts: list[dict[str, Any]]
+    total_unconfirmed_count: int
     has_new_unconfirmed_alerts: bool
     has_unconfirmed_alerts: bool
-    ended_systems: list[str]
     should_play_sound: bool
-
-    @property
-    def count(self) -> int:
-        return len(self.alerts)
 
 
 class AlertRuntimeState:
-    def __init__(self, selected_devices: set[str] | None = None):
-        self.selected_devices = selected_devices or set()
-        self.previous_alert_keys_by_system = {system: set() for system in SYSTEMS}
-        self.previous_has_unconfirmed_alerts = False
-        self.paused = False
+    """Combines server snapshots and keeps only the local manual-silence state."""
 
-    def set_selected_devices(self, selected_devices: set[str]) -> None:
-        self.selected_devices = set(selected_devices)
+    def __init__(self):
+        self.snapshots: dict[str, dict[str, Any] | None] = {system: None for system in SYSTEMS}
+        self.silenced_occurrence_ids: set[str] = set()
+        self.previous_audible_ids: set[str] = set()
 
     def pause(self) -> None:
-        self.paused = True
+        self.silenced_occurrence_ids.update(self.audible_occurrence_ids())
 
     def resume(self) -> None:
-        self.paused = False
+        self.silenced_occurrence_ids.clear()
 
     def reset(self) -> None:
-        self.previous_alert_keys_by_system = {system: set() for system in SYSTEMS}
-        self.previous_has_unconfirmed_alerts = False
-        self.paused = False
+        self.snapshots = {system: None for system in SYSTEMS}
+        self.silenced_occurrence_ids.clear()
+        self.previous_audible_ids.clear()
 
-    def evaluate(self, alerts_by_system: dict[str, list[dict[str, Any]]]) -> AlertEvaluation:
-        filtered_alerts = self._filtered_alerts(alerts_by_system)
-        current_keys_by_system = {system: set() for system in SYSTEMS}
-        current_unconfirmed_keys_by_system = {system: set() for system in SYSTEMS}
+    def update_snapshot(self, system: str, snapshot: dict[str, Any]) -> AlertEvaluation:
+        if system not in SYSTEMS:
+            raise ValueError(f"unknown system: {system}")
+        previous = self.snapshots.get(system)
+        if previous is not None and int(snapshot.get("revision", 0)) < int(previous.get("revision", 0)):
+            return self.evaluation()
+        self.snapshots[system] = dict(snapshot)
+        audible = self.audible_occurrence_ids()
+        has_new = bool(audible - self.previous_audible_ids)
+        if not audible:
+            self.silenced_occurrence_ids.clear()
+        self.previous_audible_ids = audible
+        return self.evaluation(has_new=has_new)
 
-        for alert in filtered_alerts:
-            system = str(alert["system"])
-            key = self.build_alert_key(system, alert.get("device_id"), alert.get("alarm_code"))
-            current_keys_by_system[system].add(key)
-            if not bool(alert.get("confirmed")):
-                current_unconfirmed_keys_by_system[system].add(key)
-
-        has_new_unconfirmed = False
-        ended_systems: list[str] = []
+    def audible_occurrence_ids(self) -> set[str]:
+        result: set[str] = set()
         for system in SYSTEMS:
-            previous_keys = self.previous_alert_keys_by_system.get(system, set())
-            current_keys = current_keys_by_system[system]
-            current_unconfirmed_keys = current_unconfirmed_keys_by_system[system]
-            if any(key not in previous_keys for key in current_unconfirmed_keys):
-                has_new_unconfirmed = True
-            if any(key not in current_keys for key in previous_keys):
-                ended_systems.append(system)
-
-        if has_new_unconfirmed:
-            self.paused = False
-
-        has_unconfirmed = any(not bool(alert.get("confirmed")) for alert in filtered_alerts)
-        all_current_confirmed = bool(filtered_alerts) and not has_unconfirmed
-        if self.previous_has_unconfirmed_alerts and all_current_confirmed:
-            self.paused = True
-
-        should_play = has_unconfirmed and not self.paused and has_new_unconfirmed
-
-        self.previous_alert_keys_by_system = current_keys_by_system
-        self.previous_has_unconfirmed_alerts = has_unconfirmed
-
-        return AlertEvaluation(
-            alerts=filtered_alerts,
-            has_new_unconfirmed_alerts=has_new_unconfirmed,
-            has_unconfirmed_alerts=has_unconfirmed,
-            ended_systems=ended_systems,
-            should_play_sound=should_play,
-        )
-
-    def _filtered_alerts(self, alerts_by_system: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for system in SYSTEMS:
-            for raw_alert in alerts_by_system.get(system, []):
-                device_id = raw_alert.get("device_id")
-                if self.selected_devices and f"{system}:{device_id}" not in self.selected_devices:
-                    continue
-                alert = dict(raw_alert)
-                alert["system"] = system
-                result.append(alert)
+            snapshot = self.snapshots.get(system) or {}
+            for occurrence_id in snapshot.get("audible_occurrence_ids", []):
+                result.add(f"{system}:{occurrence_id}")
         return result
 
-    @staticmethod
-    def build_alert_key(system: str, device_id: Any, alarm_code: Any) -> str:
-        return f"{system}:{device_id}-{alarm_code}"
+    def evaluation(self, *, has_new: bool = False) -> AlertEvaluation:
+        audible = self.audible_occurrence_ids()
+        total = sum(int((self.snapshots.get(system) or {}).get("total_unconfirmed_count", 0)) for system in SYSTEMS)
+        return AlertEvaluation(
+            total_unconfirmed_count=total,
+            has_new_unconfirmed_alerts=has_new,
+            has_unconfirmed_alerts=bool(audible),
+            should_play_sound=bool(audible - self.silenced_occurrence_ids),
+        )

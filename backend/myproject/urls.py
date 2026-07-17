@@ -5,6 +5,7 @@ from django.shortcuts import redirect
 from rest_framework.routers import DefaultRouter # type: ignore
 from myapp import views
 from myapp import ops_views
+from myapp import alarm_monitoring
 from myapp.auth_views import RuntimeConfigTokenObtainPairView, RuntimeConfigTokenRefreshView
 
 # 标准资源操作：用于标准的 ViewSet，适合处理标准的模型操作。
@@ -46,6 +47,8 @@ urlpatterns = [
     path('api/all-topology-status/', views.AllTopologyStatusView.as_view(), name='all_topology_status'),  # 所有拓扑状态视图
     path('api/active-alarms/', views.ActiveAlarmListView.as_view()),
     path('api/active-alarms/<int:device_id>/<int:alarm_code>/confirm/', views.ConfirmAlarmView.as_view()),
+    path('api/monitoring-preference/', alarm_monitoring.MonitoringPreferenceView.as_view()),
+    path('api/alarm-confirmations/', alarm_monitoring.AlarmConfirmationsView.as_view()),
     #path('api/alerts-amount/', views.AlertsAmountView.as_view()),
     path('api/token/', RuntimeConfigTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', RuntimeConfigTokenRefreshView.as_view(), name='token_refresh'),

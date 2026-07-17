@@ -19,7 +19,7 @@ class DeviceSelectionDialogTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_empty_selection_defaults_to_all_devices_checked(self):
+    def test_empty_server_selection_keeps_all_devices_unchecked(self):
         dialog = DeviceSelectionDialog(
             {
                 "bt": [{"device_id": 1, "name": "BT-1"}],
@@ -29,13 +29,13 @@ class DeviceSelectionDialogTests(unittest.TestCase):
         )
 
         self.assertEqual(dialog.windowTitle(), "选择需要监控的设备")
-        self.assertEqual(dialog.hint_label.text(), "默认勾选所有设备，可取消不需要监控的设备。")
-        self.assertEqual(dialog.selected_keys(), {"bt:1", "sy:8"})
+        self.assertIn("来自服务器", dialog.hint_label.text())
+        self.assertEqual(dialog.selected_keys(), set())
 
         for root_index in range(dialog.tree.topLevelItemCount()):
             root = dialog.tree.topLevelItem(root_index)
             for child_index in range(root.childCount()):
-                self.assertEqual(root.child(child_index).checkState(0), Qt.CheckState.Checked)
+                self.assertEqual(root.child(child_index).checkState(0), Qt.CheckState.Unchecked)
 
     def test_system_checkbox_toggles_children_and_tracks_partial_state(self):
         dialog = DeviceSelectionDialog(

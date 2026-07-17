@@ -46,4 +46,32 @@ describe('backend WebSocket API', () => {
 
     socket.close();
   });
+
+  it('sends alarm snapshots and keeps the occurrence id after the alarm ends', async () => {
+    const store = createSimulatorStore();
+    const server = createBackendServer({ system: 'bt', store });
+    const started = await server.start(0);
+    startedServers.push(server);
+    const socket = new WebSocket(`ws://127.0.0.1:${started.port}/ws/alarms/`, [
+      'bt-nms',
+      'jwt.sim-access.bt.demo',
+    ]);
+    const initialMessage = waitForMessage(socket);
+    await waitForOpen(socket);
+    await expect(initialMessage).resolves.toMatchObject({ type: 'alarm.snapshot', total_unconfirmed_count: 0 });
+
+    const raisedMessage = waitForMessage(socket);
+    store.updateDeviceState({ system: 'bt', deviceId: 2, fault: 'direction1_fault' });
+    const raised = await raisedMessage;
+    expect(raised.total_unconfirmed_count).toBe(1);
+    const occurrenceId = raised.audible_occurrence_ids[0];
+
+    const endedMessage = waitForMessage(socket);
+    store.updateDeviceState({ system: 'bt', deviceId: 2, fault: 'normal' });
+    await expect(endedMessage).resolves.toMatchObject({
+      historical_unconfirmed_count: 1,
+      audible_occurrence_ids: [occurrenceId],
+    });
+    socket.close();
+  });
 });

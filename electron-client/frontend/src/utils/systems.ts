@@ -25,9 +25,7 @@ export const USER_STORAGE_KEYS: Record<SystemType, string> = {
   sy: 'user_sy',
 };
 
-export const SELECTED_DEVICES_KEY = 'selectedDevicesV2';
 export const PINNED_DEVICES_KEY = 'pinnedDevicesV1';
-export const LEGACY_SELECTED_DEVICES_KEY = 'selectedDevices';
 
 export function isSystemType(value: unknown): value is SystemType {
   return value === 'bt' || value === 'sy';

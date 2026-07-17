@@ -98,6 +98,26 @@ describe('backend HTTP API', () => {
     expect(count.body).toEqual({ count: 1, approximate: false });
   });
 
+  it('persists monitoring selection and confirms current alarms by occurrence id', async () => {
+    const { store, baseUrl } = await startDemoServer('bt');
+    const preference = await requestJson(`${baseUrl}/api/monitoring-preference/`, {
+      method: 'PUT',
+      body: JSON.stringify({ selection_mode: 'custom', device_ids: [2] }),
+    });
+    expect(preference.body).toEqual({ selection_mode: 'custom', device_ids: [2] });
+
+    store.updateDeviceState({ system: 'bt', deviceId: 2, fault: 'direction1_fault' });
+    const active = await requestJson(`${baseUrl}/api/active-alarms/`);
+    const occurrenceId = active.body[0].id;
+    const confirmation = await requestJson(`${baseUrl}/api/alarm-confirmations/`, {
+      method: 'POST',
+      body: JSON.stringify({ alarms: [{ source: 'current', occurrence_id: occurrenceId }] }),
+    });
+    expect(confirmation.body).toEqual({ confirmed: 1, skipped: 0 });
+    const confirmed = await requestJson(`${baseUrl}/api/active-alarms/`);
+    expect(confirmed.body[0].confirmed).toBe(true);
+  });
+
   it('serves ops, runtime, help, and file-management compatibility endpoints', async () => {
     const { baseUrl } = await startDemoServer('bt');
 

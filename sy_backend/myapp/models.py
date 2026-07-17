@@ -183,6 +183,37 @@ class Device(models.Model):
         return self.line.name if self.line else ""
 
 
+class UserMonitoringPreference(models.Model):
+    MODE_ALL = "all"
+    MODE_CUSTOM = "custom"
+    MODE_CHOICES = (
+        (MODE_ALL, "全部有权设备"),
+        (MODE_CUSTOM, "自定义设备"),
+    )
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="monitoring_preference",
+        verbose_name="用户",
+    )
+    selection_mode = models.CharField(
+        max_length=10,
+        choices=MODE_CHOICES,
+        default=MODE_ALL,
+        verbose_name="监控范围",
+    )
+    monitored_devices = models.ManyToManyField(
+        Device,
+        blank=True,
+        related_name="monitoring_preferences",
+        verbose_name="监控设备",
+    )
+
+    class Meta:
+        verbose_name = "用户监控配置"
+        verbose_name_plural = "用户监控配置"
+
 # -------------------------
 # 4.1) 原始协议帧日志（sy_agent 上送的完整帧
 # -------------------------
@@ -469,6 +500,7 @@ class AlarmData(models.Model):
             models.Index(fields=['-timestamp_start'], name='sy_alarmdata_ts_desc_idx'),
             models.Index(fields=['is_confirmed', '-timestamp_start'], name='sy_alarmdata_conf_ts_idx'),
             models.Index(fields=['device', '-timestamp_start'], name='sy_alarmdata_dev_ts_idx'),
+            models.Index(fields=['device', 'is_confirmed'], name='sy_alarmdata_dev_conf_idx'),
         ]
 
     @property

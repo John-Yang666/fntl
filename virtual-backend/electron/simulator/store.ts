@@ -44,7 +44,7 @@ type StoreOptions = {
 };
 
 export type StoreEvent = {
-  type: 'device-state-changed';
+  type: 'device-state-changed' | 'alarm-state-changed';
   system: SystemType;
   deviceId: number;
 };
@@ -231,7 +231,24 @@ class SimulatorStore {
     alert.is_confirmed = true;
     alert.confirmed = true;
     this.save();
+    this.emit({ type: 'alarm-state-changed', system, deviceId });
     return { status: '告警已确认' };
+  }
+
+  confirmAlarmOccurrences(system: SystemType, occurrenceIds: string[]) {
+    let confirmed = 0;
+    for (const alert of this.state.records[system].alerts) {
+      if (occurrenceIds.includes(alert.id) && !alert.is_confirmed) {
+        alert.is_confirmed = true;
+        alert.confirmed = true;
+        confirmed += 1;
+      }
+    }
+    if (confirmed > 0) {
+      this.save();
+      this.emit({ type: 'alarm-state-changed', system, deviceId: 0 });
+    }
+    return { confirmed, skipped: Math.max(occurrenceIds.length - confirmed, 0) };
   }
 
   private syncAlertForDevice(system: SystemType, device: DemoDevice) {

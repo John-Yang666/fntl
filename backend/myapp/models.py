@@ -147,6 +147,38 @@ class Device(models.Model):
     def line_name(self) -> str:
         return self.line.name if self.line else ""
 
+
+class UserMonitoringPreference(models.Model):
+    MODE_ALL = "all"
+    MODE_CUSTOM = "custom"
+    MODE_CHOICES = (
+        (MODE_ALL, "全部有权设备"),
+        (MODE_CUSTOM, "自定义设备"),
+    )
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="monitoring_preference",
+        verbose_name="用户",
+    )
+    selection_mode = models.CharField(
+        max_length=10,
+        choices=MODE_CHOICES,
+        default=MODE_ALL,
+        verbose_name="监控范围",
+    )
+    monitored_devices = models.ManyToManyField(
+        Device,
+        blank=True,
+        related_name="monitoring_preferences",
+        verbose_name="监控设备",
+    )
+
+    class Meta:
+        verbose_name = "用户监控配置"
+        verbose_name_plural = "用户监控配置"
+
 class SwitchData(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)  # 使用 UUID 作为主键
     device = models.ForeignKey(Device, to_field='device_id', on_delete=models.CASCADE, verbose_name="设备")
@@ -266,6 +298,7 @@ class AlarmData(models.Model):
             models.Index(fields=['-timestamp_start'], name='bt_alarmdata_ts_desc_idx'),
             models.Index(fields=['is_confirmed', '-timestamp_start'], name='bt_alarmdata_conf_ts_idx'),
             models.Index(fields=['device', '-timestamp_start'], name='bt_alarmdata_dev_ts_idx'),
+            models.Index(fields=['device', 'is_confirmed'], name='bt_alarmdata_dev_conf_idx'),
         ]
 
     @property

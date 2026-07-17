@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 
@@ -67,13 +67,29 @@ class ApiClient:
             self.refresh_token = str(refresh)
 
     def get_json(self, endpoint_or_url: str) -> Any:
+        return self.request_json("GET", endpoint_or_url)
+
+    def request_json(self, method: str, endpoint_or_url: str, payload: dict[str, Any] | None = None) -> Any:
         try:
-            return self._request_json("GET", endpoint_or_url, None, auth=True)
+            return self._request_json(method, endpoint_or_url, payload, auth=True)
         except ApiError as exc:
             if exc.status != 401:
                 raise
             self.refresh_access_token()
-            return self._request_json("GET", endpoint_or_url, None, auth=True)
+            return self._request_json(method, endpoint_or_url, payload, auth=True)
+
+    def websocket_url(self) -> str:
+        parsed = urlsplit(self.api_base.rstrip("/"))
+        scheme = "wss" if parsed.scheme == "https" else "ws"
+        api_suffix = f"/{self.system}-api"
+        path = parsed.path.rstrip("/")
+        if path.endswith(api_suffix):
+            path = f"{path[:-len(api_suffix)]}/{self.system}-ws/alarms/"
+        elif path.endswith("/api"):
+            path = f"{path[:-4]}/ws/alarms/"
+        else:
+            path = f"/{self.system}-ws/alarms/"
+        return urlunsplit((scheme, parsed.netloc, path, "", ""))
 
     def list_devices(self) -> list[dict[str, Any]]:
         devices: list[dict[str, Any]] = []
@@ -98,6 +114,41 @@ class ApiClient:
         if isinstance(payload, dict) and isinstance(payload.get("results"), list):
             return [item for item in payload["results"] if isinstance(item, dict)]
         raise ApiError(self.system, f"{self.system.upper()} active alarms response has unexpected shape")
+
+    def get_monitoring_preference(self) -> set[str]:
+        payload = self.get_json("monitoring-preference/")
+        if not isinstance(payload, dict) or not isinstance(payload.get("device_ids"), list):
+            raise ApiError(self.system, f"{self.system.upper()} monitoring preference has unexpected shape")
+        return {f"{self.system}:{int(device_id)}" for device_id in payload["device_ids"]}
+
+    def save_monitoring_preference(self, selected_device_ids: set[int], available_device_ids: set[int]) -> None:
+        selection_mode = "all" if selected_device_ids == available_device_ids else "custom"
+        self.request_json("PUT", "monitoring-preference/", {
+            "selection_mode": selection_mode,
+            "device_ids": sorted(selected_device_ids),
+        })
+
+    def list_alarm_details(self) -> list[dict[str, Any]]:
+        details: list[dict[str, Any]] = []
+        for alarm in self.list_active_alarms():
+            details.append({**alarm, "system": self.system, "source": "current", "timestamp_end": None})
+
+        next_url: str | None = "alerts/?is_confirmed=false&monitored=true&page_size=500"
+        while next_url:
+            payload = self.get_json(next_url)
+            if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+                raise ApiError(self.system, f"{self.system.upper()} alarm history response has unexpected shape")
+            for alarm in payload["results"]:
+                if isinstance(alarm, dict):
+                    details.append({
+                        **alarm,
+                        "system": self.system,
+                        "source": "history",
+                        "confirmed": bool(alarm.get("is_confirmed")),
+                    })
+            next_value = payload.get("next")
+            next_url = str(next_value) if next_value else None
+        return details
 
     def _request_json(self, method: str, endpoint_or_url: str, payload: dict[str, Any] | None, *, auth: bool) -> Any:
         headers = {"Accept": "application/json"}

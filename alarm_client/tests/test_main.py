@@ -70,7 +70,7 @@ class LoginStatusDisplayTests(unittest.TestCase):
 
 
 class ShutdownTests(unittest.TestCase):
-    def test_shutdown_waits_for_running_poll_worker_before_hiding_tray(self):
+    def test_shutdown_waits_for_running_details_worker_before_hiding_tray(self):
         from alarm_client.main import AlarmClientApp
 
         class FakeTimer:
@@ -119,7 +119,8 @@ class ShutdownTests(unittest.TestCase):
         controller.audio_player = FakeAudio()
         controller.popup = FakePopup()
         controller.tray = FakeTray()
-        controller.poll_worker = FakeWorker()
+        controller.details_worker = FakeWorker()
+        controller.alarm_sockets = {}
         controller._shutdown_done = False
 
         controller.shutdown()
@@ -128,10 +129,20 @@ class ShutdownTests(unittest.TestCase):
         self.assertTrue(controller.audio_player.stopped)
         self.assertTrue(controller.popup.closed)
         self.assertTrue(controller.tray.hidden)
-        self.assertEqual(controller.poll_worker, None)
+        self.assertEqual(controller.details_worker, None)
 
 
 class BackendWaitingTests(unittest.TestCase):
+    class FakeTimer:
+        def __init__(self):
+            self.active = False
+
+        def start(self, _milliseconds):
+            self.active = True
+
+        def stop(self):
+            self.active = False
+
     def test_no_credentials_probe_waits_for_backend_instead_of_showing_login(self):
         from alarm_client.api import ApiError
         from alarm_client.main import AlarmClientApp
@@ -158,6 +169,7 @@ class BackendWaitingTests(unittest.TestCase):
         controller.tray = FakeTray()
         controller.waiting_for_backend = False
         controller._backend_wait_notice_shown = False
+        controller.timer = self.FakeTimer()
         controller.show_login_called = False
         controller.backend_notice_calls = 0
 
@@ -196,6 +208,7 @@ class BackendWaitingTests(unittest.TestCase):
         controller.clients = {}
         controller.waiting_for_backend = True
         controller._backend_wait_notice_shown = True
+        controller.timer = self.FakeTimer()
         controller.show_login_called = False
 
         def show_login():
@@ -241,21 +254,15 @@ class BackendWaitingTests(unittest.TestCase):
         controller.config.credentials = Credentials(username="admin", password="secret")
         controller.waiting_for_backend = True
         controller.login_call = None
-        controller.poll_called = False
 
         def login_with_config(**kwargs):
             controller.login_call = kwargs
 
-        def poll_alerts():
-            controller.poll_called = True
-
         controller.login_with_config = login_with_config
-        controller.poll_alerts = poll_alerts
 
         controller.on_timer()
 
         self.assertEqual(controller.login_call, {"show_dialog_on_failure": False, "wait_for_backend": True})
-        self.assertFalse(controller.poll_called)
 
     def test_saved_login_waits_for_backend_without_showing_login_dialog(self):
         from alarm_client.api import ApiError
@@ -284,6 +291,7 @@ class BackendWaitingTests(unittest.TestCase):
         controller.tray = FakeTray()
         controller.waiting_for_backend = False
         controller._backend_wait_notice_shown = False
+        controller.timer = self.FakeTimer()
         controller.show_login_called = False
         controller.backend_notice_calls = 0
 

@@ -19,6 +19,7 @@ import redis
 from myapp.models import Device, AlarmActive, AlarmData
 from myapp.tasks.topology_processing import process_topology_status
 from myapp.runtime_config import get_alarm_delay_map, get_communication_timeout
+from myapp.alarm_monitoring import publish_alarm_state_changed
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -259,6 +260,7 @@ def summarize_alarms():
                 if active0:
                     alarm_end_time = safe_alarm_end_time(active0["timestamp_start"])
                     alarm_data_to_create.append(AlarmData(
+                        id=active0["id"],
                         device_id=device_id,
                         alarm_code=0,
                         timestamp_start=active0["timestamp_start"],
@@ -336,6 +338,7 @@ def summarize_alarms():
                 if comm_ok:
                     alarm_end_time = safe_alarm_end_time(active_alarm["timestamp_start"])
                     alarm_data_to_create.append(AlarmData(
+                        id=active_alarm["id"],
                         device_id=device_id,
                         alarm_code=0,
                         timestamp_start=active_alarm["timestamp_start"],
@@ -359,6 +362,7 @@ def summarize_alarms():
             if bit_info.get('bit_value') == 0:
                 alarm_end_time = safe_alarm_end_time(active_alarm["timestamp_start"])
                 alarm_data_to_create.append(AlarmData(
+                    id=active_alarm["id"],
                     device_id=device_id,
                     alarm_code=alarm_code,
                     timestamp_start=active_alarm["timestamp_start"],
@@ -375,6 +379,8 @@ def summarize_alarms():
             AlarmActive.objects.bulk_create(active_alarms_to_create, batch_size=1000)
         if active_alarm_ids_to_delete:
             AlarmActive.objects.filter(id__in=active_alarm_ids_to_delete).delete()
+        if alarm_data_to_create or active_alarms_to_create or active_alarm_ids_to_delete:
+            publish_alarm_state_changed("alarm.changed")
 
         last_comm_ok_by_device = {
             device_id: comm_status_map.get(device_id, (None, None))[0]

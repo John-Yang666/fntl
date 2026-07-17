@@ -11,7 +11,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort',
+    command: 'npm run build-only && npm run preview -- --host 127.0.0.1 --port 5174 --strictPort',
     cwd: '../frontend',
     env: {
       VITE_BT_PROXY_TARGET: 'http://127.0.0.1:18080',

@@ -491,8 +491,42 @@ const renderAdmin = (system: SystemType, store: SimulatorStore) => {
 };
 
 export const createBackendServer = ({ system, store }: BackendServerOptions) => {
-  const wsServer = new WebSocketServer({ noServer: true });
-  const socketKinds = new WeakMap<WebSocket, { kind: 'topology' | 'device-monitor'; deviceId?: number }>();
+  const wsServer = new WebSocketServer({
+    noServer: true,
+    handleProtocols: (protocols) => protocols.has('bt-nms') ? 'bt-nms' : false,
+  });
+  const socketKinds = new WeakMap<WebSocket, { kind: 'topology' | 'device-monitor' | 'alarm'; deviceId?: number }>();
+  let monitoredDeviceIds = new Set(store.getSnapshot().devices[system].map((device) => device.device_id));
+  let alarmRevision = 0;
+  const alarmSnapshot = () => {
+    const records = store.getSnapshot().records[system].alerts;
+    const current = records.filter((alert) => alert.timestamp_end == null && monitoredDeviceIds.has(alert.device_id));
+    const currentUnconfirmed = current.filter((alert) => !alert.is_confirmed);
+    const historicalUnconfirmed = records.filter(
+      (alert) => alert.timestamp_end != null && !alert.is_confirmed && monitoredDeviceIds.has(alert.device_id),
+    );
+    const audible = [...currentUnconfirmed, ...historicalUnconfirmed].map((alert) => alert.id);
+    return {
+      type: 'alarm.snapshot',
+      system,
+      revision: alarmRevision,
+      current_count: current.length,
+      current_unconfirmed_count: currentUnconfirmed.length,
+      historical_unconfirmed_count: historicalUnconfirmed.length,
+      total_unconfirmed_count: audible.length,
+      should_play: audible.length > 0,
+      audible_occurrence_ids: audible,
+    };
+  };
+  const broadcastAlarmSnapshot = () => {
+    alarmRevision += 1;
+    const payload = JSON.stringify(alarmSnapshot());
+    for (const client of wsServer.clients) {
+      if (client.readyState === client.OPEN && socketKinds.get(client)?.kind === 'alarm') {
+        client.send(payload);
+      }
+    }
+  };
 
   const server = createServer(async (request, response) => {
     response.setHeader('access-control-allow-origin', '*');
@@ -542,6 +576,34 @@ export const createBackendServer = ({ system, store }: BackendServerOptions) => 
       if (path === '/api/devices-list') {
         sendJson(response, 200, groupDevicesByLine(devices));
         return;
+      }
+
+      if (path === '/api/monitoring-preference') {
+        if (request.method === 'GET') {
+          sendJson(response, 200, {
+            selection_mode: monitoredDeviceIds.size === devices.length ? 'all' : 'custom',
+            device_ids: Array.from(monitoredDeviceIds).sort((a, b) => a - b),
+          });
+          return;
+        }
+        if (request.method === 'PUT') {
+          const body = await readJsonBody(request);
+          const allowedIds = new Set(devices.map((device) => device.device_id));
+          const requestedIds: number[] = Array.isArray(body.device_ids)
+            ? body.device_ids.map((value: unknown) => Number(value))
+            : [];
+          if (requestedIds.some((deviceId) => !allowedIds.has(deviceId))) {
+            sendJson(response, 400, { detail: 'devices outside user scope' });
+            return;
+          }
+          monitoredDeviceIds = body.selection_mode === 'all' ? allowedIds : new Set(requestedIds);
+          broadcastAlarmSnapshot();
+          sendJson(response, 200, {
+            selection_mode: body.selection_mode,
+            device_ids: Array.from(monitoredDeviceIds).sort((a, b) => a - b),
+          });
+          return;
+        }
       }
 
       if (path === '/api/devices/retrieve_with_stations') {
@@ -749,8 +811,17 @@ export const createBackendServer = ({ system, store }: BackendServerOptions) => 
         sendJson(
           response,
           200,
-          records.alerts.filter((alert) => alert.timestamp_end == null && !alert.is_confirmed),
+          records.alerts.filter((alert) => alert.timestamp_end == null && monitoredDeviceIds.has(alert.device_id)),
         );
+        return;
+      }
+
+      if (path === '/api/alarm-confirmations' && request.method === 'POST') {
+        const body = await readJsonBody(request);
+        const occurrenceIds = Array.isArray(body.alarms)
+          ? body.alarms.map((item: { occurrence_id?: unknown }) => String(item.occurrence_id || '')).filter(Boolean)
+          : [];
+        sendJson(response, 200, store.confirmAlarmOccurrences(system, occurrenceIds));
         return;
       }
 
@@ -833,6 +904,18 @@ export const createBackendServer = ({ system, store }: BackendServerOptions) => 
       const recordListMatch = path.match(/^\/api\/([^/]+)$/);
       const listEndpoint = recordListMatch?.[1] as RecordEndpoint | undefined;
       if (listEndpoint && listEndpoint in RECORD_ENDPOINTS) {
+        if (listEndpoint === 'alerts') {
+          const alertRows = records.alerts.filter((row) =>
+            row.timestamp_end != null &&
+            monitoredDeviceIds.has(row.device_id) &&
+            (url.searchParams.get('is_confirmed') !== 'false' || !row.is_confirmed),
+          );
+          sendJson(response, 200, {
+            count: alertRows.length,
+            results: paginate(alertRows, url.searchParams),
+          });
+          return;
+        }
         const rows = records[RECORD_ENDPOINTS[listEndpoint]];
         sendJson(response, 200, {
           count: rows.length,
@@ -855,16 +938,21 @@ export const createBackendServer = ({ system, store }: BackendServerOptions) => 
     const monitorMatch = path.match(/^\/ws\/device-monitor\/(\d+)$/);
     socketKinds.set(
       socket,
-      monitorMatch
+      path === '/ws/alarms'
+        ? { kind: 'alarm' }
+        : monitorMatch
         ? { kind: 'device-monitor', deviceId: Number(monitorMatch[1]) }
         : { kind: 'topology' },
     );
+    if (path === '/ws/alarms') {
+      socket.send(JSON.stringify(alarmSnapshot()));
+    }
   });
 
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
     const path = normalizePath(url.pathname);
-    if (path !== '/ws/topology' && !path.match(/^\/ws\/device-monitor\/\d+$/)) {
+    if (path !== '/ws/topology' && path !== '/ws/alarms' && !path.match(/^\/ws\/device-monitor\/\d+$/)) {
       socket.destroy();
       return;
     }
@@ -878,6 +966,7 @@ export const createBackendServer = ({ system, store }: BackendServerOptions) => 
       return;
     }
     const snapshot = store.getSnapshot();
+    broadcastAlarmSnapshot();
     const device = snapshot.devices[system].find((item) => item.device_id === event.deviceId);
     if (!device) {
       return;

@@ -92,6 +92,27 @@ class ApiClientTests(unittest.TestCase):
 
         self.assertEqual(alarms, [{"device_id": 1, "alarm_code": 40}])
 
+    def test_websocket_url_uses_frontend_system_prefix(self):
+        client = ApiClient("sy", "https://example.test/sy-api")
+        self.assertEqual(client.websocket_url(), "wss://example.test/sy-ws/alarms/")
+
+    def test_monitoring_preference_is_saved_to_backend(self):
+        transport = FakeTransport()
+        transport.queue_json(200, {"selection_mode": "custom", "device_ids": [8]})
+        transport.queue_json(200, {"selection_mode": "custom", "device_ids": [8]})
+        client = ApiClient("sy", "http://example.test/sy-api", transport=transport)
+        client.access_token = "access-token"
+
+        self.assertEqual(client.get_monitoring_preference(), {"sy:8"})
+        client.save_monitoring_preference({8}, {8, 9})
+
+        request, body, _ = transport.calls[1]
+        self.assertEqual(request.get_method(), "PUT")
+        self.assertEqual(json.loads(body.decode("utf-8")), {
+            "selection_mode": "custom",
+            "device_ids": [8],
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

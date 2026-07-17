@@ -59,12 +59,10 @@ class LoginDialog(QDialog):
                 "bt": SystemConfig(self.bt_api_edit.text().strip().rstrip("/") or base.systems["bt"].api_base),
                 "sy": SystemConfig(self.sy_api_edit.text().strip().rstrip("/") or base.systems["sy"].api_base),
             },
-            selected_devices=set(base.selected_devices),
             credentials=Credentials(
                 username=self.username_edit.text().strip(),
                 password=self.password_edit.text() if self.remember_checkbox.isChecked() else "",
             ),
-            poll_interval_seconds=base.poll_interval_seconds,
         )
         return config
 
@@ -111,8 +109,6 @@ class DeviceSelectionDialog(QDialog):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["设备", "ID"])
         self._updating_tree_checks = False
-        default_select_all = len(selected_devices) == 0
-
         for system in SYSTEMS:
             root = QTreeWidgetItem([SYSTEM_LABELS[system], ""])
             root.setFlags(root.flags() | Qt.ItemIsUserCheckable)
@@ -124,14 +120,14 @@ class DeviceSelectionDialog(QDialog):
                 child = QTreeWidgetItem([label, str(device_id)])
                 child.setData(0, Qt.UserRole, key)
                 child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
-                child.setCheckState(0, Qt.Checked if default_select_all or key in selected_devices else Qt.Unchecked)
+                child.setCheckState(0, Qt.Checked if key in selected_devices else Qt.Unchecked)
                 root.addChild(child)
             root.setExpanded(True)
             self.tree.addTopLevelItem(root)
             self._sync_root_check_state(root)
         self.tree.itemChanged.connect(self._on_tree_item_changed)
 
-        self.hint_label = QLabel("默认勾选所有设备，可取消不需要监控的设备。")
+        self.hint_label = QLabel("当前选择来自服务器，保存后网页端和告警客户端同时生效。")
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("保存")
@@ -206,13 +202,13 @@ class AlarmPopup(QDialog):
         super().__init__(parent)
         self.on_closed = on_closed
         self._closing_programmatically = False
-        self.setWindowTitle("当前告警")
+        self.setWindowTitle("告警详情")
         self.setMinimumSize(760, 360)
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
-        self.summary_label = QLabel("当前告警")
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["系统", "设备ID", "设备名称", "告警码", "告警含义", "开始时间", "确认状态"])
+        self.summary_label = QLabel("告警详情")
+        self.table = QTableWidget(0, 9)
+        self.table.setHorizontalHeaderLabels(["系统", "来源", "设备ID", "设备名称", "告警码", "告警含义", "开始时间", "结束时间", "确认状态"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -226,16 +222,18 @@ class AlarmPopup(QDialog):
         layout.addWidget(close_button)
 
     def set_alerts(self, alerts: list[dict[str, Any]]) -> None:
-        self.summary_label.setText(f"当前告警 {len(alerts)} 条")
+        self.summary_label.setText(f"告警详情 {len(alerts)} 条")
         self.table.setRowCount(len(alerts))
         for row, alert in enumerate(alerts):
             values = [
                 SYSTEM_LABELS.get(str(alert.get("system")), str(alert.get("system", ""))).upper(),
+                "当前" if alert.get("source") == "current" else "历史",
                 str(alert.get("device_id", "")),
                 str(alert.get("device_name", "")),
                 str(alert.get("alarm_code", "")),
                 str(alert.get("alarm_meaning", "")),
                 str(alert.get("timestamp", "")),
+                str(alert.get("timestamp_end") or "—"),
                 "已确认" if bool(alert.get("confirmed")) else "未确认",
             ]
             for column, value in enumerate(values):

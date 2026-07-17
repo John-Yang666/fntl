@@ -8,6 +8,7 @@ from django.shortcuts import redirect  # type: ignore
 from rest_framework.routers import DefaultRouter  # type: ignore
 
 from myapp import views
+from myapp import alarm_monitoring
 from myapp.auth_views import RuntimeConfigTokenObtainPairView, RuntimeConfigTokenRefreshView
 
 # 标准资源操作：用于标准的 ViewSet，适合处理标准的模型操作。
@@ -82,6 +83,8 @@ urlpatterns = [
         views.ConfirmAlarmView.as_view(),
         name="confirm-alarm",
     ),
+    path("api/monitoring-preference/", alarm_monitoring.MonitoringPreferenceView.as_view()),
+    path("api/alarm-confirmations/", alarm_monitoring.AlarmConfirmationsView.as_view()),
 
     # JWT 认证
     path("api/token/", RuntimeConfigTokenObtainPairView.as_view(), name="token_obtain_pair"),

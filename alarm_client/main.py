@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import json
 import logging
 import os
 import signal
@@ -14,7 +15,9 @@ os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia.ffmpeg=false")
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QLockFile, QObject, QThread, QTimer, Signal
+from PySide6.QtCore import QLockFile, QObject, QThread, QTimer, QUrl, Signal
+from PySide6.QtNetwork import QNetworkRequest
+from PySide6.QtWebSockets import QWebSocket, QWebSocketHandshakeOptions
 from PySide6.QtWidgets import QApplication, QDialog, QMenu, QMessageBox, QStyle, QSystemTrayIcon
 
 from alarm_client.api import ApiClient, ApiError
@@ -83,23 +86,23 @@ def format_login_status(logged_in_systems: Iterable[str]) -> str:
     return " ".join(f"{SYSTEM_LABELS[system]}已登录" for system in SYSTEMS if system in logged_in)
 
 
-class PollWorker(QThread):
-    result_ready = Signal(dict, dict)
+class AlarmDetailsWorker(QThread):
+    result_ready = Signal(list, dict)
 
     def __init__(self, clients: dict[str, ApiClient]):
         super().__init__()
         self.clients = dict(clients)
 
     def run(self) -> None:
-        alerts_by_system: dict[str, list[dict[str, Any]]] = {system: [] for system in SYSTEMS}
+        details: list[dict[str, Any]] = []
         errors: dict[str, str] = {}
         for system, client in self.clients.items():
             try:
-                alerts_by_system[system] = client.list_active_alarms()
+                details.extend(client.list_alarm_details())
             except Exception as exc:
-                LOGGER.warning("poll %s active alarms failed: %s", system, exc)
+                LOGGER.warning("load %s alarm details failed: %s", system, exc)
                 errors[system] = str(exc)
-        self.result_ready.emit(alerts_by_system, errors)
+        self.result_ready.emit(details, errors)
 
 
 class AlarmClientApp(QObject):
@@ -107,10 +110,13 @@ class AlarmClientApp(QObject):
         super().__init__()
         self.app = app
         self.config = load_config()
-        self.runtime_state = AlertRuntimeState(self.config.selected_devices)
+        self.runtime_state = AlertRuntimeState()
         self.clients: dict[str, ApiClient] = {}
         self.current_alerts: list[dict[str, Any]] = []
-        self.poll_worker: PollWorker | None = None
+        self.details_worker: AlarmDetailsWorker | None = None
+        self._details_refresh_pending = False
+        self.alarm_sockets: dict[str, QWebSocket] = {}
+        self._show_popup_after_details = False
         self._shutdown_done = False
         self.waiting_for_backend = False
         self._backend_wait_notice_shown = False
@@ -126,7 +132,6 @@ class AlarmClientApp(QObject):
             self.login_with_config(show_dialog_on_failure=True, wait_for_backend=True)
         else:
             self.start_without_credentials()
-        self.timer.start(self.config.poll_interval_seconds * 1000)
 
     def _build_tray(self) -> QSystemTrayIcon:
         icon = self.app.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
@@ -138,7 +143,7 @@ class AlarmClientApp(QObject):
         self.login_status_action.setVisible(False)
         self.login_status_separator = menu.addSeparator()
         self.login_status_separator.setVisible(False)
-        menu.addAction("显示当前告警", self.show_current_alerts)
+        menu.addAction("显示告警详情", self.show_current_alerts)
         menu.addAction("暂停告警声", self.pause_alerts)
         menu.addAction("恢复告警声", self.resume_alerts)
         menu.addSeparator()
@@ -162,17 +167,19 @@ class AlarmClientApp(QObject):
         if self.waiting_for_backend:
             self.start_without_credentials()
             return
-        self.poll_alerts()
+        return
 
     def start_without_credentials(self) -> None:
         failures = self.probe_backend_readiness()
         if all_login_failures_are_backend_unready(failures):
             self.waiting_for_backend = True
+            self.timer.start(5000)
             self._update_login_status_display()
             self.tray.setToolTip("BT/SY 告警声音客户端 - 后端未就绪，等待重试")
             self.show_backend_waiting_notice(failures)
             return
         self.waiting_for_backend = False
+        self.timer.stop()
         self._backend_wait_notice_shown = False
         self.show_login()
 
@@ -240,6 +247,7 @@ class AlarmClientApp(QObject):
         if not clients:
             if wait_for_backend and all_login_failures_are_backend_unready(failures):
                 self.waiting_for_backend = True
+                self.timer.start(5000)
                 self._update_login_status_display()
                 self.tray.setToolTip("BT/SY 告警声音客户端 - 后端未就绪，等待重试")
                 self.show_backend_waiting_notice(failures)
@@ -252,6 +260,7 @@ class AlarmClientApp(QObject):
 
         self.clients = clients
         self.waiting_for_backend = False
+        self.timer.stop()
         self._backend_wait_notice_shown = False
         if save_credentials:
             self.config.credentials.username = username
@@ -259,8 +268,7 @@ class AlarmClientApp(QObject):
         save_config(self.config)
         LOGGER.info("logged in systems: %s", ",".join(sorted(self.clients)))
         self.runtime_state.reset()
-        self.runtime_state.set_selected_devices(self.config.selected_devices)
-        self._update_tray_tooltip(len(self.current_alerts), any(not bool(alert.get("confirmed")) for alert in self.current_alerts))
+        self._update_tray_tooltip(0, False)
         if failures:
             self.tray.showMessage(
                 "部分系统登录失败",
@@ -268,7 +276,7 @@ class AlarmClientApp(QObject):
                 QSystemTrayIcon.MessageIcon.Warning,
                 6000,
             )
-        self.poll_alerts()
+        self.connect_alarm_websockets()
 
     def show_backend_waiting_notice(self, failures: list[tuple[str, ApiError]]) -> None:
         if self._backend_wait_notice_shown:
@@ -284,43 +292,91 @@ class AlarmClientApp(QObject):
     def _format_login_failures(failures: list[tuple[str, ApiError]]) -> str:
         return "\n".join(f"{SYSTEM_LABELS[system]}: {error}" for system, error in failures)
 
-    def poll_alerts(self) -> None:
-        if not self.clients or (self.poll_worker and self.poll_worker.isRunning()):
+    def refresh_alarm_details(self) -> None:
+        if not self.clients or (self.details_worker and self.details_worker.isRunning()):
+            if self.details_worker and self.details_worker.isRunning():
+                self._details_refresh_pending = True
             return
-        self.poll_worker = PollWorker(self.clients)
-        self.poll_worker.result_ready.connect(self.handle_poll_result)
-        self.poll_worker.finished.connect(self._poll_finished)
-        self.poll_worker.finished.connect(self.poll_worker.deleteLater)
-        self.poll_worker.start()
+        self._details_refresh_pending = False
+        self.details_worker = AlarmDetailsWorker(self.clients)
+        self.details_worker.result_ready.connect(self.handle_details_result)
+        self.details_worker.finished.connect(self._details_finished)
+        self.details_worker.finished.connect(self.details_worker.deleteLater)
+        self.details_worker.start()
 
-    def _poll_finished(self) -> None:
-        self.poll_worker = None
+    def _details_finished(self) -> None:
+        self.details_worker = None
+        if self._details_refresh_pending:
+            self.refresh_alarm_details()
 
-    def handle_poll_result(self, alerts_by_system: dict, errors: dict) -> None:
+    def handle_details_result(self, details: list, errors: dict) -> None:
         if errors:
             text = "\n".join(f"{SYSTEM_LABELS.get(system, system)}: {message}" for system, message in errors.items())
-            self.tray.showMessage("告警轮询失败", text, QSystemTrayIcon.MessageIcon.Warning, 4000)
+            self.tray.showMessage("告警详情读取失败", text, QSystemTrayIcon.MessageIcon.Warning, 4000)
 
-        evaluation = self.runtime_state.evaluate(alerts_by_system)
-        self.current_alerts = evaluation.alerts
-        self._update_tray_tooltip(evaluation.count, evaluation.has_unconfirmed_alerts)
+        self.current_alerts = details
 
         if self.popup.isVisible():
             self.popup.set_alerts(self.current_alerts)
-
-        if evaluation.ended_systems:
-            ended = "、".join(SYSTEM_LABELS[system] for system in evaluation.ended_systems)
-            self.tray.showMessage("告警结束", f"{ended} 有告警结束，请查看历史告警记录。", QSystemTrayIcon.MessageIcon.Warning, 5000)
-
-        if evaluation.should_play_sound:
+        if self._show_popup_after_details:
+            self._show_popup_after_details = False
             self.popup.show_alerts(self.current_alerts)
+
+    def connect_alarm_websockets(self) -> None:
+        for socket in self.alarm_sockets.values():
+            socket.close()
+        self.alarm_sockets.clear()
+        for system in self.clients:
+            self.connect_alarm_websocket(system)
+
+    def connect_alarm_websocket(self, system: str) -> None:
+        if self._shutdown_done or system not in self.clients:
+            return
+        client = self.clients[system]
+        if not client.access_token:
+            return
+        socket = QWebSocket()
+        socket.textMessageReceived.connect(lambda message, current_system=system: self.handle_alarm_ws_message(current_system, message))
+        socket.disconnected.connect(lambda current_system=system, current_socket=socket: self.handle_alarm_ws_disconnected(current_system, current_socket))
+        self.alarm_sockets[system] = socket
+        request = QNetworkRequest(QUrl(client.websocket_url()))
+        options = QWebSocketHandshakeOptions()
+        options.setSubprotocols(["bt-nms", f"jwt.{client.access_token}"])
+        socket.open(request, options)
+
+    def handle_alarm_ws_message(self, system: str, message: str) -> None:
+        try:
+            payload = json.loads(message)
+        except json.JSONDecodeError:
+            LOGGER.warning("invalid %s alarm websocket JSON", system)
+            return
+        if payload.get("type") == "alarm.ping":
+            socket = self.alarm_sockets.get(system)
+            if socket is not None:
+                socket.sendTextMessage('{"type":"alarm.pong"}')
+            return
+        if payload.get("type") != "alarm.snapshot":
+            return
+        evaluation = self.runtime_state.update_snapshot(system, payload)
+        self._update_tray_tooltip(evaluation.total_unconfirmed_count, evaluation.has_unconfirmed_alerts)
+        if evaluation.should_play_sound:
             self.audio_player.play()
-        elif not evaluation.has_unconfirmed_alerts or self.runtime_state.paused:
+        else:
             self.audio_player.stop()
+        if evaluation.has_new_unconfirmed_alerts and evaluation.should_play_sound:
+            self._show_popup_after_details = True
+        self.refresh_alarm_details()
+
+    def handle_alarm_ws_disconnected(self, system: str, socket: QWebSocket) -> None:
+        if self.alarm_sockets.get(system) is socket:
+            self.alarm_sockets.pop(system, None)
+        socket.deleteLater()
+        if not self._shutdown_done and system in self.clients:
+            QTimer.singleShot(3000, lambda: self.connect_alarm_websocket(system))
 
     def _update_tray_tooltip(self, count: int, has_unconfirmed: bool) -> None:
         login_status = self._update_login_status_display()
-        status = "未确认告警" if has_unconfirmed else "当前告警"
+        status = "待确认告警" if has_unconfirmed else "告警"
         status_parts = [part for part in (login_status, f"{status} {count} 条") if part]
         self.tray.setToolTip(f"BT/SY 告警声音客户端 - {' - '.join(status_parts)}")
 
@@ -344,7 +400,7 @@ class AlarmClientApp(QObject):
 
     def resume_alerts(self) -> None:
         self.runtime_state.resume()
-        if any(not bool(alert.get("confirmed")) for alert in self.current_alerts):
+        if self.runtime_state.evaluation().has_unconfirmed_alerts:
             self.popup.show_alerts(self.current_alerts)
             self.audio_player.play()
 
@@ -362,24 +418,28 @@ class AlarmClientApp(QObject):
             QMessageBox.warning(None, "无法选择设备", "请先登录至少一个系统。")
             return
         devices_by_system: dict[str, list[dict[str, Any]]] = {system: [] for system in SYSTEMS}
+        selected_devices: set[str] = set()
         failures: list[str] = []
         for system, client in self.clients.items():
             try:
                 devices_by_system[system] = client.list_devices()
+                selected_devices.update(client.get_monitoring_preference())
             except Exception as exc:
                 LOGGER.warning("%s device list failed: %s", system, exc)
                 failures.append(f"{SYSTEM_LABELS[system]}: {exc}")
         if failures:
             self.tray.showMessage("设备列表读取失败", "\n".join(failures), QSystemTrayIcon.MessageIcon.Warning, 5000)
 
-        dialog = DeviceSelectionDialog(devices_by_system, self.config.selected_devices)
+        dialog = DeviceSelectionDialog(devices_by_system, selected_devices)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        self.config.selected_devices = dialog.selected_keys()
-        self.runtime_state.set_selected_devices(self.config.selected_devices)
-        self.runtime_state.reset()
-        save_config(self.config)
-        self.poll_alerts()
+        selected_keys = dialog.selected_keys()
+        for system, client in self.clients.items():
+            available_ids = {int(item["device_id"]) for item in devices_by_system[system]}
+            selected_ids = {
+                int(key.split(":", 1)[1]) for key in selected_keys if key.startswith(f"{system}:")
+            }
+            client.save_monitoring_preference(selected_ids, available_ids)
 
     def quit(self) -> None:
         self.shutdown()
@@ -390,12 +450,15 @@ class AlarmClientApp(QObject):
             return
         self._shutdown_done = True
         self.timer.stop()
+        for socket in self.alarm_sockets.values():
+            socket.close()
+        self.alarm_sockets.clear()
         self.audio_player.stop()
         self.popup.close_without_pause()
-        worker = self.poll_worker
+        worker = self.details_worker
         if worker is not None and worker.isRunning():
             worker.wait(12000)
-        self.poll_worker = None
+        self.details_worker = None
         self.tray.hide()
 
 

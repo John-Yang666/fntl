@@ -38,9 +38,9 @@ test('operator can log in and exercise the main FNTL navigation flow', async ({ 
 
   store.updateDeviceState({ system: 'bt', deviceId: 2, fault: 'direction1_fault' });
 
-  await clickHeaderTab(page, /当前告警/);
+  await clickHeaderTab(page, /告警详情/);
   await expect(page.getByTestId('alerts-view')).toContainText('一方向线路故障');
-  await page.getByRole('button', { name: '确认' }).first().click();
+  await page.getByRole('button', { name: '确认', exact: true }).first().click();
   await expect(page.getByTestId('alerts-view')).toContainText('已确认');
 
   await clickHeaderTab(page, '记录查询');
