@@ -108,6 +108,18 @@ class RuntimeConfigApiTests(APITestCase):
         self.assertEqual(response.data["values"]["CLEANUP_RAW_FRAME_LOG_DAYS"], 7)
         self.assertIs(response.data["values"]["CLEANUP_RAW_FRAME_LOG_AUTO_EXPORT"], True)
 
+    def test_runtime_config_includes_actual_cleanup_export_dir(self):
+        with override_settings(
+            CLEANUP_EXPORT_DISPLAY_DIR="D:/bt_nms_data/cleanup_exports",
+            CLEANUP_EXPORT_DIR="/data/cleanup_exports",
+        ):
+            cache.clear()
+            self.client.force_authenticate(user=self.superuser)
+            response = self.client.get(reverse("runtime_config"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["cleanup_export_dir"], "D:/bt_nms_data/cleanup_exports")
+
     def test_runtime_config_put_updates_cleanup_schedule_and_retention(self):
         payload = build_runtime_config_payload(force_refresh=True)["values"]
         updated_values = deepcopy(payload)

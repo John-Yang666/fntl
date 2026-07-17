@@ -16,6 +16,7 @@ from ..cleanup_export_resources import CLEANUP_EXPORT_RESOURCE_MAP
 EXPORT_BATCH_SIZE = 5000
 DELETE_BATCH_SIZE = 5000
 MAX_EXPORT_ROWS_PER_FILE = 1_000_000
+RESUMABLE_EXPORT_SEGMENT_SIZE = 1_000_000
 SYSTEM_LABEL = "bt"
 CLEANUP_EXPORT_TEST_DAYS = 99999
 
@@ -34,13 +35,14 @@ def _get_cleanup_export_dir():
     return export_dir
 
 
-def _build_export_filename(model_name, threshold_date, run_at, *, export_test=False):
+def _build_export_filename(model_name, threshold_date, run_at, *, export_test=False, segment_number=None):
     local_threshold = timezone.localtime(threshold_date)
     local_run_at = timezone.localtime(run_at)
     marker = "export_test_before" if export_test else "before"
+    segment = f"_segment{segment_number:04d}" if segment_number is not None else ""
     return (
         f"{SYSTEM_LABEL}_{model_name}_{marker}_{local_threshold:%Y-%m-%d}"
-        f"_run_{local_run_at:%Y%m%d_%H%M%S}.csv"
+        f"_run_{local_run_at:%Y%m%d_%H%M%S}{segment}.csv"
     )
 
 
@@ -58,10 +60,15 @@ def _model_table_info(model, date_field):
     }
 
 
-def _create_snapshot_table(model, threshold_date, date_field):
+def _create_snapshot_table(model, threshold_date, date_field, *, limit=None):
     table_info = _model_table_info(model, date_field)
     temp_table = f"cleanup_snapshot_{uuid.uuid4().hex}"
     quoted_temp_table = _quote_name(temp_table)
+    params = [threshold_date]
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT %s"
+        params.append(limit)
 
     with connection.cursor() as cursor:
         id_type = "TEXT" if connection.vendor == "sqlite" else "uuid"
@@ -75,8 +82,10 @@ def _create_snapshot_table(model, threshold_date, date_field):
             SELECT {table_info['pk_column']}
             FROM {table_info['table']}
             WHERE {table_info['date_column']} < %s
+            ORDER BY {table_info['date_column']} ASC, {table_info['pk_column']} ASC
+            {limit_clause}
             """,
-            [threshold_date],
+            params,
         )
         candidate_count = cursor.rowcount
         if candidate_count < 0:
@@ -152,6 +161,11 @@ def _build_export_part_file(export_file, part_number, split_export):
     if not split_export:
         return export_file
     return export_file.with_name(f"{export_file.stem}_part{part_number:04d}{export_file.suffix}")
+
+
+def _remove_stale_tmp_exports(export_dir, model_name):
+    for tmp_file in export_dir.glob(f"{SYSTEM_LABEL}_{model_name}_*.csv.tmp"):
+        tmp_file.unlink(missing_ok=True)
 
 
 def _open_export_part(export_file, export_headers, part_number, split_export):
@@ -282,6 +296,9 @@ def cleanup_old_data(model, days, date_field="timestamp", *, auto_export=True):
 
     threshold_date = timezone.now() - timedelta(days=days)
     run_at = timezone.now()
+    segment_size = int(RESUMABLE_EXPORT_SEGMENT_SIZE)
+    if segment_size <= 0:
+        raise ValueError(f"Invalid cleanup export segment size: {segment_size}")
     result = {
         "status": "skipped",
         "model": model.__name__,
@@ -298,53 +315,79 @@ def cleanup_old_data(model, days, date_field="timestamp", *, auto_export=True):
         "exported_count": 0,
         "export_batch_size": EXPORT_BATCH_SIZE,
         "export_max_rows_per_file": MAX_EXPORT_ROWS_PER_FILE,
+        "export_segment_size": segment_size,
+        "segment_count": 0,
+        "completed_segment_count": 0,
         "delete_batch_size": DELETE_BATCH_SIZE,
         "deleted_count": 0,
         "error": "",
     }
 
-    temp_table = None
-    try:
-        temp_table, candidate_count = _create_snapshot_table(model, threshold_date, date_field)
-        result["candidate_count"] = candidate_count
-        if not candidate_count:
+    resource_class = None
+    export_dir = None
+    if auto_export:
+        resource_class = CLEANUP_EXPORT_RESOURCE_MAP.get(model)
+        if resource_class is None:
+            result["status"] = "failed"
+            result["error"] = f"No cleanup export resource configured for {model.__name__}"
             return result
+        export_dir = _get_cleanup_export_dir()
+        _remove_stale_tmp_exports(export_dir, model.__name__)
 
-        if auto_export:
-            resource_class = CLEANUP_EXPORT_RESOURCE_MAP.get(model)
-            if resource_class is None:
-                result["status"] = "failed"
-                result["error"] = f"No cleanup export resource configured for {model.__name__}"
+    segment_number = 1
+    while True:
+        temp_table = None
+        try:
+            temp_table, candidate_count = _create_snapshot_table(
+                model,
+                threshold_date,
+                date_field,
+                limit=segment_size,
+            )
+            if not candidate_count:
+                result["status"] = "deleted" if result["candidate_count"] else "skipped"
                 return result
 
-            try:
-                export_dir = _get_cleanup_export_dir()
-                export_file = export_dir / _build_export_filename(model.__name__, threshold_date, run_at)
-                exported_count, export_paths = export_cleanup_snapshot_to_csv(
-                    model=model,
-                    temp_table=temp_table,
-                    date_field=date_field,
-                    resource_class=resource_class,
-                    export_file=export_file,
-                    batch_size=EXPORT_BATCH_SIZE,
-                    candidate_count=candidate_count,
-                    max_rows_per_file=MAX_EXPORT_ROWS_PER_FILE,
-                )
-                result["exported_count"] = exported_count
-                result["export_paths"] = export_paths
-                result["export_file_count"] = len(export_paths)
-                result["export_path"] = export_paths[0] if export_paths else ""
-            except Exception as exc:
-                result["status"] = "failed"
-                result["error"] = f"{type(exc).__name__}: {exc}"
-                return result
+            result["candidate_count"] += candidate_count
+            result["segment_count"] += 1
 
-        result["deleted_count"] = _delete_snapshot_ids(model, temp_table)
-        result["status"] = "deleted"
-        return result
-    finally:
-        if temp_table is not None:
-            _drop_snapshot_table(temp_table)
+            if auto_export:
+                try:
+                    export_file = export_dir / _build_export_filename(
+                        model.__name__,
+                        threshold_date,
+                        run_at,
+                        segment_number=segment_number,
+                    )
+                    exported_count, export_paths = export_cleanup_snapshot_to_csv(
+                        model=model,
+                        temp_table=temp_table,
+                        date_field=date_field,
+                        resource_class=resource_class,
+                        export_file=export_file,
+                        batch_size=EXPORT_BATCH_SIZE,
+                        candidate_count=candidate_count,
+                        max_rows_per_file=MAX_EXPORT_ROWS_PER_FILE,
+                    )
+                    result["exported_count"] += exported_count
+                    result["export_paths"].extend(export_paths)
+                    result["export_file_count"] = len(result["export_paths"])
+                    result["export_path"] = result["export_paths"][0] if result["export_paths"] else ""
+                except Exception as exc:
+                    result["status"] = "failed"
+                    result["error"] = f"{type(exc).__name__}: {exc}"
+                    return result
+
+            result["deleted_count"] += _delete_snapshot_ids(model, temp_table)
+            result["completed_segment_count"] += 1
+        finally:
+            if temp_table is not None:
+                _drop_snapshot_table(temp_table)
+
+        if candidate_count < segment_size:
+            result["status"] = "deleted"
+            return result
+        segment_number += 1
 
 
 def export_cleanup_test(model, days, date_field="timestamp"):

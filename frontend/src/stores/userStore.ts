@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import { defineStore } from 'pinia';
+import { notifyAuthSessionExpired } from '@/utils/authSession';
 import { deleteFromDB, getFromDB, saveToDB } from '@/utils/indexedDB';
 import { formatLoginFailureMessage, type LoginSystemFailure } from '@/utils/loginErrorMessage';
 import {
@@ -26,6 +27,15 @@ interface UserState {
     refreshToken: string | null;
   }>;
 }
+
+const refreshRequests: Partial<Record<SystemType, Promise<void>>> = {};
+let sessionExpirationRequest: Promise<void> | null = null;
+
+const isUnauthorized = (error: unknown): boolean =>
+  axios.isAxiosError(error) && error.response?.status === 401;
+
+const isRefreshRejected = (error: unknown): boolean =>
+  axios.isAxiosError(error) && [400, 401, 403].includes(error.response?.status ?? 0);
 
 export const useUserStore = defineStore('user', {
   state: (): UserState => ({
@@ -135,17 +145,33 @@ export const useUserStore = defineStore('user', {
     },
 
     async refreshTokenAction(system: SystemType): Promise<void> {
-      const tokenData = await getFromDB<{ access: string; refresh: string }>(TOKEN_STORAGE_KEYS[system]);
-      if (!tokenData?.refresh) {
-        throw new Error(`No refresh token available for ${system}`);
+      const pendingRequest = refreshRequests[system];
+      if (pendingRequest) {
+        return pendingRequest;
       }
 
-      const response = await axios.post(`${getApiBase(system)}/token/refresh/`, {
-        refresh: tokenData.refresh,
-      });
-      const newToken = response.data.access;
-      const newRefreshToken = response.data.refresh || tokenData.refresh;
-      await this.updateToken(system, newToken, newRefreshToken);
+      const refreshRequest = (async () => {
+        const tokenData = await getFromDB<{ access: string; refresh: string }>(TOKEN_STORAGE_KEYS[system]);
+        if (!tokenData?.refresh) {
+          throw new Error(`No refresh token available for ${system}`);
+        }
+
+        const response = await axios.post(`${getApiBase(system)}/token/refresh/`, {
+          refresh: tokenData.refresh,
+        });
+        const newToken = response.data.access;
+        const newRefreshToken = response.data.refresh || tokenData.refresh;
+        await this.updateToken(system, newToken, newRefreshToken);
+      })();
+
+      refreshRequests[system] = refreshRequest;
+      try {
+        await refreshRequest;
+      } finally {
+        if (refreshRequests[system] === refreshRequest) {
+          delete refreshRequests[system];
+        }
+      }
     },
 
     async updateToken(system: SystemType, newToken: string, newRefreshToken?: string): Promise<void> {
@@ -212,11 +238,48 @@ export const useUserStore = defineStore('user', {
       try {
         return await execute();
       } catch (error) {
-        if (axios.isAxiosError(error) && error.response?.status === 401) {
-          await this.refreshTokenAction(system);
-          return execute();
+        if (!isUnauthorized(error)) {
+          throw error;
         }
-        throw error;
+
+        try {
+          await this.refreshTokenAction(system);
+        } catch (refreshError) {
+          const hasRefreshToken = !!(await getFromDB<{ refresh?: string }>(TOKEN_STORAGE_KEYS[system]))?.refresh;
+          if (!hasRefreshToken || isRefreshRejected(refreshError)) {
+            await this.handleSessionExpired();
+          }
+          throw refreshError;
+        }
+
+        try {
+          return await execute();
+        } catch (retryError) {
+          if (isUnauthorized(retryError)) {
+            await this.handleSessionExpired();
+          }
+          throw retryError;
+        }
+      }
+    },
+
+    async handleSessionExpired(): Promise<void> {
+      if (sessionExpirationRequest) {
+        return sessionExpirationRequest;
+      }
+
+      const expirationRequest = (async () => {
+        await Promise.allSettled(SYSTEMS.map((system) => this.logoutSystem(system)));
+        notifyAuthSessionExpired();
+      })();
+      sessionExpirationRequest = expirationRequest;
+
+      try {
+        await expirationRequest;
+      } finally {
+        if (sessionExpirationRequest === expirationRequest) {
+          sessionExpirationRequest = null;
+        }
       }
     },
 

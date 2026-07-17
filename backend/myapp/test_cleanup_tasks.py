@@ -161,3 +161,70 @@ class BtCleanupTaskTests(TestCase):
             self.assertEqual(content.count("设备ID"), 1)
             line_counts.append(len([line for line in content.splitlines() if line.strip()]))
         self.assertEqual(line_counts, [3, 2])
+
+    def test_cleanup_switch_data_resumes_after_segment_export_failure(self):
+        old_rows = [
+            SwitchData.objects.create(device=self.device, switch_status=bytes([idx]) * 46)
+            for idx in range(1, 4)
+        ]
+        for row in old_rows:
+            self._set_old_timestamp(SwitchData, row.pk)
+        new_row = SwitchData.objects.create(device=self.device, switch_status=b"\x09" * 46)
+
+        original_export = cleanup_tasks.export_cleanup_snapshot_to_csv
+        export_calls = 0
+
+        def fail_second_segment(**kwargs):
+            nonlocal export_calls
+            export_calls += 1
+            if export_calls == 2:
+                raise RuntimeError("segment export failed")
+            return original_export(**kwargs)
+
+        with self.settings(DATA_DIR=self.temp_dir.name), patch.object(
+            cleanup_tasks,
+            "RESUMABLE_EXPORT_SEGMENT_SIZE",
+            2,
+            create=True,
+        ), patch.object(
+            cleanup_tasks,
+            "MAX_EXPORT_ROWS_PER_FILE",
+            100,
+        ), patch.object(
+            cleanup_tasks,
+            "export_cleanup_snapshot_to_csv",
+            side_effect=fail_second_segment,
+        ):
+            first_result = cleanup_tasks.cleanup_switch_data(30)
+
+        self.assertEqual(first_result["status"], "failed")
+        self.assertEqual(first_result["candidate_count"], 3)
+        self.assertEqual(first_result["deleted_count"], 2)
+        self.assertEqual(first_result["exported_count"], 2)
+        self.assertEqual(first_result["export_file_count"], 1)
+        self.assertIn("segment export failed", first_result["error"])
+        self.assertEqual(
+            SwitchData.objects.filter(pk__in=[row.pk for row in old_rows]).count(),
+            1,
+        )
+        self.assertTrue(SwitchData.objects.filter(pk=new_row.pk).exists())
+
+        with self.settings(DATA_DIR=self.temp_dir.name), patch.object(
+            cleanup_tasks,
+            "RESUMABLE_EXPORT_SEGMENT_SIZE",
+            2,
+            create=True,
+        ), patch.object(
+            cleanup_tasks,
+            "MAX_EXPORT_ROWS_PER_FILE",
+            100,
+        ):
+            second_result = cleanup_tasks.cleanup_switch_data(30)
+
+        self.assertEqual(second_result["status"], "deleted")
+        self.assertEqual(second_result["candidate_count"], 1)
+        self.assertEqual(second_result["deleted_count"], 1)
+        self.assertEqual(second_result["exported_count"], 1)
+        self.assertEqual(second_result["export_file_count"], 1)
+        self.assertFalse(SwitchData.objects.filter(pk__in=[row.pk for row in old_rows]).exists())
+        self.assertTrue(SwitchData.objects.filter(pk=new_row.pk).exists())

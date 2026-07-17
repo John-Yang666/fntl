@@ -60,10 +60,17 @@ function Build-NuitkaApp {
         "--assume-yes-for-downloads",
         "--remove-output",
         "--output-dir=$NuitkaRoot",
-        "--output-filename=$Name.exe"
+        "--output-filename=$Name.exe",
+        "--include-module=protected_runtime"
     ) + $ExtraArgs + @($ResolvedScript)
 
-    Invoke-PythonExe -PythonExe $PythonExe -CommandArgs $Args
+    Push-Location $RepoRoot
+    try {
+        Invoke-PythonExe -PythonExe $PythonExe -CommandArgs $Args
+    }
+    finally {
+        Pop-Location
+    }
 
     $DistDir = Join-Path $NuitkaRoot "$Name.dist"
     if (-not (Test-Path $DistDir)) {

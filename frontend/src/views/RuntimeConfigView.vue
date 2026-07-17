@@ -120,7 +120,7 @@
                 <template v-if="group === 'cleanup'">
                   <div class="cleanup-toolbar">
                     <div class="cleanup-path-hint">
-                      自动导出目录：<strong>DATA_DIR/cleanup_exports</strong>
+                      自动导出目录：<strong>{{ getCleanupExportDir(system) }}</strong>
                     </div>
                     <el-button
                       type="success"
@@ -388,6 +388,7 @@ interface RuntimeConfigPayload {
   file_values?: Record<string, string>;
   file_save_errors?: Record<string, string>;
   readonly_fields?: RuntimeConfigReadonlyField[];
+  cleanup_export_dir?: string;
   defaults: Record<string, unknown>;
   values: Record<string, unknown>;
   updated_at: string | null;
@@ -605,6 +606,11 @@ function getBooleanValue(system: SystemType, key: string): boolean {
 
 function getFileValue(system: SystemType, key: string): string {
   return systemStates[system].draftFileValues[key] ?? '';
+}
+
+function getCleanupExportDir(system: SystemType): string {
+  const payload = systemStates[system].payload;
+  return payload?.cleanup_export_dir?.trim() || '-';
 }
 
 function normalizeDeployHostFileContent(value: string): string {

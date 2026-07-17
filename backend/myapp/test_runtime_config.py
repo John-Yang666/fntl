@@ -89,6 +89,18 @@ class RuntimeConfigApiTests(APITestCase):
         self.assertIs(response.data["values"]["CLEANUP_SWITCH_DATA_AUTO_EXPORT"], True)
         self.assertIsNone(response.data["updated_by"])
 
+    def test_runtime_config_includes_actual_cleanup_export_dir(self):
+        with override_settings(
+            CLEANUP_EXPORT_DISPLAY_DIR="D:/bt_nms_data/cleanup_exports",
+            CLEANUP_EXPORT_DIR="/data/cleanup_exports",
+        ):
+            cache.clear()
+            self.client.force_authenticate(user=self.superuser)
+            response = self.client.get(reverse("runtime_config"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["cleanup_export_dir"], "D:/bt_nms_data/cleanup_exports")
+
     def test_cleanup_default_task_args_keep_analog_data_for_three_days(self):
         self.assertEqual(
             build_default_cleanup_task_args(),

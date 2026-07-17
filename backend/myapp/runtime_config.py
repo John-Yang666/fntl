@@ -543,12 +543,17 @@ def _readonly_fields() -> list[dict[str, Any]]:
     ]
 
 
+def _cleanup_export_dir() -> str:
+    return str(getattr(settings, "CLEANUP_EXPORT_DISPLAY_DIR", None) or settings.CLEANUP_EXPORT_DIR)
+
+
 def _with_fresh_readonly_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
     result = deepcopy(payload)
     result["file_fields"] = _file_fields()
     result["file_values"] = _file_values()
     result["file_save_errors"] = {}
     result["readonly_fields"] = _readonly_fields()
+    result["cleanup_export_dir"] = _cleanup_export_dir()
     return result
 
 
@@ -758,6 +763,7 @@ def build_runtime_config_payload(*, force_refresh: bool = False) -> dict[str, An
         "file_values": _file_values(),
         "file_save_errors": {},
         "readonly_fields": _readonly_fields(),
+        "cleanup_export_dir": _cleanup_export_dir(),
         "defaults": defaults,
         "values": values,
         "updated_at": record.updated_at.isoformat() if record and record.updated_at else None,

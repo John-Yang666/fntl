@@ -114,7 +114,7 @@
                 <template v-if="group === 'cleanup'">
                   <div class="cleanup-toolbar">
                     <div class="cleanup-path-hint">
-                      自动导出目录：<strong>DATA_DIR/cleanup_exports</strong>
+                      自动导出目录：<strong>{{ getCleanupExportDir(system) }}</strong>
                     </div>
                     <el-button
                       type="success"
@@ -317,6 +317,7 @@ interface RuntimeConfigPayload {
   schema: RuntimeConfigField[];
   defaults: Record<string, unknown>;
   values: Record<string, unknown>;
+  cleanup_export_dir?: string;
   updated_at: string | null;
   updated_by: string | null;
   storage_ready?: boolean;
@@ -491,6 +492,11 @@ function getTimeValue(system: SystemType, key: string): string {
 
 function getBooleanValue(system: SystemType, key: string): boolean {
   return systemStates[system].draftValues[key] === true;
+}
+
+function getCleanupExportDir(system: SystemType): string {
+  const payload = systemStates[system].payload;
+  return payload?.cleanup_export_dir?.trim() || '-';
 }
 
 function updateIntegerValue(system: SystemType, key: string, value: number | undefined): void {

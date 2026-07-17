@@ -413,6 +413,8 @@ def acquire_single_instance_lock(lock_path: Path, app_name: str) -> tuple[Option
     lock.setStaleLockTime(30000)
     if lock.tryLock(100):
         return lock, None
+    if lock.removeStaleLockFile() and lock.tryLock(100):
+        return lock, None
     return None, f"{app_name} 已在运行，请勿重复启动。"
 
 

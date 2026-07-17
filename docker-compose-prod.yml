@@ -191,6 +191,7 @@ services:
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,bt_nms_django_app,bt_nms_django_app0}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:38173,http://127.0.0.1:38173,https://localhost:38443,https://127.0.0.1:38443}
       DATA_DIR: /data
+      CLEANUP_EXPORT_DISPLAY_DIR: ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports
       DATABASE_NAME: ${DATABASE_NAME:-mydatabase}
       DATABASE_USER: ${DATABASE_USER:-myuser}
       DATABASE_PASSWORD_FILE: /run/secrets/bt_database_password
@@ -405,6 +406,7 @@ services:
       DJANGO_SETTINGS_MODULE: myproject.settings
       DJANGO_SECRET_KEY_FILE: /run/secrets/bt_django_secret_key
       DATA_DIR: /data
+      CLEANUP_EXPORT_DISPLAY_DIR: ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -464,6 +466,7 @@ services:
       DJANGO_SETTINGS_MODULE: myproject.settings
       DJANGO_SECRET_KEY_FILE: /run/secrets/bt_django_secret_key
       DATA_DIR: /data
+      CLEANUP_EXPORT_DISPLAY_DIR: ${DATA_DIR:-/srv/bt_nms_data}/cleanup_exports
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       CELERY_BROKER_URL: redis://redis:6379/0

@@ -60,4 +60,14 @@ describe('RuntimeConfigView readonly fields', () => {
     expect(source).toContain('getFileSaveErrorMessages(payload.file_save_errors)');
     expect(source).toContain('ElMessage.warning(`${SYSTEM_LABELS[system]} 参数已保存，但${fileSaveErrorMessages.join');
   });
+
+  it('renders the cleanup export path from the runtime config payload', () => {
+    const template = getTemplate();
+    const source = readFileSync(resolve(process.cwd(), 'src/views/RuntimeConfigView.vue'), 'utf8');
+
+    expect(template).not.toContain('DATA_DIR/cleanup_exports');
+    expect(template).toContain('getCleanupExportDir(system)');
+    expect(source).toContain('cleanup_export_dir?: string');
+    expect(source).toContain("cleanup_export_dir?.trim() || '-'");
+  });
 });

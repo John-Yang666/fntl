@@ -11,6 +11,7 @@ import App from './App.vue';
 import router from './router/index';
 import { createPinia } from 'pinia';
 import { useUserStore } from '@/stores/userStore';
+import { AUTH_SESSION_EXPIRED_EVENT } from '@/utils/authSession';
 
 const pinia = createPinia();
 const app = createApp(App);
@@ -25,6 +26,18 @@ dayjs.locale('zh-cn');
 const userStore = useUserStore();
 userStore.loadAuthData().then(() => {
   // 已经从 IndexedDB 恢复 token、user 等数据
+});
+
+window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, () => {
+  const currentRoute = router.currentRoute.value;
+  if (currentRoute.path === '/login') {
+    return;
+  }
+
+  void router.replace({
+    path: '/login',
+    query: { redirect: currentRoute.fullPath },
+  });
 });
 
 void router.isReady().then(() => {

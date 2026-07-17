@@ -298,6 +298,7 @@ STATIC_URL = os.getenv("DJANGO_STATIC_URL", "/static/")
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 DATA_DIR = _get_data_dir()
 CLEANUP_EXPORT_DIR = str(Path(DATA_DIR) / "cleanup_exports")
+CLEANUP_EXPORT_DISPLAY_DIR = os.getenv("CLEANUP_EXPORT_DISPLAY_DIR", CLEANUP_EXPORT_DIR).strip() or CLEANUP_EXPORT_DIR
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field

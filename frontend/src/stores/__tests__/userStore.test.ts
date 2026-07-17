@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 
-const { db, axiosMock } = vi.hoisted(() => ({
+const { db, axiosMock, notifyAuthSessionExpiredMock } = vi.hoisted(() => ({
   db: new Map<string, unknown>(),
+  notifyAuthSessionExpiredMock: vi.fn(),
   axiosMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -14,6 +15,10 @@ const { db, axiosMock } = vi.hoisted(() => ({
 vi.mock('axios', () => ({
   default: axiosMock,
   isAxiosError: axiosMock.isAxiosError,
+}));
+
+vi.mock('@/utils/authSession', () => ({
+  notifyAuthSessionExpired: notifyAuthSessionExpiredMock,
 }));
 
 vi.mock('@/utils/indexedDB', () => ({
@@ -44,6 +49,7 @@ describe('userStore', () => {
     axiosMock.get.mockReset();
     axiosMock.post.mockReset();
     axiosMock.request.mockReset();
+    notifyAuthSessionExpiredMock.mockReset();
     setActivePinia(createPinia());
     window.history.pushState({}, '', 'http://fntl.local:5173/');
   });
@@ -139,5 +145,66 @@ describe('userStore', () => {
     );
     expect(store.auth.bt.refreshToken).toBe('new-refresh');
     expect(db.get(TOKEN_STORAGE_KEYS.bt)).toEqual({ access: 'new-access', refresh: 'new-refresh' });
+  });
+
+  it('clears the login state and announces session expiry when the refresh token is rejected', async () => {
+    db.set(TOKEN_STORAGE_KEYS.bt, { access: 'bt-access', refresh: 'bt-refresh' });
+    db.set(TOKEN_STORAGE_KEYS.sy, { access: 'sy-access', refresh: 'sy-refresh' });
+    db.set(USER_STORAGE_KEYS.bt, adminUser);
+    db.set(USER_STORAGE_KEYS.sy, adminUser);
+    const unauthorized = { isAxiosError: true, response: { status: 401 } };
+    axiosMock.request.mockRejectedValue(unauthorized);
+    axiosMock.post.mockRejectedValue(unauthorized);
+
+    const store = useUserStore();
+    await store.loadAuthData();
+
+    await expect(store.requestWithAuth('bt', { url: '/devices/' })).rejects.toBe(unauthorized);
+
+    expect(store.isAuthenticated).toBe(false);
+    expect(db.has(TOKEN_STORAGE_KEYS.bt)).toBe(false);
+    expect(db.has(TOKEN_STORAGE_KEYS.sy)).toBe(false);
+    expect(db.has(USER_STORAGE_KEYS.bt)).toBe(false);
+    expect(db.has(USER_STORAGE_KEYS.sy)).toBe(false);
+    expect(notifyAuthSessionExpiredMock).toHaveBeenCalledOnce();
+  });
+
+  it('expires the session when the retried request is still unauthorized', async () => {
+    db.set(TOKEN_STORAGE_KEYS.bt, { access: 'old-access', refresh: 'refresh-token' });
+    db.set(USER_STORAGE_KEYS.bt, adminUser);
+    const unauthorized = { isAxiosError: true, response: { status: 401 } };
+    axiosMock.request.mockRejectedValue(unauthorized);
+    axiosMock.post.mockResolvedValue({ data: { access: 'new-access', refresh: 'new-refresh' } });
+
+    const store = useUserStore();
+    await store.loadAuthData();
+
+    await expect(store.requestWithAuth('bt', { url: '/devices/' })).rejects.toBe(unauthorized);
+
+    expect(axiosMock.request).toHaveBeenCalledTimes(2);
+    expect(store.isAuthenticated).toBe(false);
+    expect(db.has(TOKEN_STORAGE_KEYS.bt)).toBe(false);
+    expect(notifyAuthSessionExpiredMock).toHaveBeenCalledOnce();
+  });
+
+  it('shares one refresh request across concurrent unauthorized API calls', async () => {
+    db.set(TOKEN_STORAGE_KEYS.bt, { access: 'old-access', refresh: 'refresh-token' });
+    const unauthorized = { isAxiosError: true, response: { status: 401 } };
+    axiosMock.request
+      .mockRejectedValueOnce(unauthorized)
+      .mockRejectedValueOnce(unauthorized)
+      .mockResolvedValueOnce({ data: { request: 1 } })
+      .mockResolvedValueOnce({ data: { request: 2 } });
+    axiosMock.post.mockResolvedValue({ data: { access: 'new-access', refresh: 'new-refresh' } });
+
+    const store = useUserStore();
+    const results = await Promise.all([
+      store.requestWithAuth('bt', { url: '/devices/' }),
+      store.requestWithAuth('bt', { url: '/alerts/' }),
+    ]);
+
+    expect(axiosMock.post).toHaveBeenCalledTimes(1);
+    expect(results).toEqual([{ request: 1 }, { request: 2 }]);
+    expect(notifyAuthSessionExpiredMock).not.toHaveBeenCalled();
   });
 });
