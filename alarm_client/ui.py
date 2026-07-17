@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -203,41 +204,66 @@ class AlarmPopup(QDialog):
         self.on_closed = on_closed
         self._closing_programmatically = False
         self.setWindowTitle("告警详情")
-        self.setMinimumSize(760, 360)
+        self.setMinimumSize(820, 560)
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
         self.summary_label = QLabel("告警详情")
-        self.table = QTableWidget(0, 9)
-        self.table.setHorizontalHeaderLabels(["系统", "来源", "设备ID", "设备名称", "告警码", "告警含义", "开始时间", "结束时间", "确认状态"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.current_table = self._create_table(["系统", "设备ID", "设备名称", "告警码", "告警含义", "开始时间", "确认状态"])
+        self.history_table = self._create_table(["系统", "设备ID", "设备名称", "告警码", "告警含义", "开始时间", "结束时间", "确认状态"])
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.current_table, "当前告警（0）")
+        self.tabs.addTab(self.history_table, "未确认历史告警（0）")
 
         close_button = QPushButton("关闭本窗口并暂停告警声")
         close_button.clicked.connect(self.close)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.summary_label)
-        layout.addWidget(self.table)
+        layout.addWidget(self.tabs)
         layout.addWidget(close_button)
 
+    @staticmethod
+    def _create_table(headers: list[str]) -> QTableWidget:
+        table = QTableWidget(0, len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        return table
+
     def set_alerts(self, alerts: list[dict[str, Any]]) -> None:
-        self.summary_label.setText(f"告警详情 {len(alerts)} 条")
-        self.table.setRowCount(len(alerts))
+        current_alerts = [alert for alert in alerts if alert.get("source") == "current"]
+        historical_alerts = [alert for alert in alerts if alert.get("source") == "history"]
+        self.summary_label.setText(
+            f"告警详情：当前 {len(current_alerts)} 条，未确认历史 {len(historical_alerts)} 条"
+        )
+        self.tabs.setTabText(0, f"当前告警（{len(current_alerts)}）")
+        self.tabs.setTabText(1, f"未确认历史告警（{len(historical_alerts)}）")
+        self._populate_table(self.current_table, current_alerts, include_end_time=False)
+        self._populate_table(self.history_table, historical_alerts, include_end_time=True)
+
+    @staticmethod
+    def _populate_table(
+        table: QTableWidget,
+        alerts: list[dict[str, Any]],
+        *,
+        include_end_time: bool,
+    ) -> None:
+        table.setRowCount(len(alerts))
         for row, alert in enumerate(alerts):
             values = [
                 SYSTEM_LABELS.get(str(alert.get("system")), str(alert.get("system", ""))).upper(),
-                "当前" if alert.get("source") == "current" else "历史",
                 str(alert.get("device_id", "")),
                 str(alert.get("device_name", "")),
                 str(alert.get("alarm_code", "")),
                 str(alert.get("alarm_meaning", "")),
                 str(alert.get("timestamp", "")),
-                str(alert.get("timestamp_end") or "—"),
-                "已确认" if bool(alert.get("confirmed")) else "未确认",
             ]
+            if include_end_time:
+                values.append(str(alert.get("timestamp_end") or "—"))
+            values.append("已确认" if bool(alert.get("confirmed")) else "未确认")
             for column, value in enumerate(values):
-                self.table.setItem(row, column, QTableWidgetItem(value))
+                table.setItem(row, column, QTableWidgetItem(value))
 
     def show_alerts(self, alerts: list[dict[str, Any]]) -> None:
         self.set_alerts(alerts)

@@ -39,9 +39,19 @@ test('operator can log in and exercise the main FNTL navigation flow', async ({ 
   store.updateDeviceState({ system: 'bt', deviceId: 2, fault: 'direction1_fault' });
 
   await clickHeaderTab(page, /告警详情/);
-  await expect(page.getByTestId('alerts-view')).toContainText('一方向线路故障');
+  const currentAlerts = page.getByTestId('current-alerts-table');
+  const historicalAlerts = page.getByTestId('historical-alerts-table');
+  await expect(currentAlerts).toContainText('一方向线路故障');
+  await expect(historicalAlerts).toBeHidden();
+  await expect(currentAlerts.getByRole('columnheader', { name: '来源' })).toHaveCount(0);
+  await page.getByRole('tab', { name: /未确认历史告警/ }).click();
+  await expect(historicalAlerts).toBeVisible();
+  await expect(currentAlerts).toBeHidden();
+  await expect(historicalAlerts.getByRole('columnheader', { name: '来源' })).toHaveCount(0);
+  await page.getByRole('tab', { name: /当前告警/ }).click();
+  await expect(currentAlerts).toBeVisible();
   await page.getByRole('button', { name: '确认', exact: true }).first().click();
-  await expect(page.getByTestId('alerts-view')).toContainText('已确认');
+  await expect(currentAlerts).toContainText('已确认');
 
   await clickHeaderTab(page, '记录查询');
   await expect(page.getByTestId('records-view')).toBeVisible();

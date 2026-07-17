@@ -10,7 +10,7 @@ except Exception:  # pragma: no cover - allows non-GUI environments to run logic
     Qt = None
     QApplication = None
 
-from alarm_client.ui import DeviceSelectionDialog
+from alarm_client.ui import AlarmPopup, DeviceSelectionDialog
 
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
@@ -81,6 +81,54 @@ class DeviceSelectionDialogTests(unittest.TestCase):
         self.assertNotIn("OK", button_texts)
         self.assertNotIn("Cancel", button_texts)
         self.assertNotIn("清空选择", button_texts)
+
+    def test_alarm_popup_uses_separate_tables_without_source_column(self):
+        dialog = AlarmPopup(lambda: None)
+        dialog.set_alerts([
+            {
+                "system": "bt",
+                "source": "current",
+                "device_id": 1,
+                "device_name": "BT-1",
+                "alarm_code": 10,
+                "alarm_meaning": "当前测试告警",
+                "timestamp": "2026-07-17 10:00:00",
+                "timestamp_end": None,
+                "confirmed": False,
+            },
+            {
+                "system": "sy",
+                "source": "history",
+                "device_id": 2,
+                "device_name": "SY-2",
+                "alarm_code": 20,
+                "alarm_meaning": "历史测试告警",
+                "timestamp": "2026-07-17 09:00:00",
+                "timestamp_end": "2026-07-17 09:30:00",
+                "confirmed": False,
+            },
+        ])
+
+        self.assertEqual(dialog.current_table.rowCount(), 1)
+        self.assertEqual(dialog.history_table.rowCount(), 1)
+        self.assertEqual(dialog.tabs.count(), 2)
+        self.assertEqual(dialog.tabs.currentIndex(), 0)
+        self.assertEqual(dialog.tabs.tabText(0), "当前告警（1）")
+        self.assertEqual(dialog.tabs.tabText(1), "未确认历史告警（1）")
+        self.assertIn("当前 1 条", dialog.summary_label.text())
+        self.assertIn("未确认历史 1 条", dialog.summary_label.text())
+        current_headers = [
+            dialog.current_table.horizontalHeaderItem(column).text()
+            for column in range(dialog.current_table.columnCount())
+        ]
+        history_headers = [
+            dialog.history_table.horizontalHeaderItem(column).text()
+            for column in range(dialog.history_table.columnCount())
+        ]
+        self.assertNotIn("来源", current_headers)
+        self.assertNotIn("来源", history_headers)
+        self.assertNotIn("结束时间", current_headers)
+        self.assertIn("结束时间", history_headers)
 
 
 if __name__ == "__main__":
