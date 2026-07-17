@@ -22,9 +22,24 @@ export interface AlarmSnapshot {
   reason?: string;
 }
 
+interface CurrentAlarmResponse {
+  id: string;
+  confirmed: boolean;
+}
+
+interface HistoricalAlarmResponse {
+  id: string;
+}
+
+interface Page<T> {
+  next: string | null;
+  results: T[];
+}
+
 const ALARM_STATE_CHANGED_EVENT = 'alarm-state-changed';
 const SILENCED_IDS_KEY = 'silencedAlarmOccurrenceIds';
 const SOUND_ENABLED_KEY = 'soundEnabled';
+const ALARM_SNAPSHOT_POLL_INTERVAL_MS = 10_000;
 
 export function useAlarmSound() {
   const route = useRoute();
@@ -41,6 +56,7 @@ export function useAlarmSound() {
   let testAudio: HTMLAudioElement | null = null;
   let mounted = false;
   let autoplayWarning: { close: () => void } | null = null;
+  let snapshotPollTimer: ReturnType<typeof setInterval> | null = null;
 
   const audibleOccurrenceIds = computed(() =>
     SYSTEMS.flatMap((system) =>
@@ -191,6 +207,60 @@ export function useAlarmSound() {
     }
   };
 
+  const applySnapshot = (system: SystemType, snapshot: AlarmSnapshot) => {
+    const previous = snapshots.value[system];
+    if (previous && snapshot.revision < previous.revision) return;
+    snapshots.value = { ...snapshots.value, [system]: snapshot };
+    window.dispatchEvent(new CustomEvent(ALARM_STATE_CHANGED_EVENT, { detail: snapshot }));
+    reconcileSound();
+  };
+
+  const fetchAllHistoricalOccurrenceIds = async (system: SystemType) => {
+    const ids: string[] = [];
+    let url: string | null = '/alerts/?is_confirmed=false&monitored=true&page_size=500';
+    while (url) {
+      const page: Page<HistoricalAlarmResponse> = await userStore.requestWithAuth(system, {
+        method: 'get',
+        url,
+      });
+      ids.push(...page.results.map((item) => item.id));
+      url = page.next;
+    }
+    return ids;
+  };
+
+  const refreshSnapshotFromApi = async (system: SystemType) => {
+    if (!userStore.auth[system].token) return;
+    try {
+      const [current, historicalIds] = await Promise.all([
+        userStore.requestWithAuth<CurrentAlarmResponse[]>(system, {
+          method: 'get',
+          url: '/active-alarms/',
+        }),
+        fetchAllHistoricalOccurrenceIds(system),
+      ]);
+      const currentIds = current.filter((item) => !item.confirmed).map((item) => item.id);
+      applySnapshot(system, {
+        type: 'alarm.snapshot',
+        system,
+        revision: snapshots.value[system]?.revision ?? 0,
+        current_count: current.length,
+        current_unconfirmed_count: currentIds.length,
+        historical_unconfirmed_count: historicalIds.length,
+        total_unconfirmed_count: currentIds.length + historicalIds.length,
+        should_play: currentIds.length + historicalIds.length > 0,
+        audible_occurrence_ids: [...currentIds, ...historicalIds],
+        reason: 'alarm.poll',
+      });
+    } catch (error) {
+      console.warn(`${system.toUpperCase()} 告警状态轮询失败`, error);
+    }
+  };
+
+  const refreshSnapshotsFromApi = () => {
+    SYSTEMS.forEach((system) => { void refreshSnapshotFromApi(system); });
+  };
+
   const scheduleReconnect = (system: SystemType) => {
     if (!mounted || !userStore.auth[system].token || reconnectTimers[system]) return;
     const delay = Math.min(30_000, 1_000 * (2 ** reconnectAttempts[system]));
@@ -217,11 +287,7 @@ export function useAlarmSound() {
         }
         if (payload.type !== 'alarm.snapshot') return;
         const snapshot = payload as AlarmSnapshot;
-        const previous = snapshots.value[system];
-        if (previous && snapshot.revision < previous.revision) return;
-        snapshots.value = { ...snapshots.value, [system]: snapshot };
-        window.dispatchEvent(new CustomEvent(ALARM_STATE_CHANGED_EVENT, { detail: snapshot }));
-        reconcileSound();
+        applySnapshot(system, snapshot);
       } catch (error) {
         console.warn(`${system.toUpperCase()} 告警 WebSocket 消息无效`, error);
       }
@@ -243,11 +309,14 @@ export function useAlarmSound() {
 
   watch(
     () => SYSTEMS.map((system) => userStore.auth[system].token),
-    () => SYSTEMS.forEach((system) => {
-      disconnect(system);
-      snapshots.value = { ...snapshots.value, [system]: null };
-      if (userStore.auth[system].token) connect(system);
-    }),
+    () => {
+      SYSTEMS.forEach((system) => {
+        disconnect(system);
+        snapshots.value = { ...snapshots.value, [system]: null };
+        if (userStore.auth[system].token) connect(system);
+      });
+      refreshSnapshotsFromApi();
+    },
   );
 
   onMounted(() => {
@@ -259,12 +328,15 @@ export function useAlarmSound() {
     window.addEventListener('keydown', handleInteraction, true);
     window.addEventListener('focus', handleInteraction);
     SYSTEMS.forEach(connect);
+    refreshSnapshotsFromApi();
+    snapshotPollTimer = setInterval(refreshSnapshotsFromApi, ALARM_SNAPSHOT_POLL_INTERVAL_MS);
     if (soundEnabled.value) void primeAudio();
   });
 
   onBeforeUnmount(() => {
     mounted = false;
     SYSTEMS.forEach(disconnect);
+    if (snapshotPollTimer) clearInterval(snapshotPollTimer);
     stopAlarmSound();
     testAudio?.pause();
     window.removeEventListener('pointerdown', handleInteraction, true);

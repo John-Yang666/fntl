@@ -34,7 +34,7 @@ describe('frontend desktop client runtime', () => {
 
     expect(isDesktopClient()).toBe(true);
     expect(getDesktopApiBase('bt')).toBe('/__client/proxy/bt/api');
-    expect(getDesktopWsBase('sy')).toBe('ws://127.0.0.1/__client/proxy/sy');
+    expect(getDesktopWsBase('sy')).toBe('ws://127.0.0.1/__client/proxy/sy/ws');
     expect(getDesktopSystemOrigin('bt')).toBe('http://bt.local:38173');
     expect(getDesktopSystemOrigin('sy')).toBe('https://sy.local:38443');
   });

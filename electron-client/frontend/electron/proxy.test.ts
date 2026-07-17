@@ -3,7 +3,13 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveProxyTargetUrl, startDesktopServer, type DesktopServer } from './proxy';
+import {
+  DEFAULT_DESKTOP_SERVER_PORT,
+  resolveDesktopServerPort,
+  resolveProxyTargetUrl,
+  startDesktopServer,
+  type DesktopServer,
+} from './proxy';
 
 const config = {
   btBaseUrl: 'http://frontend.example.local:38173',
@@ -11,6 +17,12 @@ const config = {
 };
 
 describe('desktop local proxy URL mapping', () => {
+  it('uses a stable local port and validates explicit diagnostic overrides', () => {
+    expect(resolveDesktopServerPort([])).toBe(DEFAULT_DESKTOP_SERVER_PORT);
+    expect(resolveDesktopServerPort(['--desktop-server-port=52368'])).toBe(52_368);
+    expect(() => resolveDesktopServerPort(['--desktop-server-port=70000'])).toThrow('无效的客户端本地端口');
+  });
+
   it('maps BT API requests to the configured frontend /bt-api path', () => {
     expect(resolveProxyTargetUrl(config, '/__client/proxy/bt/api/token/?next=/main')).toBe(
       'http://frontend.example.local:38173/bt-api/token/?next=/main',
@@ -65,6 +77,7 @@ describe('desktop local proxy HTTP forwarding', () => {
 
     const desktopServer: DesktopServer = await startDesktopServer({
       distDir,
+      port: 0,
       getConfig: async () => ({
         btBaseUrl: `http://127.0.0.1:${upstreamAddress.port}`,
         syBaseUrl: 'http://127.0.0.1:38173',

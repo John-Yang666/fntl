@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -10,7 +11,7 @@ import {
 } from 'electron';
 import path from 'node:path';
 import { DEFAULT_CLIENT_CONFIG, loadClientConfig, saveClientConfig, type ClientConfig } from './config.js';
-import { startDesktopServer, type DesktopServer } from './proxy.js';
+import { resolveDesktopServerPort, startDesktopServer, type DesktopServer } from './proxy.js';
 import { buildDesktopWebPreferences, buildDesktopWindowOpenResponse } from './windowOptions.js';
 
 type SystemType = 'bt' | 'sy';
@@ -22,6 +23,9 @@ let desktopServer: DesktopServer | null = null;
 let clientConfig: ClientConfig | null = null;
 
 const APP_NAME = '贝通网管客户端';
+
+// Alarm playback must not wait for a user gesture in the always-on desktop client.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 function getAppRoot(): string {
   return app.getAppPath();
@@ -187,6 +191,7 @@ async function bootstrap(): Promise<void> {
   desktopServer = await startDesktopServer({
     distDir: getDistDir(),
     getConfig: async () => clientConfig,
+    port: resolveDesktopServerPort(process.argv),
   });
   createClientWindow();
   createTray();
@@ -222,6 +227,10 @@ if (!hasSingleInstanceLock) {
 
   void bootstrap().catch((error) => {
     console.error(error);
+    dialog.showErrorBox(
+      APP_NAME,
+      `客户端启动失败：${error instanceof Error ? error.message : String(error)}`,
+    );
     app.quit();
   });
 }

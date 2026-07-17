@@ -37,6 +37,21 @@ export interface DesktopServer {
 export interface StartDesktopServerOptions {
   distDir: string;
   getConfig: () => Promise<ClientConfig | null>;
+  port?: number;
+}
+
+export const DEFAULT_DESKTOP_SERVER_PORT = 38_991;
+const DESKTOP_SERVER_PORT_ARGUMENT = '--desktop-server-port=';
+
+export function resolveDesktopServerPort(args: string[]): number {
+  const argument = args.find((value) => value.startsWith(DESKTOP_SERVER_PORT_ARGUMENT));
+  if (!argument) return DEFAULT_DESKTOP_SERVER_PORT;
+
+  const port = Number(argument.slice(DESKTOP_SERVER_PORT_ARGUMENT.length));
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`无效的客户端本地端口: ${argument}`);
+  }
+  return port;
 }
 
 function configKeyForSystem(system: SystemType): keyof ClientConfig {
@@ -235,8 +250,13 @@ export async function startDesktopServer(options: StartDesktopServerOptions): Pr
     })().catch(() => socket.destroy());
   });
 
-  await new Promise<void>((resolve) => {
-    server.listen(0, '127.0.0.1', resolve);
+  await new Promise<void>((resolve, reject) => {
+    const handleError = (error: Error) => reject(error);
+    server.once('error', handleError);
+    server.listen(options.port ?? DEFAULT_DESKTOP_SERVER_PORT, '127.0.0.1', () => {
+      server.off('error', handleError);
+      resolve();
+    });
   });
   const address = server.address();
   if (!address || typeof address === 'string') {

@@ -103,7 +103,7 @@ export function getDesktopApiBase(system: SystemType): string {
 export function getDesktopWsBase(system: SystemType): string {
   const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
   const host = typeof window !== 'undefined' ? window.location.host : '127.0.0.1';
-  return `${protocol}://${host}/__client/proxy/${system}`;
+  return `${protocol}://${host}/__client/proxy/${system}/ws`;
 }
 
 export function getDesktopSystemOrigin(system: SystemType): string {
