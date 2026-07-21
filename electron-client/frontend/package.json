@@ -1,6 +1,6 @@
 {
   "name": "vue-project-fntl-ms100",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "贝通网管客户端",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
     "desktop:dev": "run-s build desktop:compile && electron .",
     "desktop:build": "run-s build desktop:compile && electron-builder --publish never",
     "desktop:build:mac": "run-s build desktop:compile && electron-builder --mac dmg zip --publish never",
-    "desktop:build:win": "run-s build desktop:compile && electron-builder --win nsis zip --publish never"
+    "desktop:build:win": "run-s build desktop:compile && electron-builder --win nsis zip --x64 --publish never"
   },
   "build": {
     "appId": "com.beitong.nms.client",
@@ -55,7 +55,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "electron/installer.nsh"
     }
   },
   "dependencies": {
